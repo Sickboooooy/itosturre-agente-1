@@ -272,12 +272,19 @@ Esta herramienta es **educativa**. Úsala para aprender, no para reemplazar tu j
 
 ---
 
-## 🎓 Créditos
+## 👥 Equipo
 
-Desarrollado por **Lic. Jorge Fabián Martínez Sánchez** (SCJN, 20+ años).  
-Con **Lic. Efrén Martínez Sánchez** (socio).
+**Fundadores:**
 
-Itosturre LegalTech © 2026. Hecho con ⚖️ y ❤️.
+🏛️ **Lic. Jorge Fabián Martínez Sánchez** — Director Legal & IA  
+*25 años de experiencia en Poder Judicial Federal*
+
+💻 **Ing. Aldo Guillermo Madrigal** — CTO & Lead Developer  
+*Especialista en Backend y Sistemas Distribuidos*
+
+---
+
+**Itosturre LegalTech © 2026.** Hecho con ⚖️ y ❤️.
 
 ---
 
