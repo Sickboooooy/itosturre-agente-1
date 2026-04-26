@@ -1,13 +1,56 @@
-# Base vectorial — grande, se regenera con ingest
-chroma_db/
-
-# Credenciales
-.env
-google_token.json
-google_credentials.json
-
 # Python
 __pycache__/
-*.pyc
-venv/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+ENV/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local
+.env
+.env.local
+*.log
+temp/
+debug/
+
+# ChromaDB
+chroma_db/
+.chroma/
+
+# Corpus (too large — use Google Drive link)
+corpus/*.pdf

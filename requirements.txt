@@ -1,0 +1,24 @@
+# Auditoría Legal — OpenNotebook + PDF Generator
+# Python 3.10+
+
+# RAG & LLM
+chromadb==0.4.24
+anthropic==0.25.0
+
+# PDF Generation
+reportlab==4.0.9
+pypdf==4.0.1
+pillow==10.1.0
+
+# Web Scraping & Utilities
+playwright==1.40.0
+selenium==4.15.2
+requests==2.31.0
+
+# Data Processing
+pandas==2.1.3
+python-dotenv==1.0.0
+
+# Logging & Debugging
+pydantic==2.5.0
+loguru==0.7.2
