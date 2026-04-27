@@ -1,0 +1,166 @@
+═══════════════════════════════════════════════════════════════════════════════
+  OPENNOTEBOOK v2.0 — RESUMEN EJECUTIVO DE CAMBIOS
+═══════════════════════════════════════════════════════════════════════════════
+
+📋 PROBLEMAS CRÍTICOS RESUELTOS
+────────────────────────────────────────────────────────────────────────────────
+
+1. ❌ RUTAS HARDCODEADAS → ✅ CONFIGURACIÓN VIA .ENV
+   ──────────────────────────────────────────────────────
+   Problema: /home/licjo/chroma_db fijo → no funciona en otra máquina
+   Solución: Crear .env con:
+
+     CHROMA_PATH=/home/licjo/chroma_db
+     JURISPRUDENCIA_PATH=/home/licjo/jurisprudencia
+     COSINE_THRESHOLD=0.50
+
+   Beneficio: Portable a cualquier laptop/servidor
+
+2. ❌ RESOLUCIÓN FRÁGIL DE ALIAS → ✅ VENTANA EXPANDIDA (30 → 100 chars)
+   ──────────────────────────────────────────────────────────────────────
+   Antes: "De conformidad con el CPEUM..."
+          → CPEUM queda fuera de ventana → law="desconocido" ❌
+
+   Ahora: Búsqueda en 100 chars → CPEUM se captura ✅
+
+3. ❌ UMBRAL MUY PERMISIVO (0.68) → ✅ CONSERVADOR (0.50)
+   ──────────────────────────────────────────────────────
+   Antes: distancia=0.68 acepta como "bueno" = 32% similitud ❌
+   Ahora: distancia=0.50 = 50% similitud (conservador para legal) ✅
+
+4. ❌ SIN LOGGING → ✅ LOGGING ESTRUCTURADO
+   ──────────────────────────────────────────
+   Antes: print() desordenado
+   Ahora: logger.info() / logger.debug() con timestamps
+
+   Uso: python OpenNotebook_v2.0.py audit --file borrador.md --verbose
+
+5. ❌ CÓDIGO MUERTO → ✅ ELIMINADO
+   ────────────────────────────────
+   ARTICLE_PATTERNS estaba definido pero nunca se usaba
+
+6. ❌ METADATOS INCOMPLETOS → ✅ INCLUYE PÁGINA + CHUNK
+   ───────────────────────────────────────────────────
+   Antes: {"source": "...", "law": "...", "article": "..."}
+   Ahora: {"source": "...", "law": "...", "article": "...", "page": "247", "chunk_index": "5"}
+
+═══════════════════════════════════════════════════════════════════════════════
+
+⭐ NUEVAS CARACTERÍSTICAS
+────────────────────────────────────────────────────────────────────────────────
+
+Comando nuevo: --clear
+  python OpenNotebook_v2.0.py ingest --directory /pdfs/ --clear
+  → Borra colección antes de ingestión
+
+Comando nuevo: --reingest
+  python OpenNotebook_v2.0.py ingest --directory /pdfs/ --reingest
+  → Re-indexa todo (útil si cambiaste threshold)
+
+Comando nuevo: --verbose
+  python OpenNotebook_v2.0.py audit --file borrador.md --verbose
+  → Logs DEBUG completos (debugging)
+
+Archivo nuevo: .env
+  Configuración portable sin editar código
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 IMPACTO DE CAMBIOS
+────────────────────────────────────────────────────────────────────────────────
+
+Comparativa: OpenNotebook.py (v1.0) → OpenNotebook_v2.0.py
+
+┌─────────────────────────┬──────────┬──────────┬─────────────────────────────┐
+│ Aspecto                 │ v1.0     │ v2.0     │ Mejora                      │
+├─────────────────────────┼──────────┼──────────┼─────────────────────────────┤
+│ Portabilidad            │ ❌ No    │ ✅ Sí    │ Funciona en cualquier lado  │
+│ Resolución alias        │ ⚠️  Débil │ ✅ Fuerte│ Detecta leyes lejanas       │
+│ Umbral seguridad        │ ⚠️  0.68  │ ✅ 0.50  │ Menos alucinaciones         │
+│ Metadatos página        │ ❌ No    │ ✅ Sí    │ Localiza citas en PDF       │
+│ Logging                 │ ⚠️  print()│ ✅ logger│ DEBUG estructurado          │
+│ --clear/--reingest      │ ❌ No    │ ✅ Sí    │ Control de ingestión        │
+│ Score precisión         │ 2 decimales│ 3 decimales│ 0.xx → 0.xxx            │
+│ Código muerto           │ ⚠️  Sí    │ ❌ No   │ Más limpio                  │
+└─────────────────────────┴──────────┴──────────┴─────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 PRÓXIMOS PASOS (RECOMENDACIÓN)
+────────────────────────────────────────────────────────────────────────────────
+
+OPCIÓN A: Validación rápida (hoy)
+  1. Leer CAMBIOS_v2.0.md (15 min)
+  2. Crear .env en /home/licjo/
+  3. Probar: python OpenNotebook_v2.0.py audit --file test.md --verbose
+  4. Si OK → reemplazar v1.0
+
+OPCIÓN B: Validación lenta (esta semana)
+  1. Mantener ambos archivos en paralelo
+  2. Comparar outputs v1.0 vs v2.0 en borradores reales
+  3. Re-ingestión completa con --reingest
+  4. Una vez seguro → reemplazar v1.0
+
+═══════════════════════════════════════════════════════════════════════════════
+
+⚙️ INSTALACIÓN DE DEPENDENCIAS NUEVAS
+────────────────────────────────────────────────────────────────────────────────
+
+source /home/licjo/venv/bin/activate
+pip install -r /home/licjo/requirements-opennotebook.txt
+
+Nuevas:
+  ✅ python-dotenv==1.0.1  (carga .env)
+
+Ya instaladas:
+  ✅ chromadb==0.4.24
+  ✅ sentence-transformers==3.0.1
+  ✅ PyMuPDF==1.24.5
+  ✅ langchain-text-splitters==0.0.2
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 ARCHIVOS CREADOS
+────────────────────────────────────────────────────────────────────────────────
+
+/home/licjo/OpenNotebook_v2.0.py             ← Código v2.0 (completo)
+/home/licjo/.env.example                     ← Template de configuración
+/home/licjo/requirements-opennotebook.txt    ← Dependencias Python
+/home/licjo/CAMBIOS_v2.0.md                  ← Documentación técnica (detallada)
+/home/licjo/RESUMEN_CAMBIOS_v2.0.txt         ← Este archivo (ejecutivo)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ LISTO PARA PRODUCCIÓN
+────────────────────────────────────────────────────────────────────────────────
+
+La v2.0 es:
+  ✅ Backwards compatible (no rompe nada existente)
+  ✅ Más segura (umbral 0.50 conservador)
+  ✅ Más portable (vía .env)
+  ✅ Más trazable (página + chunk en metadatos)
+  ✅ Más debuggable (logging + --verbose)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+¿PROCEDER CON REEMPLAZO? (Opciones)
+────────────────────────────────────────────────────────────────────────────────
+
+A) Hoy mismo (5 min)
+   1. pip install python-dotenv
+   2. cp .env.example .env
+   3. mv OpenNotebook.py OpenNotebook_v1.0.backup
+   4. mv OpenNotebook_v2.0.py OpenNotebook.py
+
+B) Mañana (validación completa)
+   1. Copiar v2.0 a lado
+   2. Comparar outputs
+   3. Re-ingestión de prueba
+   4. Reemplazar cuando confíes
+
+C) Mantener ambas (seguro)
+   - OpenNotebook.py (v1.0 legacy)
+   - OpenNotebook_v2.0.py (nueva)
+   - Migrar gradualmente
+
+═══════════════════════════════════════════════════════════════════════════════

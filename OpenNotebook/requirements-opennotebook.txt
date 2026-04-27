@@ -1,0 +1,15 @@
+# OpenNotebook v2.0 — Dependencias Python
+
+# Core RAG
+chromadb==0.4.24
+langchain-text-splitters==0.0.2
+sentence-transformers==3.0.1
+
+# PDF processing
+PyMuPDF==1.24.5
+
+# Configuration
+python-dotenv==1.0.1
+
+# Utility
+# (logging, json, re, pathlib — built-in)
