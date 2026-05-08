@@ -1,74 +1,331 @@
 """
-OpenNotebook.py — RAG Legal Itosturre
-Motor de auditoría anti-alucinaciones para escritos jurídicos.
+OpenNotebook.py v3.0 — RAG Legal Itosturre
+Motor de auditoría anti-alucinaciones con semáforo VVCA.
+
+Cambios v3.0:
+  ✅ Semáforo VVCA por referencia (score 0-100, 🟢🟡🔴)
+  ✅ Nuevas leyes: CADH, LFDO, LNED, LGV, LNEP
+  ✅ Fix path traversal check (Path.is_relative_to)
+  ✅ Fix clear/reingest redundancia
+  ✅ Fix tesis lookup: acepta campo 'texto' o 'texto_completo'
+  ✅ Eliminado embed_query_cached (código muerto)
+  ✅ Comando 'query' para búsqueda interactiva
 
 Comandos:
   python OpenNotebook.py ingest --directory /ruta/a/pdfs/
   python OpenNotebook.py audit --text "texto del borrador"
-  python OpenNotebook.py audit --file /ruta/borrador.md
+  python OpenNotebook.py audit --file /ruta/borrador.md --verbose
+  python OpenNotebook.py query "prisión preventiva CNPP" [--n 5]
 """
 
 import argparse
 import json
 import re
 import sys
+import logging
 from pathlib import Path
+from typing import Optional, Tuple, Dict, List
 
 import fitz  # PyMuPDF
 import chromadb
-from chromadb.config import Settings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sentence_transformers import SentenceTransformer
 
 # ─────────────────────────────────────────
-# CONFIGURACIÓN
+# LOGGING
 # ─────────────────────────────────────────
 
-CHROMA_PATH = "/home/licjo/chroma_db"
+def setup_logging(verbose: bool = False):
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
+
+# ─────────────────────────────────────────
+# CONFIGURACIÓN (via .env o defaults)
+# ─────────────────────────────────────────
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    logger.warning("⚠️  python-dotenv no instalado. Usando rutas por defecto.")
+
+import os
+
+_BASE_DIR = Path(__file__).parent
+CHROMA_PATH = os.getenv("CHROMA_PATH", str(_BASE_DIR / "chroma_db"))
+JURISPRUDENCIA_PATH = os.getenv("JURISPRUDENCIA_PATH", str(_BASE_DIR / "jurisprudencia"))
+# Base permitida para ingest — más amplia que JURISPRUDENCIA_PATH para aceptar OneDrive y otras rutas
+INGEST_ALLOWED_BASE = os.getenv("INGEST_ALLOWED_BASE", str(_BASE_DIR))
+CORRECTIONS_FILE = os.getenv("CORRECTIONS_FILE", str(_BASE_DIR / "jurisprudencia" / "vvca_corrections.json"))
 COLLECTION_NAME = "corpus_legal_itosturre"
 EMBED_MODEL = "intfloat/multilingual-e5-small"
 
-# PDFs legales — excluir documentos personales
+# PDFs legales — excluir documentos personales y filenames con typos conocidos
 EXCLUDE_PATTERNS = [
     "ActaNacimiento", "Chapter_1es", "CONSIGNA", "Bloc de notas",
-    "Battlefield", "Marvel", "FrameView", "SOFÍA", "desktop"
+    "Battlefield", "Marvel", "FrameView", "SOFÍA", "desktop",
+    "EXTINSION",   # typo — usar versión EXTINCION en /jurisprudencia/nuevas_leyes/
+    "codigo_civil_de_jalisco_1",  # duplicado de Codigo-Civil-del-Estado-de-Jalisco_3
 ]
 
-# Patrones de referencias legales en texto
-ARTICLE_PATTERNS = [
-    r'[Aa]rt[íi]culo[s]?\s+(\d+[\w\-]*)(?:\s*,\s*(?:fracci[oó]n|frac\.|p[áa]rrafo|p[áa]rr\.)\s+[\w\.]+)?(?:\s+(?:del?|de la)\s+([A-Z][A-Za-záéíóúñÁÉÍÓÚÑ\s]+))?',
-    r'[Aa]rt\.\s*(\d+[\w\-]*)(?:\s*,?\s*(?:frac\.|fracci[oó]n)\s+[\w\.]+)?(?:\s+(?:del?|de la)\s+([A-Z][A-Za-záéíóúñÁÉÍÓÚÑ\s]+))?',
-    r'[Rr]egistro\s+(?:digital[:\s]+)?(\d{7})',
-]
+# Threshold de distancia coseno: por debajo → verificado; por encima → alerta.
+# 0.50 = conservador para texto legal mexicano
+COSINE_THRESHOLD = float(os.getenv("COSINE_THRESHOLD", "0.50"))
 
-# Abreviaciones → nombre completo del ordenamiento
+# Regex robusto para artículos legales. Captura:
+#   Art. 247  /  artículo 247  /  arts. 247-250  /  Art. 247 Bis
+#   Art. 247 fr. III  /  Art. 247, fracción IV  /  Art. 259°
+ARTICLE_RE = re.compile(
+    r'[Aa]rt[íi]?(?:culo)?s?\.?\s*'
+    r'(\d+[\w\-]*(?:\s+[Bb]is|[Tt]er|[Qq]u[áa]ter)?)'
+    r'(?:[°º])?'
+    r'(?:'
+        r'\s*[,;]?\s*'
+        r'(?:fr(?:acci[oó]n)?\.?|frac\.?)\s*'
+        r'([\w\.]+)'
+    r')?',
+    re.IGNORECASE
+)
+
+# Abreviaciones → nombre normalizado del ordenamiento.
 LAW_ALIASES = {
-    "CPEUM": "Constitución Política de los Estados Unidos Mexicanos",
+    # Constitución
+    "CPEUM": "Código Constitución Política de los Estados Unidos Mexicanos",
+    "Constitución": "Constitución Política de los Estados Unidos Mexicanos",
+    "Carta Magna": "Constitución Política de los Estados Unidos Mexicanos",
+    "Constitucional": "Constitución Política de los Estados Unidos Mexicanos",
+    # Penal federal
+    "CPF": "Código Penal Federal",
+    "C.P.F.": "Código Penal Federal",
+    "CP Federal": "Código Penal Federal",
+    "C.P. Federal": "Código Penal Federal",
+    "C. P. Federal": "Código Penal Federal",
+    "Código Penal Federal": "Código Penal Federal",
+    # Penal Jalisco
+    "CPJ": "Código Penal para el Estado Libre y Soberano de Jalisco",
+    "CP Jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco",
+    "Código Penal de Jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco",
+    # Civil federal
+    "CCF": "Código Civil Federal",
+    "C.C.F.": "Código Civil Federal",
+    "CC Federal": "Código Civil Federal",
+    # Civil Jalisco
+    "CCJ": "Código Civil del Estado de Jalisco",
+    "CC Jalisco": "Código Civil del Estado de Jalisco",
+    # Fiscal
     "CFF": "Código Fiscal de la Federación",
+    "C.F.F.": "Código Fiscal de la Federación",
+    # Procedimientos
+    "CFPC": "Código Federal de Procedimientos Civiles",
+    "CPCJ": "Código de Procedimientos Civiles del Estado de Jalisco",
+    "CNPCF": "Código Nacional de Procedimientos Civiles y Familiares",
+    "CNPP": "Código Nacional de Procedimientos Penales",
+    # Leyes federales
     "LISR": "Ley del Impuesto sobre la Renta",
+    "LIVA": "Ley del Impuesto al Valor Agregado",
     "LFPCA": "Ley Federal de Procedimiento Contencioso Administrativo",
     "LFPA": "Ley Federal de Procedimiento Administrativo",
-    "CADH": "Convención Americana sobre Derechos Humanos",
     "LFPDPPP": "Ley Federal de Protección de Datos Personales",
     "LFPC": "Ley Federal de Protección al Consumidor",
-    "LIVA": "Ley del Impuesto al Valor Agregado",
+    "LFPPI": "Ley Federal de Protección a la Propiedad Intelectual",
+    "LSS": "Ley del Seguro Social",
+    "LFT": "Ley Federal del Trabajo",
+    "LOPJF": "Ley Orgánica del Poder Judicial Federal",
+    "Ley de Amparo": "Ley de Amparo",
+    # Jalisco
     "TJAJ": "Ley de Justicia Administrativa del Estado de Jalisco",
     "LPAJM": "Ley del Procedimiento Administrativo del Estado de Jalisco",
+    # Internacional
+    "CADH": "Convención Americana sobre Derechos Humanos",
+    "Convención Americana": "Convención Americana sobre Derechos Humanos",
+    "Pacto de San José": "Convención Americana sobre Derechos Humanos",
+    "PIDCP": "Pacto Internacional de Derechos Civiles y Políticos",
+    # Penales especiales (nuevas leyes 2026)
+    "LFDO": "Ley Federal de Delincuencia Organizada",
+    "Delincuencia Organizada": "Ley Federal de Delincuencia Organizada",
+    "LNED": "Ley Nacional de Extinción de Dominio",
+    "Extinción de Dominio": "Ley Nacional de Extinción de Dominio",
+    "LGV": "Ley General de Víctimas",
+    "Ley General de Víctimas": "Ley General de Víctimas",
+    "LNEP": "Ley Nacional de Ejecución Penal",
+    "Ejecución Penal": "Ley Nacional de Ejecución Penal",
 }
+
+# Mapeo de palabras clave de ley (minúsculas) → nombre exacto del archivo en ChromaDB
+LAW_SOURCE_MAP = {
+    "código federal de procedimientos civiles": "Código Federal de Procedimientos Civiles 2026.pdf",
+    "código nacional de procedimientos civiles": "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf",
+    "código nacional de procedimientos penales": "CodigoNacionalProcedPenales.pdf",
+    "código civil federal": "CODIGO CIVIL FEDERAL 2026.pdf",
+    "código civil para el estado de nuevo": "CODIGO CIVIL PARA EL ESTADO DE NUEVO LEON 2026.pdf",
+    "código civil del estado de jalisco": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf",
+    "código de procedimientos civiles del estado de jalisco": "CodigoProcedimientosCivilesEstadoJalisco.pdf",
+    "código fiscal de la federación": "CODIGO FISCAL DE LA FEDERACION 2026.pdf",
+    "código fiscal del estado de jalisco": "CODIGO FISCAL DEL ESTADO DE JALISCO 2026.pdf",
+    "código penal para el estado": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+    "constitución política de los estados unidos": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    "constitución política del estado de jalisco": "Constitución Politica del Estado de Jalisco 2026.pdf",
+    "ley de amparo": "LEY DE AMPARO.pdf",
+    "ley del seguro social": "LEY DEL SEGURO SOCIAL.pdf",
+    "ley federal de protección a la propiedad intelectual": "LEY FEDERAL DE PROTECCION A LA PROPIEDAD INTELECTUAL LFPPI.pdf",
+    "ley federal de protección al consumidor": "LEY FEDERAL DE PROTECCIÓN AL CONSUMIDOR LFPC.pdf",
+    "ley federal de protección de datos personales": "LEY FEDERAL DE PROTECCIÓN DE DATOS PERSONALES EN POSESIÓN DE LOS PARTICULARES LFPDPPP.pdf",
+    "ley federal de procedimiento administrativo": "Ley Federal de Procedimiento Administrativo 2026.pdf",
+    "ley federal de procedimiento contencioso": "Ley Federal de Procedimiento Contencioso Administrativo 2026.pdf",
+    "ley orgánica del poder judicial federal": "Ley Orgánica del Poder Judicial Federal 2026.pdf",
+    "ley de hacienda del estado de jalisco": "Ley de Hacienda del Estado de Jalisco -160424 2026.pdf",
+    "ley de movilidad y transporte": "Ley de Movilidad y Transporte del Estado de Jalisco_2 2026.pdf",
+    "ley del impuesto al valor agregado": "Ley del Impuesto al Valor Agregado 2026.pdf",
+    "ley del impuesto sobre la renta": "Ley del Impuesto sobre la Renta 2026.pdf",
+    "ley del notariado del estado de jalisco": "Ley del Notariado del Estado de Jalisco 2026.pdf",
+    "ley del procedimiento administrativo del estado de jalisco": "Ley del Procedimiento Administrativo del Estado de Jalisco y sus Municipios_15_0 2026.pdf",
+    "ley de justicia administrativa del estado de jalisco": "LeydeJusticiaAdministrativadelEstadodeJalisco 2026.pdf",
+    "ley del registro civil del estado de jalisco": "ley_del_registro_civil_del_estado_de_jalisco 2026.pdf",
+    "reglamento de la ley federal de protección al consumidor": "REGLAMENTO DE LA LEY FEDERAL DE PROTECCIÓN AL CONSUMIDOR Reg_LFPC_191219.pdf",
+    "reglamento de movilidad": "RegMovilidadTransporteSeguridadVialGuadalajara 2026.pdf",
+    "reglamento orgánico del poder judicial": "Reglamento organico poder judicial de la federación 2026.pdf",
+    # Abreviaciones
+    "cfpc": "Código Federal de Procedimientos Civiles 2026.pdf",
+    "cnpcf": "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf",
+    "cnpp": "CodigoNacionalProcedPenales.pdf",
+    "ccf": "CODIGO CIVIL FEDERAL 2026.pdf",
+    "cff": "CODIGO FISCAL DE LA FEDERACION 2026.pdf",
+    "lisr": "Ley del Impuesto sobre la Renta 2026.pdf",
+    "liva": "Ley del Impuesto al Valor Agregado 2026.pdf",
+    "lfpca": "Ley Federal de Procedimiento Contencioso Administrativo 2026.pdf",
+    "lfpa": "Ley Federal de Procedimiento Administrativo 2026.pdf",
+    "lfpdppp": "LEY FEDERAL DE PROTECCIÓN DE DATOS PERSONALES EN POSESIÓN DE LOS PARTICULARES LFPDPPP.pdf",
+    "lfpc": "LEY FEDERAL DE PROTECCIÓN AL CONSUMIDOR LFPC.pdf",
+    "lfppi": "LEY FEDERAL DE PROTECCION A LA PROPIEDAD INTELECTUAL LFPPI.pdf",
+    "lss": "LEY DEL SEGURO SOCIAL.pdf",
+    "lft": "LEY FEDERAL DEL TRABAJO 2025.pdf",
+    "ley federal del trabajo": "LEY FEDERAL DEL TRABAJO 2025.pdf",
+    "pidcp": "Pacto Internacional de Derechos Civiles y Políticos.pdf",
+    "pacto internacional de derechos civiles": "Pacto Internacional de Derechos Civiles y Políticos.pdf",
+    "lopjf": "Ley Orgánica del Poder Judicial Federal 2026.pdf",
+    "cpeum": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    "tjaj": "LeydeJusticiaAdministrativadelEstadodeJalisco 2026.pdf",
+    "lpajm": "Ley del Procedimiento Administrativo del Estado de Jalisco y sus Municipios_15_0 2026.pdf",
+    "cpf": "CODIGO PENAL FEDERAL 2025.pdf",
+    "c.p.f.": "CODIGO PENAL FEDERAL 2025.pdf",
+    "cp federal": "CODIGO PENAL FEDERAL 2025.pdf",
+    "cpcj": "CodigoProcedimientosCivilesEstadoJalisco.pdf",
+    "cpj": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+    "cp jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+    "ccj": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf",
+    "cc jalisco": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf",
+    "cc federal": "CODIGO CIVIL FEDERAL 2026.pdf",
+    "c.c.f.": "CODIGO CIVIL FEDERAL 2026.pdf",
+    "c.f.f.": "CODIGO FISCAL DE LA FEDERACION 2026.pdf",
+    "ley de amparo": "LEY DE AMPARO.pdf",
+    "carta magna": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    "constitución": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    "constitucional": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    "c.p. federal": "CODIGO PENAL FEDERAL 2025.pdf",
+    "c. p. federal": "CODIGO PENAL FEDERAL 2025.pdf",
+    "c.p.federal": "CODIGO PENAL FEDERAL 2025.pdf",
+    "c.c. federal": "CODIGO CIVIL FEDERAL 2026.pdf",
+    "c. c. federal": "CODIGO CIVIL FEDERAL 2026.pdf",
+    "código penal federal": "CODIGO PENAL FEDERAL 2025.pdf",
+    "código penal de jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+    "código civil del estado de jalisco": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf",
+    "código nacional de procedimientos penales": "CodigoNacionalProcedPenales.pdf",
+    # Nuevas leyes indexadas mayo 2026
+    "convención americana": "Convencion Americana sobre Derechos Humanos.pdf",
+    "cadh": "Convencion Americana sobre Derechos Humanos.pdf",
+    "pacto de san josé": "Convencion Americana sobre Derechos Humanos.pdf",
+    "ley federal de delincuencia organizada": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
+    "lfdo": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
+    "delincuencia organizada": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
+    "ley nacional de extinción de dominio": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",
+    "ley nacional extincion de dominio": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",
+    "ley nacional extinsion de dominio": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",  # typo
+    "lned": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",
+    "extinción de dominio": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",
+    "extincion de dominio": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",
+    "ley general de víctimas": "LEY GENERAL DE VICTIMAS 2026.pdf",
+    "ley general de victimas": "LEY GENERAL DE VICTIMAS 2026.pdf",
+    "lgv": "LEY GENERAL DE VICTIMAS 2026.pdf",
+    "ley nacional de ejecución penal": "LEY NACIONAL EJECUCION PENAL 2026.pdf",
+    "ley nacional ejecucion penal": "LEY NACIONAL EJECUCION PENAL 2026.pdf",
+    "lnep": "LEY NACIONAL EJECUCION PENAL 2026.pdf",
+}
+
+
+# ─────────────────────────────────────────
+# NORMALIZACIÓN DE TEXTO LEGAL
+# ─────────────────────────────────────────
+
+# Expansión de acrónimos antes del embed — mejora recall en multilingual-e5-small,
+# que fue entrenado en web genérica y no distingue "CNPP" de ruido.
+_LEGAL_NORMALIZER: List[Tuple[str, str]] = [
+    (r'\bCPEUM\b',    'Constitución Política de los Estados Unidos Mexicanos'),
+    (r'\bCNPP\b',     'Código Nacional de Procedimientos Penales'),
+    (r'\bCPF\b',      'Código Penal Federal'),
+    (r'\bCCF\b',      'Código Civil Federal'),
+    (r'\bCFF\b',      'Código Fiscal de la Federación'),
+    (r'\bCFPC\b',     'Código Federal de Procedimientos Civiles'),
+    (r'\bCNPCF\b',    'Código Nacional de Procedimientos Civiles y Familiares'),
+    (r'\bLISR\b',     'Ley del Impuesto sobre la Renta'),
+    (r'\bLIVA\b',     'Ley del Impuesto al Valor Agregado'),
+    (r'\bLFT\b',      'Ley Federal del Trabajo'),
+    (r'\bLSS\b',      'Ley del Seguro Social'),
+    (r'\bLFPA\b',     'Ley Federal de Procedimiento Administrativo'),
+    (r'\bLFPCA\b',    'Ley Federal de Procedimiento Contencioso Administrativo'),
+    (r'\bLOPJF\b',    'Ley Orgánica del Poder Judicial Federal'),
+    (r'\bLFPC\b',     'Ley Federal de Protección al Consumidor'),
+    (r'\bLFPPI\b',    'Ley Federal de Protección a la Propiedad Intelectual'),
+    (r'\bLFPDPPP\b',  'Ley Federal de Protección de Datos Personales en Posesión de los Particulares'),
+    (r'\bCADH\b',     'Convención Americana sobre Derechos Humanos'),
+    (r'\bPIDCP\b',    'Pacto Internacional de Derechos Civiles y Políticos'),
+    (r'\bLFDO\b',     'Ley Federal de Delincuencia Organizada'),
+    (r'\bLNED\b',     'Ley Nacional de Extinción de Dominio'),
+    (r'\bLGV\b',      'Ley General de Víctimas'),
+    (r'\bLNEP\b',     'Ley Nacional de Ejecución Penal'),
+    (r'\bTJAJ\b',     'Tribunal de Justicia Administrativa de Jalisco'),
+    (r'\bSCJN\b',     'Suprema Corte de Justicia de la Nación'),
+    (r'\bTCC\b',      'Tribunal Colegiado de Circuito'),
+    (r'\bPJF\b',      'Poder Judicial Federal'),
+    (r'\bSAT\b',      'Servicio de Administración Tributaria'),
+]
+# Compilar una sola vez
+_NORMALIZER_COMPILED = [(re.compile(p), r) for p, r in _LEGAL_NORMALIZER]
+
+
+def normalize_legal_text(text: str) -> str:
+    """Expande acrónimos jurídicos antes de generar embeddings.
+    Mejora recall del e5-small que no reconoce siglas del derecho mexicano.
+    Solo se aplica a queries y texto de búsqueda — NO a los chunks del corpus.
+    """
+    for pattern, replacement in _NORMALIZER_COMPILED:
+        text = pattern.sub(replacement, text)
+    return text
 
 
 # ─────────────────────────────────────────
 # EMBEDDINGS Y CHROMA
 # ─────────────────────────────────────────
 
+_EMBEDDER_CACHE = None
+
 def get_embedder():
-    print(f"⏳ Cargando modelo de embeddings: {EMBED_MODEL}...")
-    return SentenceTransformer(EMBED_MODEL)
+    global _EMBEDDER_CACHE
+    if _EMBEDDER_CACHE is None:
+        logger.info(f"⏳ Cargando modelo de embeddings: {EMBED_MODEL}...")
+        _EMBEDDER_CACHE = SentenceTransformer(EMBED_MODEL)
+    return _EMBEDDER_CACHE
 
 
 def get_collection(embedder):
     client = chromadb.PersistentClient(path=CHROMA_PATH)
-    # Clase wrapper para ChromaDB con sentence-transformers
+
     class STEmbeddingFunction:
         def __init__(self, model):
             self.model = model
@@ -104,58 +361,147 @@ def is_legal_pdf(path: Path) -> bool:
     return path.suffix.lower() == ".pdf"
 
 
-def extract_text_from_pdf(pdf_path: Path) -> str:
+def extract_text_from_pdf(pdf_path: Path) -> list:
+    """Extrae texto y metadatos (página, posición) de PDF."""
     doc = fitz.open(str(pdf_path))
     pages = []
-    for page in doc:
-        pages.append(page.get_text())
+    for page_num, page in enumerate(doc, 1):
+        text = page.get_text()
+        if text.strip():
+            pages.append({"page": page_num, "text": text})
     doc.close()
-    return "\n".join(pages)
+    return pages
 
 
-def ingest(directory: str):
-    pdf_dir = Path(directory)
+def ingest(directory: str, clear: bool = False, reingest: bool = False):
+    pdf_dir = Path(directory).resolve()
+    allowed_base = Path(INGEST_ALLOWED_BASE).resolve()
+
+    try:
+        pdf_dir.relative_to(allowed_base)
+    except ValueError:
+        logger.error(f"❌ Path traversal bloqueado: '{pdf_dir}' no está bajo '{allowed_base}'")
+        logger.error(f"   Ajusta INGEST_ALLOWED_BASE en .env si necesitas ingestar desde otra ruta.")
+        sys.exit(1)
+
     pdfs = [p for p in pdf_dir.iterdir() if is_legal_pdf(p)]
 
     if not pdfs:
-        print(f"❌ No se encontraron PDFs legales en: {directory}")
+        logger.error(f"❌ No se encontraron PDFs legales en: {directory}")
         sys.exit(1)
 
-    print(f"📚 PDFs encontrados: {len(pdfs)}")
+    logger.info(f"📚 PDFs encontrados: {len(pdfs)}")
 
     embedder = get_embedder()
+    client = chromadb.PersistentClient(path=CHROMA_PATH)
+
+    # clear y reingest borran la colección antes de ingestar
+    # (antes: se borraba dos veces si se pasaban ambas flags)
+    if clear or reingest:
+        try:
+            client.delete_collection(COLLECTION_NAME)
+            logger.info("🗑️  Colección borrada para re-ingesta limpia.")
+        except Exception as e:
+            logger.warning(f"⚠️  No se pudo borrar colección: {e}")
+
     collection = get_collection(embedder)
 
-    splitter = RecursiveCharacterTextSplitter(
+    fallback_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
-        separators=["\nArtículo ", "\nARTÍCULO ", "\n\n", "\n", " "]
+        separators=["\n\n", "\n", " "]
     )
 
     total_chunks = 0
     for pdf_path in pdfs:
-        print(f"  🔍 Procesando: {pdf_path.name}")
+        logger.info(f"  🔍 Procesando: {pdf_path.name}")
         try:
-            raw_text = extract_text_from_pdf(pdf_path)
-            if len(raw_text.strip()) < 100:
-                print(f"     ⚠️  Texto muy corto, omitiendo.")
+            pages = extract_text_from_pdf(pdf_path)
+            if not pages:
+                logger.warning(f"     ⚠️  Texto muy corto, omitiendo.")
                 continue
 
-            chunks = splitter.split_text(raw_text)
-            print(f"     📄 {len(chunks)} chunks generados")
+            # Chunking cross-page: concatenar todo el texto antes de partir por artículo.
+            # El enfoque anterior (por página) cortaba artículos que cruzaban saltos de página,
+            # generando chunks incompletos sin número de artículo en la mitad del corpus.
+            art_split_re = re.compile(
+                r'(?=\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+)', re.MULTILINE
+            )
 
-            # Insertar en lotes de 50
+            # Construir mapa char_offset → page_num para recuperar página tras concat
+            page_offsets: List[Tuple[int, int]] = []
+            char_pos = 0
+            full_parts: List[str] = []
+            for p in pages:
+                page_offsets.append((char_pos, p["page"]))
+                full_parts.append(p["text"])
+                char_pos += len(p["text"]) + 2  # +2 por el separador \n\n
+
+            full_text = "\n\n".join(full_parts)
+
+            def get_page_for_pos(pos: int) -> int:
+                page = page_offsets[0][1] if page_offsets else 1
+                for off, pnum in page_offsets:
+                    if pos >= off:
+                        page = pnum
+                    else:
+                        break
+                return page
+
+            # Encontrar límites de artículos como posiciones en el texto completo
+            boundaries = [m.start() for m in art_split_re.finditer(full_text)]
+            if not boundaries or boundaries[0] > 0:
+                boundaries = [0] + boundaries
+            boundaries.append(len(full_text))
+
+            chunks_with_meta: List[Tuple[str, str, int]] = []
+            for i in range(len(boundaries) - 1):
+                piece = full_text[boundaries[i]:boundaries[i + 1]].strip()
+                if not piece:
+                    continue
+
+                page_num = get_page_for_pos(boundaries[i])
+                head_match = re.match(
+                    r'\s*[Aa]rt[íi]?(?:culo)?s?\.?\s+(\d+[\w\-]*)', piece
+                )
+                art_num = head_match.group(1) if head_match else ""
+
+                if len(piece) <= 1200:
+                    chunks_with_meta.append((piece, art_num, page_num))
+                else:
+                    sub_chunks = fallback_splitter.split_text(piece)
+                    for sc in sub_chunks:
+                        chunks_with_meta.append((sc.strip(), art_num, page_num))
+
+            logger.info(f"     📄 {len(chunks_with_meta)} chunks generados")
+
+            # Insertar en lotes
             batch_size = 50
-            for i in range(0, len(chunks), batch_size):
-                batch = chunks[i:i + batch_size]
+            for i in range(0, len(chunks_with_meta), batch_size):
+                batch = chunks_with_meta[i:i + batch_size]
+                texts = [c[0] for c in batch]
+                art_nums = [c[1] for c in batch]
+                page_nums = [c[2] for c in batch]
                 ids = [f"{pdf_path.stem}_chunk_{i + j}" for j in range(len(batch))]
-                metadatas = [{"source": pdf_path.name, "law": pdf_path.stem} for _ in batch]
+                metadatas = [
+                    {
+                        "source": pdf_path.name,
+                        "law": pdf_path.stem,
+                        "article": art_nums[j],
+                        "page": str(page_nums[j]),
+                        "chunk_index": str(i + j)
+                    }
+                    for j in range(len(batch))
+                ]
 
                 # Evitar duplicados
                 existing = collection.get(ids=ids)
                 existing_ids = set(existing["ids"])
-                new_batch = [(id_, doc, meta) for id_, doc, meta in zip(ids, batch, metadatas)
-                             if id_ not in existing_ids]
+                new_batch = [
+                    (id_, doc, meta)
+                    for id_, doc, meta in zip(ids, texts, metadatas)
+                    if id_ not in existing_ids
+                ]
 
                 if new_batch:
                     n_ids, n_docs, n_metas = zip(*new_batch)
@@ -165,53 +511,89 @@ def ingest(directory: str):
                         metadatas=list(n_metas)
                     )
 
-            total_chunks += len(chunks)
-            print(f"     ✅ Indexado correctamente")
+            total_chunks += len(chunks_with_meta)
+            logger.info(f"     ✅ Indexado correctamente")
 
         except Exception as e:
-            print(f"     ❌ Error procesando {pdf_path.name}: {e}")
+            logger.error(f"     ❌ Error procesando {pdf_path.name}: {e}")
 
-    print(f"\n✅ INGESTA COMPLETADA")
-    print(f"   PDFs procesados : {len(pdfs)}")
-    print(f"   Chunks totales  : {total_chunks}")
-    print(f"   Base vectorial  : {CHROMA_PATH}")
-    print(f"   Colección       : {COLLECTION_NAME}")
+    logger.info(f"\n✅ INGESTA COMPLETADA")
+    logger.info(f"   PDFs procesados : {len(pdfs)}")
+    logger.info(f"   Chunks totales  : {total_chunks}")
+    logger.info(f"   Base vectorial  : {CHROMA_PATH}")
+    logger.info(f"   Colección       : {COLLECTION_NAME}")
 
 
 # ─────────────────────────────────────────
 # AUDITORÍA
 # ─────────────────────────────────────────
 
-def extract_references(text: str) -> list:
+def resolve_law_source(context: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Busca en el contexto el alias de ley que aparece más pronto.
+    Ventana expandida: busca en hasta 200 caracteres (antes: 65).
+    """
+    ctx = context.lower()
+    best_key = None
+    best_file = None
+    best_pos = len(ctx) + 1
+    best_len = 0
+
+    for key, source_file in LAW_SOURCE_MAP.items():
+        pos = ctx.find(key)
+        if pos == -1:
+            continue
+        if pos < best_pos or (pos == best_pos and len(key) > best_len):
+            best_pos = pos
+            best_len = len(key)
+            best_key = key
+            best_file = source_file
+
+    return (best_key, best_file)
+
+
+def extract_references(text: str) -> List[Dict]:
     """Extrae referencias a artículos y jurisprudencias del borrador."""
     refs = []
 
-    # Artículos legales
-    art_pattern = re.compile(
-        r'[Aa]rt[íi]?(?:culo)?s?\.?\s+(\d+[\w\-]*)(?:[°º])?'
-        r'(?:\s*,?\s*(?:fracci[oó]n|frac\.)\s+([\w\.]+))?'
-        r'(?:\s+(?:del?|de la)\s+([\w\s,ÁÉÍÓÚÑ]+?))?'
-        r'(?=[\s,\.;]|$)'
-    )
-    for m in art_pattern.finditer(text):
-        art_num = m.group(1)
-        frac = m.group(2) or ""
-        law_raw = (m.group(3) or "").strip().rstrip(",")
+    for m in ARTICLE_RE.finditer(text):
+        art_num = m.group(1).strip()
+        frac = (m.group(2) or "").strip()
 
-        # Resolver alias de ordenamiento
-        law_name = None
-        for alias, full_name in LAW_ALIASES.items():
-            if alias in text[max(0, m.start()-5):m.end()+60]:
-                law_name = full_name
-                break
-        if not law_name and law_raw:
-            law_name = law_raw
+        # Estrategia de ventana mejorada (ahora: 30 → 100 → amplia)
+        line_start = text.rfind('\n', 0, m.start()) + 1
+        line_end = text.find('\n', m.end())
+        if line_end == -1:
+            line_end = len(text)
+
+        right_ctx = text[m.end(): min(len(text), m.end() + 100)]  # Ampliado de 30 a 100
+        line_ctx = text[line_start:line_end]
+        wide_ctx = text[max(0, m.start() - 100): min(len(text), m.end() + 150)]  # Ampliado
+
+        # 1. LAW_SOURCE_MAP — prioridad: derecha → línea → wide
+        law_name, source_file = resolve_law_source(right_ctx)
+        if not law_name:
+            law_name, source_file = resolve_law_source(line_ctx)
+        if not law_name:
+            law_name, source_file = resolve_law_source(wide_ctx)
+
+        # 2. Fallback alias (case-sensitive)
+        if not law_name:
+            for ctx in (right_ctx, line_ctx, wide_ctx):
+                for alias, full_name in sorted(LAW_ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
+                    if alias in ctx:
+                        law_name = full_name
+                        _, source_file = resolve_law_source(alias.lower())
+                        break
+                if law_name:
+                    break
 
         refs.append({
             "type": "article",
             "article": art_num,
             "fraction": frac,
             "law": law_name or "desconocido",
+            "source_file": source_file,
             "raw": m.group(0).strip()
         })
 
@@ -227,7 +609,132 @@ def extract_references(text: str) -> list:
     return refs
 
 
-def audit(text: str) -> dict:
+def vvca_score(distance: float, source_match: bool, has_source_file: bool) -> int:
+    """Score 0-100 basado en distancia coseno + coincidencia de fuente."""
+    base = round((1 - min(distance, 1.0)) * 100)
+    if not source_match:
+        base -= 15
+    if not has_source_file:
+        base -= 10
+    return max(0, min(100, base))
+
+
+def vvca_semaforo(score: int) -> str:
+    if score >= 85:
+        return "🟢"
+    if score >= 60:
+        return "🟡"
+    return "🔴"
+
+
+def vvca_contextualizacion(source_file: str) -> str:
+    s = source_file.lower()
+    if "cpeum" in s or "estados unidos mexicanos" in s:
+        return "Constitucional · Federal · Aplicable a todo el sistema jurídico"
+    if "cnpp" in s or "procedpenales" in s or "procedimientos penales" in s:
+        return "Procesal Penal · Nacional · PJF y juzgados locales acreditados CNPP"
+    if "penal federal" in s:
+        return "Penal sustantivo · Federal · PJF"
+    if "delincuencia organizada" in s:
+        return "Penal especial · Federal · LFDO — delitos del catálogo art. 2"
+    if "extincion de dominio" in s or "extinción" in s:
+        return "Extinción de dominio · Federal · Proceso civil especial autónomo"
+    if "general de victimas" in s or "víctimas" in s:
+        return "Penal/DDHH · Federal · Derechos de víctimas en toda causa penal"
+    if "ejecucion penal" in s or "ejecución penal" in s:
+        return "Ejecución de sanciones · Federal · Post-sentencia"
+    if "convencion americana" in s or "cadh" in s:
+        return "DDHH · Internacional · Control de convencionalidad obligatorio (art. 1° CPEUM)"
+    if "pacto internacional" in s or "pidcp" in s:
+        return "DDHH · ONU · Control de convencionalidad — aplica en amparo"
+    if "amparo" in s:
+        return "Amparo · Federal · Juzgados de Distrito y TCC"
+    if "lopjf" in s or "orgánica del poder judicial" in s or "organica del poder judicial" in s or "organicopoder" in s or "reglamentoorgan" in s:
+        return "Orgánica · Federal · Competencia PJF"
+    if "fiscal de la federacion" in s or "c.f.f" in s:
+        return "Fiscal · Federal · SAT / contribuciones federales"
+    if "fiscal del estado de jalisco" in s:
+        return "Fiscal · Local · Jalisco"
+    if "impuesto sobre la renta" in s:
+        return "Fiscal · Federal · ISR"
+    if "impuesto al valor agregado" in s:
+        return "Fiscal · Federal · IVA"
+    if "trabajo" in s or "lft" in s:
+        return "Laboral · Federal · JFCA / Tribunales Laborales"
+    if "seguro social" in s:
+        return "Seguridad Social · Federal · IMSS"
+    if "civil federal" in s:
+        return "Civil · Federal"
+    if "jalisco" in s:
+        return "Local · Estado de Jalisco"
+    if "nuevo leon" in s or "nuevo león" in s:
+        return "Local · Estado de Nuevo León"
+    return "Normativo · Verificar ámbito de aplicación específico"
+
+
+def build_vvca(
+    ref: Dict,
+    distance: float,
+    source_match: bool,
+    source_file: str,
+    page: str,
+    retrieved_text: str,
+) -> Dict:
+    score = vvca_score(distance, source_match, has_source_file=bool(ref.get("source_file")))
+    semaforo = vvca_semaforo(score)
+    law = ref.get("law", "desconocido")
+    art = ref.get("article", "?")
+    frac = ref.get("fraction", "")
+    art_label = f"Art. {art}" + (f" fr. {frac}" if frac else "")
+
+    v_verificacion = (
+        f"Encontrado en corpus oficial (dist={distance:.3f})"
+        if distance <= COSINE_THRESHOLD
+        else f"Coincidencia débil — posible alucinación (dist={distance:.3f}, umbral={COSINE_THRESHOLD})"
+    )
+    v_validacion = (
+        f"Fuente correcta: {source_file}"
+        if source_match
+        else f"Fuente distinta: se encontró en '{source_file}', se esperaba '{ref.get('source_file')}'"
+    )
+    c_contextualizacion = vvca_contextualizacion(source_file)
+    a_auditabilidad = f"{art_label} · {law} · pág. {page} · corpus: {source_file}"
+
+    return {
+        "score": score,
+        "semaforo": semaforo,
+        "V_verificacion": v_verificacion,
+        "V_validacion": v_validacion,
+        "C_contextualizacion": c_contextualizacion,
+        "A_auditabilidad": a_auditabilidad,
+    }
+
+
+def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
+    tipo = item.get("tipo_tesis", "")
+    sala = item.get("sala", "")
+    epoca = item.get("epoca", "")
+    materia = item.get("materia", "")
+    numero = item.get("numero_tesis", "")
+    registro = ref.get("registro", "?")
+
+    score = 95 if re.search(r"jurisprudencia", tipo, re.I) else 72
+    semaforo = vvca_semaforo(score)
+
+    tipo_label = "Jurisprudencia obligatoria" if re.search(r"jurisprudencia", tipo, re.I) else f"Tesis aislada — orientadora, no obligatoria ({tipo})"
+    contexto = f"{epoca} · {sala} · Materia: {materia}" if any([epoca, sala, materia]) else "Ver detalle en SJF"
+
+    return {
+        "score": score,
+        "semaforo": semaforo,
+        "V_verificacion": f"Registro {registro} encontrado en corpus SJF local",
+        "V_validacion": tipo_label,
+        "C_contextualizacion": contexto,
+        "A_auditabilidad": f"{numero} · Reg. {registro} · {sala} · {source_file}",
+    }
+
+
+def audit(text: str, verbose: bool = False) -> Dict:
     """
     Audita el borrador contra el corpus legal.
     Retorna JSON con alerts y retrieved_sources.
@@ -239,7 +746,7 @@ def audit(text: str) -> dict:
     if not chroma_path.exists():
         return {
             "status": "error",
-            "message": "Base vectorial no encontrada. Ejecuta primero: python OpenNotebook.py ingest --directory /ruta/pdfs/",
+            "message": "Base vectorial no encontrada. Ejecuta primero: python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/",
             "alerts": [],
             "retrieved_sources": []
         }
@@ -259,30 +766,60 @@ def audit(text: str) -> dict:
     retrieved_sources = []
     verified_count = 0
 
+    if verbose:
+        logger.debug(f"🔍 Auditoría: {len(refs)} referencias detectadas")
+
     for ref in refs:
         if ref["type"] == "article":
-            # Construir query de búsqueda
-            query = f"Artículo {ref['article']}"
+            query_raw = f"Artículo {ref['article']}"
             if ref["fraction"]:
-                query += f" fracción {ref['fraction']}"
+                query_raw += f" fracción {ref['fraction']}"
             if ref["law"] and ref["law"] != "desconocido":
-                query += f" {ref['law']}"
+                query_raw += f" {ref['law']}"
+            # Normalizar acrónimos para mejorar recall en e5-small
+            query = normalize_legal_text(query_raw)
 
-            results = collection.query(
-                query_texts=[query],
-                n_results=3
-            )
+            expected_source = ref.get("source_file")
+            where_filter = {"source": expected_source} if expected_source else None
+
+            try:
+                results = collection.query(
+                    query_texts=[query],
+                    n_results=3,
+                    where=where_filter
+                )
+            except Exception:
+                # where_filter puede fallar si la fuente no existe en el corpus
+                results = collection.query(query_texts=[query], n_results=3)
+                expected_source = None
 
             if results and results["documents"] and results["documents"][0]:
                 best_doc = results["documents"][0][0]
-                best_source = results["metadatas"][0][0]["source"] if results["metadatas"] else "desconocido"
+                best_meta = results["metadatas"][0][0] if results["metadatas"] else {}
+                best_source = best_meta.get("source", "desconocido")
                 best_distance = results["distances"][0][0] if results.get("distances") else 1.0
+                source_match = (not expected_source) or (best_source == expected_source)
 
-                # Si la distancia coseno es alta (>0.6), posible alucinación
-                if best_distance > 0.6:
+                vvca = build_vvca(
+                    ref=ref,
+                    distance=best_distance,
+                    source_match=source_match,
+                    source_file=best_source,
+                    page=best_meta.get("page", "?"),
+                    retrieved_text=best_doc,
+                )
+
+                if not source_match and best_distance <= COSINE_THRESHOLD:
                     alerts.append(
-                        f"ALERTA: '{ref['raw']}' — no se encontró coincidencia confiable en el corpus "
-                        f"(distancia: {best_distance:.2f}). Verificar manualmente."
+                        f"{vvca['semaforo']} ALERTA (score {vvca['score']}): '{ref['raw']}' — "
+                        f"encontrado en '{best_source}' pero se esperaba '{expected_source}'. "
+                        f"Posible confusión entre ordenamientos. Verificar manualmente."
+                    )
+                elif best_distance > COSINE_THRESHOLD:
+                    alerts.append(
+                        f"🔴 ALERTA ALTA (score {vvca['score']}): '{ref['raw']}' — "
+                        f"sin coincidencia confiable (dist={best_distance:.3f}, umbral={COSINE_THRESHOLD}). "
+                        f"Posible alucinación. Verificar en fuente oficial."
                     )
                 else:
                     retrieved_sources.append({
@@ -290,62 +827,130 @@ def audit(text: str) -> dict:
                         "law": ref["law"],
                         "article": ref["article"],
                         "source_file": best_source,
-                        "relevance_score": round(1 - best_distance, 2),
-                        "retrieved_text": best_doc[:500]
+                        "page": best_meta.get("page", "?"),
+                        "expected_source": expected_source,
+                        "relevance_score": round(1 - best_distance, 3),
+                        "retrieved_text": best_doc[:600],
+                        "vvca": vvca,
                     })
                     verified_count += 1
             else:
                 alerts.append(
-                    f"ALERTA: El borrador cita '{ref['raw']}' pero no se encontró en el corpus legal. "
-                    f"Posible alucinación — verificar en fuente oficial."
+                    f"🔴 ALERTA CRÍTICA: '{ref['raw']}' — no encontrado en el corpus. "
+                    f"Alucinación detectada. Verificar en fuente oficial ANTES de usar."
                 )
 
         elif ref["type"] == "jurisprudencia":
-            # Buscar registro en corpus de jurisprudencia
-            query = f"Registro digital {ref['registro']}"
-            results = collection.query(
-                query_texts=[query],
-                n_results=2
-            )
-
-            # También buscar en el corpus local de tesis
-            tesis_path = Path("/home/licjo/jurisprudencia")
+            tesis_path = Path(JURISPRUDENCIA_PATH)
             found_in_tesis = False
             if tesis_path.exists():
-                for json_file in tesis_path.glob("*.json"):
+                for json_file in sorted(tesis_path.rglob("*.json")):
                     try:
-                        data = json.loads(json_file.read_text())
-                        for item in (data if isinstance(data, list) else []):
-                            if str(ref["registro"]) in str(item.get("registro", "")):
+                        data = json.loads(json_file.read_text(encoding="utf-8"))
+                        items = data if isinstance(data, list) else []
+                        for item in items:
+                            # Bug fix (Sonnet): substring match causaba false positives
+                            # "2031" matcheaba con "20319", "203112", etc.
+                            if str(ref["registro"]) == str(item.get("registro", "")):
                                 found_in_tesis = True
+                                # Bug fix: el scraper guarda 'texto', no 'texto_completo'
+                                texto = (
+                                    item.get("texto_completo")
+                                    or item.get("texto")
+                                    or "Tesis verificada en corpus SJF."
+                                )
+                                vvca = build_vvca_tesis(ref, item, json_file.name)
                                 retrieved_sources.append({
                                     "reference": ref["raw"],
                                     "registro": ref["registro"],
                                     "source_file": json_file.name,
                                     "relevance_score": 1.0,
-                                    "retrieved_text": item.get("texto_completo", "Tesis verificada en corpus SJF.")
+                                    "retrieved_text": texto[:600],
+                                    "vvca": vvca,
                                 })
                                 verified_count += 1
                                 break
-                    except Exception:
+                    except Exception as e:
+                        if verbose:
+                            logger.debug(f"Error leyendo {json_file}: {e}")
                         continue
+                    if found_in_tesis:
+                        break
 
             if not found_in_tesis:
                 alerts.append(
-                    f"ALERTA: El borrador cita el Registro digital {ref['registro']} "
-                    f"pero no fue encontrado en el corpus de jurisprudencia. "
+                    f"⚠️  ALERTA (🔴 score 30): Registro digital {ref['registro']} "
+                    f"no encontrado en corpus de jurisprudencia local. "
                     f"Verificar en sjf2.scjn.gob.mx antes de citar."
                 )
+
+    # Semáforo consolidado
+    scores = [s["vvca"]["score"] for s in retrieved_sources if "vvca" in s]
+    verdes   = sum(1 for sc in scores if sc >= 85)
+    amarillos = sum(1 for sc in scores if 60 <= sc < 85)
+    rojos    = sum(1 for sc in scores if sc < 60)
+    score_prom = round(sum(scores) / len(scores)) if scores else 0
 
     return {
         "status": "ok",
         "total_references_found": len(refs),
         "verified": verified_count,
         "alerts_count": len(alerts),
+        "cosine_threshold": COSINE_THRESHOLD,
+        "vvca_summary": {
+            "verdes": verdes,
+            "amarillos": amarillos,
+            "rojos": rojos,
+            "score_promedio": score_prom,
+            "semaforo_global": vvca_semaforo(score_prom) if scores else "⬜",
+        },
         "alerts": alerts,
         "retrieved_sources": retrieved_sources,
-        "summary": f"Auditoría RAG completada: {verified_count} fuentes verificadas, {len(alerts)} alertas."
+        "summary": (
+            f"Auditoría VVCA completada: {verified_count} refs verificadas, "
+            f"{len(alerts)} alertas. "
+            f"Score global: {score_prom} {vvca_semaforo(score_prom) if scores else '⬜'}"
+        ),
     }
+
+
+# ─────────────────────────────────────────
+# CLASE — interfaz orientada a objetos
+# ─────────────────────────────────────────
+
+class OpenNotebook:
+    """
+    Interfaz de clase para el auditor RAG v2.0.
+
+    Uso:
+        from OpenNotebook_v2 import OpenNotebook
+        auditor = OpenNotebook(db_path=str(Path(__file__).parent / "chroma_db"))
+        result  = auditor.audit_draft("Art. 247 CPF establece...")
+    """
+
+    def __init__(self, db_path: str = CHROMA_PATH, embed_model: str = EMBED_MODEL):
+        global CHROMA_PATH
+        self._embedder = None
+        self._collection = None
+        CHROMA_PATH = db_path
+
+    def _ensure_loaded(self):
+        if self._embedder is None:
+            self._embedder = get_embedder()
+            self._collection = get_collection(self._embedder)
+
+    def audit_draft(self, text: str, verbose: bool = False) -> Dict:
+        self._ensure_loaded()
+        return audit(text, verbose=verbose)
+
+    def audit_file(self, path: str, verbose: bool = False) -> Dict:
+        self._ensure_loaded()
+        return audit(Path(path).read_text(encoding="utf-8"), verbose=verbose)
+
+    def ingest_directory(self, directory: str, clear: bool = False, reingest: bool = False):
+        ingest(directory, clear=clear, reingest=reingest)
+        self._embedder = None
+        self._collection = None
 
 
 # ─────────────────────────────────────────
@@ -354,7 +959,16 @@ def audit(text: str) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="OpenNotebook — RAG Legal Itosturre"
+        description="OpenNotebook v2.0 — RAG Legal Itosturre",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Ejemplos:
+  python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/
+  python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/ --clear
+  python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/ --reingest
+  python OpenNotebook_v2.0.py audit --text "Art. 247 CPF establece..."
+  python OpenNotebook_v2.0.py audit --file borrador.md --verbose
+        """
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -364,26 +978,158 @@ def main():
         "--directory", required=True,
         help="Carpeta con PDFs legales"
     )
+    ingest_parser.add_argument(
+        "--clear", action="store_true",
+        help="Borrar colección antes de ingestión"
+    )
+    ingest_parser.add_argument(
+        "--reingest", action="store_true",
+        help="Reindexar todo aunque ya exista"
+    )
+    ingest_parser.add_argument(
+        "--verbose", action="store_true",
+        help="Mostrar logs detallados"
+    )
+
+    # Comando: query
+    query_parser = subparsers.add_parser("query", help="Búsqueda semántica directa en el corpus")
+    query_parser.add_argument("texto", help="Texto a buscar (entre comillas)")
+    query_parser.add_argument("--n", type=int, default=5, help="Número de resultados (default: 5)")
+    query_parser.add_argument("--verbose", action="store_true")
 
     # Comando: audit
     audit_parser = subparsers.add_parser("audit", help="Auditar un borrador legal")
     audit_group = audit_parser.add_mutually_exclusive_group(required=True)
     audit_group.add_argument("--text", help="Texto del borrador (string)")
     audit_group.add_argument("--file", help="Ruta al archivo del borrador (.md/.txt)")
+    audit_parser.add_argument("--verbose", action="store_true")
+    audit_parser.add_argument(
+        "--format", choices=["json", "telegram"], default="json",
+        help="Formato de salida: json (default) o telegram (bloque listo para Telegram)"
+    )
+
+    # Comando: correct — registrar corrección manual para calibración futura
+    correct_parser = subparsers.add_parser("correct", help="Registrar corrección VVCA para calibración")
+    correct_parser.add_argument("--ref", required=True, help="Texto exacto de la referencia (ej: 'Art. 19 CPEUM')")
+    correct_parser.add_argument("--semaforo", required=True, choices=["🟢", "🟡", "🔴"], help="Semáforo correcto")
+    correct_parser.add_argument("--score-auditado", type=int, default=0, help="Score que dio el sistema")
+    correct_parser.add_argument("--nota", default="", help="Nota opcional (contexto del error)")
+
+    # Comando: calibrate — analizar correcciones y sugerir nuevo threshold
+    subparsers.add_parser("calibrate", help="Analizar correcciones y sugerir ajuste de COSINE_THRESHOLD")
 
     args = parser.parse_args()
 
-    if args.command == "ingest":
-        ingest(args.directory)
+    if args.command == "correct":
+        import datetime
+        corrections_path = Path(CORRECTIONS_FILE)
+        corrections_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = json.loads(corrections_path.read_text()) if corrections_path.exists() else []
+        existing.append({
+            "ref": args.ref,
+            "semaforo_correcto": args.semaforo,
+            "score_auditado": args.score_auditado,
+            "nota": args.nota,
+            "timestamp": datetime.datetime.now().isoformat(),
+        })
+        corrections_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2))
+        print(f"✅ Corrección registrada ({len(existing)} total). Usa 'calibrate' para analizar.")
+        return
+
+    if args.command == "calibrate":
+        corrections_path = Path(CORRECTIONS_FILE)
+        if not corrections_path.exists():
+            print("⚠️  Sin correcciones registradas. Usa 'correct' para registrar discrepancias.")
+            return
+        corrections = json.loads(corrections_path.read_text())
+        if not corrections:
+            print("⚠️  El archivo de correcciones está vacío.")
+            return
+
+        # Analizar drift: cuando el sistema dijo verde pero la realidad es rojo
+        false_greens = [c for c in corrections if c["semaforo_correcto"] == "🔴" and c["score_auditado"] >= 85]
+        false_reds   = [c for c in corrections if c["semaforo_correcto"] == "🟢" and c["score_auditado"] < 60]
+        total = len(corrections)
+
+        print(f"\n📊 Calibración VVCA — {total} correcciones registradas")
+        print(f"   🔴 Falsos positivos (sistema 🟢 → real 🔴): {len(false_greens)}")
+        print(f"   🟢 Falsos negativos (sistema 🔴 → real 🟢): {len(false_reds)}")
+        print(f"\n   COSINE_THRESHOLD actual: {COSINE_THRESHOLD}")
+
+        if len(false_greens) > len(false_reds) and len(false_greens) >= 3:
+            suggested = round(COSINE_THRESHOLD - 0.05, 2)
+            print(f"   💡 Sugerido: {suggested} (bajar — el sistema es demasiado permisivo)")
+        elif len(false_reds) > len(false_greens) and len(false_reds) >= 3:
+            suggested = round(COSINE_THRESHOLD + 0.05, 2)
+            print(f"   💡 Sugerido: {suggested} (subir — el sistema es demasiado estricto)")
+        else:
+            print(f"   ✅ Threshold parece calibrado (diferencia < 3 casos).")
+
+        if false_greens:
+            print("\n   Ejemplos falsos positivos:")
+            for c in false_greens[:3]:
+                print(f"   • {c['ref']} | score={c['score_auditado']} | {c.get('nota','')}")
+        return
+
+    if args.command == "query":
+        setup_logging(getattr(args, "verbose", False))
+        embedder = get_embedder()
+        col = get_collection(embedder)
+        query_norm = normalize_legal_text(args.texto)
+        results = col.query(query_texts=[query_norm], n_results=args.n, include=["documents", "metadatas", "distances"])
+        print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {args.n} resultados\n")
+        for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
+            score = round((1 - dist) * 100)
+            sem = vvca_semaforo(score)
+            print(f"{sem} Score {score} | {meta.get('source','?')} pág.{meta.get('page','?')}")
+            print(f"   {doc[:200].strip()}")
+            print()
+
+    elif args.command == "ingest":
+        setup_logging(args.verbose)
+        ingest(args.directory, clear=args.clear, reingest=args.reingest)
 
     elif args.command == "audit":
+        setup_logging(args.verbose)
         if args.file:
-            draft_text = Path(args.file).read_text(encoding="utf-8")
+            file_path = Path(args.file)
+            if not file_path.exists():
+                print(f"❌ Archivo no encontrado: {args.file}", file=sys.stderr)
+                sys.exit(1)
+            if file_path.stat().st_size > 500_000:
+                print(f"⚠️  Archivo muy grande ({file_path.stat().st_size // 1024} KB). Considera dividirlo.", file=sys.stderr)
+            draft_text = file_path.read_text(encoding="utf-8")
         else:
             draft_text = args.text
+            if len(draft_text) > 200_000:
+                print("⚠️  Texto muy largo — puede causar timeout en ChromaDB.", file=sys.stderr)
 
-        result = audit(draft_text)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        result = audit(draft_text, verbose=args.verbose)
+
+        if args.format == "telegram":
+            vs = result["vvca_summary"]
+            lines = [
+                f"📋 <b>Auditoría VVCA</b> · {result['total_references_found']} refs · {result['alerts_count']} alertas",
+                f"Score global: {vs['score_promedio']} {vs['semaforo_global']}"
+                f"  🟢{vs['verdes']} 🟡{vs['amarillos']} 🔴{vs['rojos']}",
+                "",
+            ]
+            for s in result["retrieved_sources"]:
+                v = s.get("vvca", {})
+                sem = v.get("semaforo", "⬜")
+                score = v.get("score", "?")
+                ref = s.get("reference", "?")[:40]
+                ctx = v.get("C_contextualizacion", "")[:50]
+                lines.append(f"{sem} <b>{score}</b> · {ref} · {ctx}")
+            if result["alerts"]:
+                lines.append("")
+                for a in result["alerts"][:3]:
+                    lines.append(f"⚠️ {a[:120]}")
+            lines.append("")
+            lines.append("🔗 Fuentes: sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx")
+            print("\n".join(lines))
+        else:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
 
     else:
         parser.print_help()
