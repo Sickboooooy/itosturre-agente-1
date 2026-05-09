@@ -1,6 +1,12 @@
 """
-OpenNotebook.py v3.0 — RAG Legal Itosturre
+OpenNotebook.py v3.1 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
+
+Cambios v3.1:
+  ✅ Score compuesto ponderado (scoring_vvca.py) — normativa 25% + jurisprudencia 50%
+     + estrategia 15% + auditabilidad 10%. Penalización -45 si 5/5 tesis falsas.
+  ✅ retrieved_sources incluye campo "ref_type" ("normativa"/"jurisprudencia")
+  ✅ vvca_summary incluye score_global, score_normativa, score_jurisprudencia, apto_para_uso_procesal
 
 Cambios v3.0:
   ✅ Semáforo VVCA por referencia (score 0-100, 🟢🟡🔴)
@@ -25,6 +31,8 @@ import sys
 import logging
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
+
+from scoring_vvca import semaforo as vvca_semaforo_global, veredicto_global
 
 import fitz  # PyMuPDF
 import chromadb
@@ -597,13 +605,18 @@ def extract_references(text: str) -> List[Dict]:
             "raw": m.group(0).strip()
         })
 
-    # Registros digitales SJF
-    reg_pattern = re.compile(r'[Rr]egistro\s+(?:digital[:\s]+)?(\d{6,8})')
+    # Registros digitales SJF — captura "Registro: 2019456", "Registro 2019456",
+    # "Registro digital: 2019456", "registro digital 2019456"
+    reg_pattern = re.compile(r'[Rr]egistro(?:\s+digital)?[:\s]+(\d{6,8})')
     for m in reg_pattern.finditer(text):
+        # Captura hasta 400 chars antes del registro para incluir el rubro invocado
+        ctx_start = max(0, m.start() - 400)
+        ctx_invocado = text[ctx_start: m.start()].strip()
         refs.append({
             "type": "jurisprudencia",
             "registro": m.group(1),
-            "raw": m.group(0).strip()
+            "raw": m.group(0).strip(),
+            "ctx_invocado": ctx_invocado,
         })
 
     return refs
@@ -710,34 +723,97 @@ def build_vvca(
     }
 
 
-def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
-    tipo = item.get("tipo_tesis", "")
-    sala = item.get("sala", "")
-    epoca = item.get("epoca", "")
-    materia = item.get("materia", "")
-    numero = item.get("numero_tesis", "")
-    registro = ref.get("registro", "?")
+def _rubro_keywords(text: str) -> set:
+    """Extrae palabras clave significativas (>4 chars) de un rubro para comparación."""
+    stop = {"para", "como", "ante", "debe", "este", "esta", "dicho", "dicha",
+            "donde", "cuando", "aunque", "entre", "sino", "cuyo", "cuya",
+            "desde", "hasta", "sobre", "bajo", "cuales", "mismo", "misma"}
+    return {
+        w.lower() for w in re.findall(r'[A-Za-záéíóúÁÉÍÓÚüÜñÑ]{5,}', text)
+        if w.lower() not in stop
+    }
 
-    score = 95 if re.search(r"jurisprudencia", tipo, re.I) else 72
+
+def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
+    tipo    = item.get("tipo_tesis", "")
+    sala    = item.get("sala", "")
+    epoca   = item.get("epoca", "")
+    materia = item.get("materia", "")
+    numero  = item.get("numero_tesis", "")
+    registro = ref.get("registro", "?")
+    rubro_real = item.get("rubro", "")
+
+    # Validación semántica: ¿el rubro del corpus coincide con lo invocado en el doc?
+    # ctx_invocado trae hasta 400 chars previos (contiene el rubro si está en el texto)
+    rubro_invocado = ref.get("ctx_invocado", ref.get("raw", ""))
+    rubro_mismatch = False
+    if rubro_real and rubro_invocado:
+        kw_real     = _rubro_keywords(rubro_real)
+        kw_invocado = _rubro_keywords(rubro_invocado)
+        if kw_real and kw_invocado:
+            overlap = len(kw_real & kw_invocado) / min(len(kw_real), len(kw_invocado))
+            rubro_mismatch = overlap < 0.20  # < 20% de palabras en común → tesis equivocada
+
+    if rubro_mismatch:
+        score = 0  # Registro real con rubro falso es más peligroso que uno inexistente
+        verificacion = (
+            f"⚠️ DISCREPANCIA: Reg. {registro} existe en corpus pero su rubro real "
+            f"NO coincide con lo invocado en el documento. "
+            f"Rubro real: '{rubro_real[:120]}...'"
+        )
+    else:
+        score = 95 if re.search(r"jurisprudencia", tipo, re.I) else 72
+        verificacion = f"Registro {registro} encontrado en corpus SJF local"
+
     semaforo = vvca_semaforo(score)
 
-    tipo_label = "Jurisprudencia obligatoria" if re.search(r"jurisprudencia", tipo, re.I) else f"Tesis aislada — orientadora, no obligatoria ({tipo})"
-    contexto = f"{epoca} · {sala} · Materia: {materia}" if any([epoca, sala, materia]) else "Ver detalle en SJF"
+    tipo_label = (
+        "Jurisprudencia obligatoria" if re.search(r"jurisprudencia", tipo, re.I)
+        else f"Tesis aislada — orientadora, no obligatoria ({tipo})"
+    )
+    contexto = (
+        f"{epoca} · {sala} · Materia: {materia}"
+        if any([epoca, sala, materia]) else "Ver detalle en SJF"
+    )
 
     return {
         "score": score,
         "semaforo": semaforo,
-        "V_verificacion": f"Registro {registro} encontrado en corpus SJF local",
+        "rubro_mismatch": rubro_mismatch,
+        "V_verificacion": verificacion,
         "V_validacion": tipo_label,
         "C_contextualizacion": contexto,
         "A_auditabilidad": f"{numero} · Reg. {registro} · {sala} · {source_file}",
     }
 
 
-def audit(text: str, verbose: bool = False) -> Dict:
+def check_corpus_coverage(refs: List[Dict], collection) -> List[str]:
+    """
+    Detecta qué source_files referenciados en el borrador no están indexados en ChromaDB.
+    Retorna lista de nombres de archivo faltantes.
+    """
+    needed = {ref["source_file"] for ref in refs if ref.get("source_file")}
+    missing = []
+    for source_file in needed:
+        try:
+            result = collection.get(where={"source": source_file}, limit=1, include=[])
+            if not result["ids"]:
+                missing.append(source_file)
+        except Exception:
+            missing.append(source_file)
+    return sorted(missing)
+
+
+def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = False) -> Dict:
     """
     Audita el borrador contra el corpus legal.
     Retorna JSON con alerts y retrieved_sources.
+
+    Si el corpus no contiene leyes referenciadas en el texto y
+    allow_incomplete_corpus=False, retorna status='corpus_incomplete' con la lista
+    de leyes faltantes para que el caller decida si continuar.
+    Pasar allow_incomplete_corpus=True para forzar la auditoría e incluir
+    la advertencia en el campo 'corpus_warning' del resultado.
     """
     embedder = get_embedder()
 
@@ -765,9 +841,33 @@ def audit(text: str, verbose: bool = False) -> Dict:
     alerts = []
     retrieved_sources = []
     verified_count = 0
+    corpus_warning = None
 
     if verbose:
         logger.debug(f"🔍 Auditoría: {len(refs)} referencias detectadas")
+
+    # ── Verificar cobertura del corpus ───────────────────────────────────────
+    missing_sources = check_corpus_coverage(refs, collection)
+    if missing_sources:
+        if not allow_incomplete_corpus:
+            return {
+                "status": "corpus_incomplete",
+                "missing_sources": missing_sources,
+                "message": (
+                    f"⚠️  Corpus incompleto: {len(missing_sources)} ley(es) referenciada(s) "
+                    f"no están indexadas en ChromaDB.\n"
+                    + "\n".join(f"  • {s}" for s in missing_sources)
+                    + "\n\nIndexar primero: python OpenNotebook.py ingest /ruta/corpus/\n"
+                    "O continuar con: --force (el resultado incluirá advertencia)."
+                ),
+                "alerts": [],
+                "retrieved_sources": [],
+            }
+        corpus_warning = (
+            f"⚠️  Auditoría ejecutada con corpus parcial. "
+            f"Ley(es) no verificadas por ausencia en ChromaDB: "
+            + ", ".join(missing_sources)
+        )
 
     for ref in refs:
         if ref["type"] == "article":
@@ -826,6 +926,7 @@ def audit(text: str, verbose: bool = False) -> Dict:
                         "reference": ref["raw"],
                         "law": ref["law"],
                         "article": ref["article"],
+                        "ref_type": "normativa",
                         "source_file": best_source,
                         "page": best_meta.get("page", "?"),
                         "expected_source": expected_source,
@@ -863,6 +964,7 @@ def audit(text: str, verbose: bool = False) -> Dict:
                                 retrieved_sources.append({
                                     "reference": ref["raw"],
                                     "registro": ref["registro"],
+                                    "ref_type": "jurisprudencia",
                                     "source_file": json_file.name,
                                     "relevance_score": 1.0,
                                     "retrieved_text": texto[:600],
@@ -884,34 +986,74 @@ def audit(text: str, verbose: bool = False) -> Dict:
                     f"Verificar en sjf2.scjn.gob.mx antes de citar."
                 )
 
-    # Semáforo consolidado
-    scores = [s["vvca"]["score"] for s in retrieved_sources if "vvca" in s]
-    verdes   = sum(1 for sc in scores if sc >= 85)
-    amarillos = sum(1 for sc in scores if 60 <= sc < 85)
-    rojos    = sum(1 for sc in scores if sc < 60)
-    score_prom = round(sum(scores) / len(scores)) if scores else 0
+    # ── Score RAG (artículos) — validación estática
+    art_scores = [
+        s["vvca"]["score"] for s in retrieved_sources
+        if "vvca" in s and s.get("ref_type") == "normativa"
+    ]
+    score_rag = round(sum(art_scores) / len(art_scores), 1) if art_scores else 0.0
 
-    return {
+    # ── Score SJF (tesis) — validación dinámica
+    jur_scores = [
+        s["vvca"]["score"] for s in retrieved_sources
+        if "vvca" in s and s.get("ref_type") == "jurisprudencia"
+    ]
+    score_sjf = round(sum(jur_scores) / len(jur_scores), 1) if jur_scores else 0.0
+
+    # Conteo de tesis problemáticas (mismatch de rubro o no encontradas)
+    tesis_total_invocadas = sum(1 for r in refs if r.get("type") == "jurisprudencia")
+    tesis_no_encontradas  = tesis_total_invocadas - len(jur_scores)
+    tesis_mismatch        = sum(
+        1 for s in retrieved_sources
+        if s.get("ref_type") == "jurisprudencia" and s.get("vvca", {}).get("rubro_mismatch")
+    )
+    tesis_rojas = tesis_no_encontradas + tesis_mismatch
+
+    # ── Veredicto binario — las tesis rojas son bloqueantes por sí solas
+    veredicto = veredicto_global(score_rag, score_sjf, tesis_rojas, tesis_total_invocadas)
+
+    all_scores = art_scores + jur_scores
+    verdes    = sum(1 for sc in all_scores if sc >= 85)
+    amarillos = sum(1 for sc in all_scores if 60 <= sc < 85)
+    rojos     = sum(1 for sc in all_scores if sc < 60) + tesis_no_encontradas
+
+    result = {
         "status": "ok",
         "total_references_found": len(refs),
         "verified": verified_count,
         "alerts_count": len(alerts),
         "cosine_threshold": COSINE_THRESHOLD,
         "vvca_summary": {
-            "verdes": verdes,
+            "score_rag":           score_rag,
+            "semaforo_rag":        vvca_semaforo(score_rag),
+            "articulos_ok":        len(art_scores),
+            "score_sjf":           score_sjf,
+            "semaforo_sjf":        vvca_semaforo(score_sjf),
+            "tesis_total":         tesis_total_invocadas,
+            "tesis_ok":            len(jur_scores) - tesis_mismatch,
+            "tesis_rojas":         tesis_rojas,
+            "tesis_mismatch":      tesis_mismatch,
+            "tesis_no_encontradas": tesis_no_encontradas,
+            "veredicto":           veredicto,
+            "verdes":   verdes,
             "amarillos": amarillos,
-            "rojos": rojos,
-            "score_promedio": score_prom,
-            "semaforo_global": vvca_semaforo(score_prom) if scores else "⬜",
+            "rojos":     rojos,
         },
         "alerts": alerts,
         "retrieved_sources": retrieved_sources,
         "summary": (
-            f"Auditoría VVCA completada: {verified_count} refs verificadas, "
-            f"{len(alerts)} alertas. "
-            f"Score global: {score_prom} {vvca_semaforo(score_prom) if scores else '⬜'}"
+            f"RAG {score_rag} {vvca_semaforo(score_rag)} "
+            f"({len(art_scores)} arts) · "
+            f"SJF {score_sjf} {vvca_semaforo(score_sjf)} "
+            f"({tesis_total_invocadas - tesis_rojas}/{tesis_total_invocadas} tesis ok)"
+            + (f" — {tesis_mismatch} rubro discrepante" if tesis_mismatch else "")
+            + (f", {tesis_no_encontradas} no encontradas" if tesis_no_encontradas else "")
+            + f" · Veredicto: {veredicto['semaforo']} {veredicto['razon']}"
         ),
     }
+    if corpus_warning:
+        result["corpus_warning"] = corpus_warning
+    return result
 
 
 # ─────────────────────────────────────────
@@ -924,7 +1066,7 @@ class OpenNotebook:
 
     Uso:
         from OpenNotebook_v2 import OpenNotebook
-        auditor = OpenNotebook(db_path=str(Path(__file__).parent / "chroma_db"))
+        auditor = OpenNotebook(db_path="./chroma_db/")
         result  = auditor.audit_draft("Art. 247 CPF establece...")
     """
 
@@ -939,13 +1081,13 @@ class OpenNotebook:
             self._embedder = get_embedder()
             self._collection = get_collection(self._embedder)
 
-    def audit_draft(self, text: str, verbose: bool = False) -> Dict:
+    def audit_draft(self, text: str, verbose: bool = False, allow_incomplete_corpus: bool = False) -> Dict:
         self._ensure_loaded()
-        return audit(text, verbose=verbose)
+        return audit(text, verbose=verbose, allow_incomplete_corpus=allow_incomplete_corpus)
 
-    def audit_file(self, path: str, verbose: bool = False) -> Dict:
+    def audit_file(self, path: str, verbose: bool = False, allow_incomplete_corpus: bool = False) -> Dict:
         self._ensure_loaded()
-        return audit(Path(path).read_text(encoding="utf-8"), verbose=verbose)
+        return audit(Path(path).read_text(encoding="utf-8"), verbose=verbose, allow_incomplete_corpus=allow_incomplete_corpus)
 
     def ingest_directory(self, directory: str, clear: bool = False, reingest: bool = False):
         ingest(directory, clear=clear, reingest=reingest)
@@ -1006,6 +1148,10 @@ Ejemplos:
     audit_parser.add_argument(
         "--format", choices=["json", "telegram"], default="json",
         help="Formato de salida: json (default) o telegram (bloque listo para Telegram)"
+    )
+    audit_parser.add_argument(
+        "--force", action="store_true",
+        help="Auditar aunque el corpus esté incompleto (incluye advertencia en el resultado)"
     )
 
     # Comando: correct — registrar corrección manual para calibración futura
@@ -1104,7 +1250,19 @@ Ejemplos:
             if len(draft_text) > 200_000:
                 print("⚠️  Texto muy largo — puede causar timeout en ChromaDB.", file=sys.stderr)
 
-        result = audit(draft_text, verbose=args.verbose)
+        result = audit(draft_text, verbose=args.verbose, allow_incomplete_corpus=args.force)
+
+        # ── Corpus incompleto: prompt interactivo o advertencia automática ────
+        if result.get("status") == "corpus_incomplete":
+            print(result["message"], file=sys.stderr)
+            interactive = sys.stdin.isatty() and not args.force
+            if interactive:
+                respuesta = input("\n¿Continuar auditoría con corpus parcial? (s/N): ").strip().lower()
+                if respuesta not in ("s", "si", "sí", "y", "yes"):
+                    print("Auditoría cancelada. Indexa las leyes faltantes y vuelve a intentarlo.")
+                    sys.exit(0)
+            # Continúa con advertencia (interactivo confirmó, o modo no-interactivo)
+            result = audit(draft_text, verbose=args.verbose, allow_incomplete_corpus=True)
 
         if args.format == "telegram":
             vs = result["vvca_summary"]
@@ -1125,6 +1283,9 @@ Ejemplos:
                 lines.append("")
                 for a in result["alerts"][:3]:
                     lines.append(f"⚠️ {a[:120]}")
+            if result.get("corpus_warning"):
+                lines.append("")
+                lines.append(f"⚠️ {result['corpus_warning']}")
             lines.append("")
             lines.append("🔗 Fuentes: sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx")
             print("\n".join(lines))
