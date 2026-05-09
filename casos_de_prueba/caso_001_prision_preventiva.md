@@ -19,20 +19,21 @@ completamente distintas (laboral, medio ambiente, interés legítimo).
 
 ---
 
-## Resultado de la auditoría
+## Resultado de la auditoría (v4 — arquitectura dual)
 
 ```
-Score GLOBAL:      0.0 / 100  →  🔴 USO PROCESAL PROHIBIDO
-Score normativa:   89.6  (25% del total)
-Score jurisprudencia: 0.0  (50% del total) ← 5/5 rubro falso
-Score estrategia:  75.0  (15% del total)
-Score auditabilidad: 60.0  (10% del total)
-Ponderado bruto:   39.65
-Penalización:      −45.0  (5/5 tesis = 100% → penalización máxima)
-Score final:       0.0
+NORMATIVA (RAG):       89.6 / 100  🟢   9/9 artículos ok
+JURISPRUDENCIA (SJF):   0.0 / 100  🔴   0/5 tesis correctas
+
+VEREDICTO:  🔴 NO APTO — USO PROCESAL PROHIBIDO
+Razón:      5/5 tesis con rubro discrepante — bloqueante
+Acción:     Sustituir tesis antes de cualquier uso procesal
 ```
 
-**Apto para uso procesal:** No
+**Apto para uso procesal:** No  
+**Decisión de arquitectura:** scores separados, no promediados. Las tesis rojas
+son bloqueantes por sí solas — una sola tesis falsa hace el veredicto NO APTO
+independientemente del score RAG.
 
 ---
 
