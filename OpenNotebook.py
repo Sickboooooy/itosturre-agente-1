@@ -1,6 +1,17 @@
 """
-OpenNotebook.py v3.1 — RAG Legal Itosturre
+OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
+
+Cambios v4.0:
+  ✅ Embeddings: migración multilingual-e5-small (384d) → jina-embeddings-v3 (1024d)
+     Task-specific encoding: retrieval.passage (ingest) / retrieval.query (búsqueda)
+     Requiere re-ingest completo del corpus tras actualizar.
+  ✅ Chunking inteligente por tipo de documento:
+     - Leyes/códigos: split en artículos (comportamiento anterior)
+     - Contratos: split en cláusulas (CLÁUSULA PRIMERA, SEGUNDA...)
+     - Resoluciones/sentencias: split en secciones (CONSIDERANDO, RESULTANDO...)
+     Prefijo de contexto inyectado en sub-chunks para mantener referencia al artículo/cláusula.
+     Max chunk size aumentado 1200 → 2000 chars. Metadata incluye doc_type.
 
 Cambios v3.1:
   ✅ Score compuesto ponderado (scoring_vvca.py) — normativa 25% + jurisprudencia 50%
@@ -73,7 +84,11 @@ JURISPRUDENCIA_PATH = os.getenv("JURISPRUDENCIA_PATH", str(_BASE_DIR / "jurispru
 INGEST_ALLOWED_BASE = os.getenv("INGEST_ALLOWED_BASE", str(_BASE_DIR))
 CORRECTIONS_FILE = os.getenv("CORRECTIONS_FILE", str(_BASE_DIR / "jurisprudencia" / "vvca_corrections.json"))
 COLLECTION_NAME = "corpus_legal_itosturre"
-EMBED_MODEL = "intfloat/multilingual-e5-small"
+EMBED_MODEL = "jinaai/jina-embeddings-v3"
+
+# Tamaño máximo de chunk antes de sub-dividir con el splitter de respaldo.
+# jina-v3 maneja hasta 8192 tokens (~32k chars); 2000 chars ≈ 500 tokens — bien dentro del límite.
+MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "2000"))
 
 # PDFs legales — excluir documentos personales y filenames con typos conocidos
 EXCLUDE_PATTERNS = [
@@ -271,8 +286,8 @@ LAW_SOURCE_MAP = {
 # NORMALIZACIÓN DE TEXTO LEGAL
 # ─────────────────────────────────────────
 
-# Expansión de acrónimos antes del embed — mejora recall en multilingual-e5-small,
-# que fue entrenado en web genérica y no distingue "CNPP" de ruido.
+# Expansión de acrónimos antes del embed — mejora recall aunque jina-v3 reconoce
+# mejor el dominio legal; la expansión ayuda en consultas muy cortas o mal formateadas.
 _LEGAL_NORMALIZER: List[Tuple[str, str]] = [
     (r'\bCPEUM\b',    'Constitución Política de los Estados Unidos Mexicanos'),
     (r'\bCNPP\b',     'Código Nacional de Procedimientos Penales'),
@@ -308,9 +323,8 @@ _NORMALIZER_COMPILED = [(re.compile(p), r) for p, r in _LEGAL_NORMALIZER]
 
 
 def normalize_legal_text(text: str) -> str:
-    """Expande acrónimos jurídicos antes de generar embeddings.
-    Mejora recall del e5-small que no reconoce siglas del derecho mexicano.
-    Solo se aplica a queries y texto de búsqueda — NO a los chunks del corpus.
+    """Expande acrónimos jurídicos antes de generar el query embedding.
+    Solo se aplica a queries — NO a los chunks del corpus.
     """
     for pattern, replacement in _NORMALIZER_COMPILED:
         text = pattern.sub(replacement, text)
@@ -327,8 +341,16 @@ def get_embedder():
     global _EMBEDDER_CACHE
     if _EMBEDDER_CACHE is None:
         logger.info(f"⏳ Cargando modelo de embeddings: {EMBED_MODEL}...")
-        _EMBEDDER_CACHE = SentenceTransformer(EMBED_MODEL)
+        # trust_remote_code=True requerido por jina-embeddings-v3
+        _EMBEDDER_CACHE = SentenceTransformer(EMBED_MODEL, trust_remote_code=True)
     return _EMBEDDER_CACHE
+
+
+def encode_query(text: str) -> List[float]:
+    """Codifica una query con task=retrieval.query (asimétrico, optimizado para búsqueda)."""
+    embedder = get_embedder()
+    vec = embedder.encode([text], task="retrieval.query", normalize_embeddings=True)
+    return vec[0].tolist()
 
 
 def get_collection(embedder):
@@ -340,13 +362,14 @@ def get_collection(embedder):
         def name(self):
             return "itosturre-st-embedder"
         def __call__(self, input):
-            return self.model.encode(input, normalize_embeddings=True).tolist()
+            # Usado por ChromaDB al indexar documentos → task passage
+            return self.model.encode(input, task="retrieval.passage", normalize_embeddings=True).tolist()
         def embed_documents(self, input):
-            return self.model.encode(input, normalize_embeddings=True).tolist()
+            return self.model.encode(input, task="retrieval.passage", normalize_embeddings=True).tolist()
         def embed_query(self, input):
             if isinstance(input, str):
                 input = [input]
-            return self.model.encode(input, normalize_embeddings=True).tolist()
+            return self.model.encode(input, task="retrieval.query", normalize_embeddings=True).tolist()
 
     ef = STEmbeddingFunction(embedder)
     collection = client.get_or_create_collection(
@@ -415,10 +438,47 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
     collection = get_collection(embedder)
 
     fallback_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
+        chunk_size=1500,
         chunk_overlap=200,
         separators=["\n\n", "\n", " "]
     )
+
+    # Patrones de split por tipo de documento
+    _SPLIT_PATTERNS = {
+        "ley":       re.compile(r'(?=\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+)', re.MULTILINE),
+        "contrato":  re.compile(r'(?=\n[Cc]l[áa]usula\s+(?:[A-ZÁÉÍÓÚa-záéíóú]+|\d+))', re.MULTILINE),
+        "resolucion": re.compile(
+            r'(?=\n(?:CONSIDERANDO|RESULTANDO|VISTOS|[A-ZÁÉÍÓÚ]{4,}[:\s]|'
+            r'[Pp]rimero[:\s]|[Ss]egundo[:\s]|[Tt]ercero[:\s]|[Cc]uarto[:\s]))',
+            re.MULTILINE
+        ),
+    }
+
+    def detect_doc_type(text: str) -> str:
+        sample = text[:3000]
+        art_count = len(re.findall(r'\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+', sample))
+        clause_count = len(re.findall(r'\n[Cc]l[áa]usula\s+\w+', sample))
+        section_count = len(re.findall(
+            r'\n(?:CONSIDERANDO|RESULTANDO|VISTOS)\b', sample
+        ))
+        if clause_count >= 2 and clause_count >= art_count:
+            return "contrato"
+        if section_count >= 2 and section_count >= art_count:
+            return "resolucion"
+        return "ley"
+
+    def extract_section_label(piece: str, doc_type: str) -> str:
+        """Extrae el encabezado de sección (Artículo N, Cláusula X, etc.)."""
+        if doc_type == "ley":
+            m = re.match(r'\s*[Aa]rt[íi]?(?:culo)?s?\.?\s+(\d+[\w\-]*)', piece)
+            return m.group(1) if m else ""
+        if doc_type == "contrato":
+            m = re.match(r'\s*[Cc]l[áa]usula\s+(\w+)', piece)
+            return m.group(1) if m else ""
+        if doc_type == "resolucion":
+            m = re.match(r'\s*([A-ZÁÉÍÓÚ][A-ZÁÉÍÓÚa-záéíóú\s]{2,30})[:\s]', piece)
+            return m.group(1).strip() if m else ""
+        return ""
 
     total_chunks = 0
     for pdf_path in pdfs:
@@ -429,23 +489,18 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
                 logger.warning(f"     ⚠️  Texto muy corto, omitiendo.")
                 continue
 
-            # Chunking cross-page: concatenar todo el texto antes de partir por artículo.
-            # El enfoque anterior (por página) cortaba artículos que cruzaban saltos de página,
-            # generando chunks incompletos sin número de artículo en la mitad del corpus.
-            art_split_re = re.compile(
-                r'(?=\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+)', re.MULTILINE
-            )
-
-            # Construir mapa char_offset → page_num para recuperar página tras concat
+            # Chunking cross-page: concatenar todo antes de partir.
+            # Evita cortar artículos/cláusulas que cruzan saltos de página.
             page_offsets: List[Tuple[int, int]] = []
             char_pos = 0
             full_parts: List[str] = []
             for p in pages:
                 page_offsets.append((char_pos, p["page"]))
                 full_parts.append(p["text"])
-                char_pos += len(p["text"]) + 2  # +2 por el separador \n\n
+                char_pos += len(p["text"]) + 2  # +2 por separador \n\n
 
             full_text = "\n\n".join(full_parts)
+            doc_type = detect_doc_type(full_text)
 
             def get_page_for_pos(pos: int) -> int:
                 page = page_offsets[0][1] if page_offsets else 1
@@ -456,8 +511,17 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
                         break
                 return page
 
-            # Encontrar límites de artículos como posiciones en el texto completo
-            boundaries = [m.start() for m in art_split_re.finditer(full_text)]
+            # Elegir patrón según tipo; si no produce suficientes splits, caer a "ley"
+            split_re = _SPLIT_PATTERNS.get(doc_type, _SPLIT_PATTERNS["ley"])
+            boundaries = [m.start() for m in split_re.finditer(full_text)]
+
+            # Fallback: si el patrón primario no encontró splits, intentar con "ley"
+            if len(boundaries) < 2 and doc_type != "ley":
+                split_re = _SPLIT_PATTERNS["ley"]
+                boundaries = [m.start() for m in split_re.finditer(full_text)]
+                if len(boundaries) >= 2:
+                    doc_type = "ley"
+
             if not boundaries or boundaries[0] > 0:
                 boundaries = [0] + boundaries
             boundaries.append(len(full_text))
@@ -469,17 +533,18 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
                     continue
 
                 page_num = get_page_for_pos(boundaries[i])
-                head_match = re.match(
-                    r'\s*[Aa]rt[íi]?(?:culo)?s?\.?\s+(\d+[\w\-]*)', piece
-                )
-                art_num = head_match.group(1) if head_match else ""
+                section_label = extract_section_label(piece, doc_type)
 
-                if len(piece) <= 1200:
-                    chunks_with_meta.append((piece, art_num, page_num))
+                if len(piece) <= MAX_CHUNK_SIZE:
+                    chunks_with_meta.append((piece, section_label, page_num))
                 else:
+                    # Sub-dividir chunks largos e inyectar el encabezado como prefijo
+                    # para que cada sub-chunk sea recuperable por artículo/cláusula.
+                    prefix = f"[{doc_type.upper()} {section_label}]\n" if section_label else ""
                     sub_chunks = fallback_splitter.split_text(piece)
                     for sc in sub_chunks:
-                        chunks_with_meta.append((sc.strip(), art_num, page_num))
+                        sc_text = (prefix + sc.strip()) if prefix else sc.strip()
+                        chunks_with_meta.append((sc_text, section_label, page_num))
 
             logger.info(f"     📄 {len(chunks_with_meta)} chunks generados")
 
@@ -488,16 +553,17 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
             for i in range(0, len(chunks_with_meta), batch_size):
                 batch = chunks_with_meta[i:i + batch_size]
                 texts = [c[0] for c in batch]
-                art_nums = [c[1] for c in batch]
+                section_labels = [c[1] for c in batch]
                 page_nums = [c[2] for c in batch]
                 ids = [f"{pdf_path.stem}_chunk_{i + j}" for j in range(len(batch))]
                 metadatas = [
                     {
                         "source": pdf_path.name,
                         "law": pdf_path.stem,
-                        "article": art_nums[j],
+                        "article": section_labels[j],
                         "page": str(page_nums[j]),
-                        "chunk_index": str(i + j)
+                        "chunk_index": str(i + j),
+                        "doc_type": doc_type,
                     }
                     for j in range(len(batch))
                 ]
@@ -883,14 +949,18 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
             where_filter = {"source": expected_source} if expected_source else None
 
             try:
+                # Usar query_embeddings con task=retrieval.query para encoding asimétrico
                 results = collection.query(
-                    query_texts=[query],
+                    query_embeddings=[encode_query(query)],
                     n_results=3,
                     where=where_filter
                 )
             except Exception:
                 # where_filter puede fallar si la fuente no existe en el corpus
-                results = collection.query(query_texts=[query], n_results=3)
+                results = collection.query(
+                    query_embeddings=[encode_query(query)],
+                    n_results=3
+                )
                 expected_source = None
 
             if results and results["documents"] and results["documents"][0]:
