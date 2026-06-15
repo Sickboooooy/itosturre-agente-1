@@ -254,7 +254,7 @@ OpenNotebook funciona mejor con Claude Code porque puede usar IA para verificar 
 
 **Durante el curso (junio 2026):**
 - 💬 Pregunta en clase o en Telegram
-- 📧 despachos-gdl@itosturre.com
+- 📧 licjorgefab@itosturre.com
 
 **Después del curso:**
 - 🔗 https://itosturre.com
