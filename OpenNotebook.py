@@ -84,7 +84,7 @@ JURISPRUDENCIA_PATH = os.getenv("JURISPRUDENCIA_PATH", str(_BASE_DIR / "jurispru
 INGEST_ALLOWED_BASE = os.getenv("INGEST_ALLOWED_BASE", str(_BASE_DIR))
 CORRECTIONS_FILE = os.getenv("CORRECTIONS_FILE", str(_BASE_DIR / "jurisprudencia" / "vvca_corrections.json"))
 COLLECTION_NAME = "corpus_legal_itosturre"
-EMBED_MODEL = "jinaai/jina-embeddings-v3"
+EMBED_MODEL = "intfloat/multilingual-e5-large"
 
 # Tamaño máximo de chunk antes de sub-dividir con el splitter de respaldo.
 # jina-v3 maneja hasta 8192 tokens (~32k chars); 2000 chars ≈ 500 tokens — bien dentro del límite.
@@ -92,9 +92,19 @@ MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "2000"))
 
 # PDFs legales — excluir documentos personales y filenames con typos conocidos
 EXCLUDE_PATTERNS = [
-    "ActaNacimiento", "Chapter_1es", "CONSIGNA", "Bloc de notas",
+    # Documentos personales
+    "ActaNacimiento", "CURP", "EdoCta",
+    # Documentos de cliente (no leyes)
+    "Reest_FOVISSSTE", "ESCRITO FOVISSSTE", "INTERRUPCION DE PAGO",
+    # Marketing / internos
+    "20_prompts_juridicos", "itosturre_lead_magnet",
+    # Tesis SJF (van por ruta jurisprudencia, no corpus)
+    "listado-de-tesis",
+    # Archivos no legales
+    "Chapter_1es", "CONSIGNA", "Bloc de notas",
     "Battlefield", "Marvel", "FrameView", "SOFÍA", "desktop",
-    "EXTINSION",   # typo — usar versión EXTINCION en /jurisprudencia/nuevas_leyes/
+    # Typos y duplicados
+    "EXTINSION",               # typo — usar LEY NACIONAL EXTINSION ya corregida
     "codigo_civil_de_jalisco_1",  # duplicado de Codigo-Civil-del-Estado-de-Jalisco_3
 ]
 
@@ -341,15 +351,14 @@ def get_embedder():
     global _EMBEDDER_CACHE
     if _EMBEDDER_CACHE is None:
         logger.info(f"⏳ Cargando modelo de embeddings: {EMBED_MODEL}...")
-        # trust_remote_code=True requerido por jina-embeddings-v3
-        _EMBEDDER_CACHE = SentenceTransformer(EMBED_MODEL, trust_remote_code=True)
+        _EMBEDDER_CACHE = SentenceTransformer(EMBED_MODEL)
     return _EMBEDDER_CACHE
 
 
 def encode_query(text: str) -> List[float]:
-    """Codifica una query con task=retrieval.query (asimétrico, optimizado para búsqueda)."""
+    """Codifica una query con prefijo e5 'query: ' para búsqueda asimétrica."""
     embedder = get_embedder()
-    vec = embedder.encode([text], task="retrieval.query", normalize_embeddings=True)
+    vec = embedder.encode(["query: " + text], normalize_embeddings=True)
     return vec[0].tolist()
 
 
@@ -362,14 +371,14 @@ def get_collection(embedder):
         def name(self):
             return "itosturre-st-embedder"
         def __call__(self, input):
-            # Usado por ChromaDB al indexar documentos → task passage
-            return self.model.encode(input, task="retrieval.passage", normalize_embeddings=True).tolist()
+            # Usado por ChromaDB al indexar documentos — prefijo e5 'passage: '
+            return self.model.encode(["passage: " + t for t in input], normalize_embeddings=True).tolist()
         def embed_documents(self, input):
-            return self.model.encode(input, task="retrieval.passage", normalize_embeddings=True).tolist()
+            return self.model.encode(["passage: " + t for t in input], normalize_embeddings=True).tolist()
         def embed_query(self, input):
             if isinstance(input, str):
                 input = [input]
-            return self.model.encode(input, task="retrieval.query", normalize_embeddings=True).tolist()
+            return self.model.encode(["query: " + t for t in input], normalize_embeddings=True).tolist()
 
     ef = STEmbeddingFunction(embedder)
     collection = client.get_or_create_collection(
