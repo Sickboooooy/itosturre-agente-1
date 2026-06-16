@@ -1,7 +1,9 @@
 # PoC LinkedIn Prospector (browser-use self-hosted con Claude)
-# Recomendado: venv con Python 3.12 (browser-use puede no traer wheels para 3.14 aún)
+# Recomendado: venv con Python 3.12 (browser-use puede no traer wheels para 3.14 aún;
+# en este equipo 3.14 funcionó con browser-use 0.13.1)
 browser-use>=0.13
 python-dotenv>=1.0
+notion-client>=2.0          # push de prospectos al CRM (to_notion.py)
 # Nota: usa el Chrome del sistema (Browser.from_system_chrome), no requiere
 # 'playwright install chromium'. Si falla, instala el navegador con:
 #   python -m playwright install chromium
