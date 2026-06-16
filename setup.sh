@@ -65,7 +65,7 @@ echo -e "${AMARILLO}[3/7] Creando entorno virtual Python...${RESET}"
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip -q
-pip install -r requirements_opennotebook.txt -q
+pip install -r requirements.txt -q
 pip install playwright -q
 playwright install chromium --with-deps -q
 

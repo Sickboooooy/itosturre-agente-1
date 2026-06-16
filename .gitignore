@@ -52,5 +52,8 @@ debug/
 chroma_db/
 .chroma/
 
+# Jurisprudencia (datos pesados — correcciones VVCA y caché de tesis)
+jurisprudencia/
+
 # Corpus (too large — use Google Drive link)
 corpus/*.pdf

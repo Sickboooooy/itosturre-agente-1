@@ -242,7 +242,7 @@ npm install
 - Que estén en la carpeta `corpus/`
 - Intenta reingestar:
 ```bash
-python opennotebook.py ingest --directory corpus/
+python OpenNotebook.py ingest --directory corpus/
 ```
 
 ### "¿Por qué me pide Claude Code?"

@@ -2,7 +2,7 @@
 sjf_capturas.py — Captura de pantalla de tesis SJF para PDF de auditoría.
 
 Uso standalone:
-    source /home/licjo/venv/bin/activate
+    source venv/bin/activate   # o venv\\Scripts\\activate en Windows
     python3 sjf_capturas.py 2030595 2030570 2027948
 
 Uso como módulo:
@@ -15,8 +15,15 @@ import os
 from pathlib import Path
 from typing import Optional
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 SJF_BASE = "https://sjf2.scjn.gob.mx/detalle/tesis/{registro}"
-CAPTURAS_DIR = Path("/home/licjo/jurisprudencia/capturas")
+_BASE_DIR = Path(__file__).parent
+CAPTURAS_DIR = Path(os.getenv("JURISPRUDENCIA_PATH", str(_BASE_DIR / "jurisprudencia"))) / "capturas"
 
 
 async def _tomar_captura(registro: str, output_path: Path) -> bool:
@@ -51,7 +58,7 @@ def capturar_tesis(registros: list[str], directorio: Optional[Path] = None) -> d
 
     Args:
         registros: Lista de números de registro (ej. ["2030595", "2030570"])
-        directorio: Carpeta de destino. Por defecto: /home/licjo/jurisprudencia/capturas/
+        directorio: Carpeta de destino. Por defecto: <JURISPRUDENCIA_PATH>/capturas/
 
     Returns:
         Dict {registro: ruta_imagen} — solo los exitosos.

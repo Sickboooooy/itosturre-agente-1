@@ -1,3 +1,4 @@
+# OBSOLETO — usar requirements.txt en la raíz del proyecto. No usar.
 # OpenNotebook v2.0 — Dependencias Python
 
 # Core RAG

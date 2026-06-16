@@ -1,3 +1,4 @@
+# OBSOLETO — usar la v4.0 en la raíz del proyecto. No ejecutar.
 """
 OpenNotebook.py v2.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones para escritos jurídicos.

@@ -9,8 +9,9 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT, TA_JUSTIFY
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate
+from pathlib import Path
 
-OUTPUT = "/home/licjo/juicios/expedientes/heliox_auditoria_2024_TJAEJ_00891.pdf"
+OUTPUT = str(Path(__file__).parent / "heliox_auditoria_2024_TJAEJ_00891.pdf")
 
 # ── Colores corporativos Itosturre ────────────────────────────────────────────
 AZUL_OSCURO  = colors.HexColor("#0D1F3C")
@@ -361,7 +362,7 @@ story.append(Paragraph(
 # ── ANEXO — Capturas SJF (regla Itosturre: top 5 por VVCA) ───────────────────
 # Los registros se capturan en orden descendente de score VVCA.
 # Máximo 5 capturas por auditoría (política definida en CLAUDE.md).
-import sys; sys.path.insert(0, "/home/licjo/juicios")
+import sys; sys.path.insert(0, str(Path(__file__).parent))
 from sjf_capturas import capturar_tesis, agregar_capturas_al_pdf
 
 TESIS_AUDITORIA = [

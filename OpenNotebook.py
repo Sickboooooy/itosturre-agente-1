@@ -899,7 +899,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     if not chroma_path.exists():
         return {
             "status": "error",
-            "message": "Base vectorial no encontrada. Ejecuta primero: python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/",
+            "message": "Base vectorial no encontrada. Ejecuta primero: python OpenNotebook.py ingest --directory /ruta/pdfs/",
             "alerts": [],
             "retrieved_sources": []
         }
@@ -1143,10 +1143,10 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
 
 class OpenNotebook:
     """
-    Interfaz de clase para el auditor RAG v2.0.
+    Interfaz de clase para el auditor RAG v4.0.
 
     Uso:
-        from OpenNotebook_v2 import OpenNotebook
+        from OpenNotebook import OpenNotebook
         auditor = OpenNotebook(db_path="./chroma_db/")
         result  = auditor.audit_draft("Art. 247 CPF establece...")
     """
@@ -1186,15 +1186,15 @@ def main():
         sys.stderr.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(
-        description="OpenNotebook v2.0 — RAG Legal Itosturre",
+        description="OpenNotebook v4.0 — RAG Legal Itosturre",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos:
-  python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/
-  python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/ --clear
-  python OpenNotebook_v2.0.py ingest --directory /ruta/pdfs/ --reingest
-  python OpenNotebook_v2.0.py audit --text "Art. 247 CPF establece..."
-  python OpenNotebook_v2.0.py audit --file borrador.md --verbose
+  python OpenNotebook.py ingest --directory /ruta/pdfs/
+  python OpenNotebook.py ingest --directory /ruta/pdfs/ --clear
+  python OpenNotebook.py ingest --directory /ruta/pdfs/ --reingest
+  python OpenNotebook.py audit --text "Art. 247 CPF establece..."
+  python OpenNotebook.py audit --file borrador.md --verbose
         """
     )
     subparsers = parser.add_subparsers(dest="command")
