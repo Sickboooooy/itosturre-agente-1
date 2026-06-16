@@ -57,3 +57,9 @@ jurisprudencia/
 
 # Corpus (too large — use Google Drive link)
 corpus/*.pdf
+
+# Auditorías: work product con datos personales/de cliente — NO versionar
+auditorias/
+
+# Backups locales
+*.bak

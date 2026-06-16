@@ -108,6 +108,8 @@ EXCLUDE_PATTERNS = [
     # Typos y duplicados
     "EXTINSION",               # typo — usar LEY NACIONAL EXTINSION ya corregida
     "codigo_civil_de_jalisco_1",  # duplicado de Codigo-Civil-del-Estado-de-Jalisco_3
+    # Fuera de jurisdicción (contaminaban casos de Jalisco por similitud de nº de artículo)
+    "NUEVO LEON", "NUEVO LEÓN",
 ]
 
 # Threshold de distancia coseno: por debajo → verificado; por encima → alerta.
@@ -199,7 +201,6 @@ LAW_SOURCE_MAP = {
     "código nacional de procedimientos civiles": "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf",
     "código nacional de procedimientos penales": "CodigoNacionalProcedPenales.pdf",
     "código civil federal": "CODIGO CIVIL FEDERAL 2026.pdf",
-    "código civil para el estado de nuevo": "CODIGO CIVIL PARA EL ESTADO DE NUEVO LEON 2026.pdf",
     "código civil del estado de jalisco": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf",
     "código de procedimientos civiles del estado de jalisco": "CodigoProcedimientosCivilesEstadoJalisco.pdf",
     "código fiscal de la federación": "CODIGO FISCAL DE LA FEDERACION 2026.pdf",
