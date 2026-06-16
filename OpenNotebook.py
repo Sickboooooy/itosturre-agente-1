@@ -3,21 +3,23 @@ OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
 Cambios v4.0:
-  ✅ Embeddings: migración multilingual-e5-small (384d) → jina-embeddings-v3 (1024d)
-     Task-specific encoding: retrieval.passage (ingest) / retrieval.query (búsqueda)
-     Requiere re-ingest completo del corpus tras actualizar.
+  ✅ Embeddings: migración multilingual-e5-small (384d) → multilingual-e5-large (1024d)
+     Encoding asimétrico e5 vía prefijos de texto: "passage: " al indexar (ingest),
+     "query: " al buscar (encode_query / comando query). Requiere re-ingest completo
+     del corpus tras actualizar el modelo.
   ✅ Chunking inteligente por tipo de documento:
      - Leyes/códigos: split en artículos (comportamiento anterior)
      - Contratos: split en cláusulas (CLÁUSULA PRIMERA, SEGUNDA...)
      - Resoluciones/sentencias: split en secciones (CONSIDERANDO, RESULTANDO...)
      Prefijo de contexto inyectado en sub-chunks para mantener referencia al artículo/cláusula.
      Max chunk size aumentado 1200 → 2000 chars. Metadata incluye doc_type.
-
-Cambios v3.1:
-  ✅ Score compuesto ponderado (scoring_vvca.py) — normativa 25% + jurisprudencia 50%
-     + estrategia 15% + auditabilidad 10%. Penalización -45 si 5/5 tesis falsas.
-  ✅ retrieved_sources incluye campo "ref_type" ("normativa"/"jurisprudencia")
-  ✅ vvca_summary incluye score_global, score_normativa, score_jurisprudencia, apto_para_uso_procesal
+  ✅ Scoring rediseñado (scoring_vvca.py) — dos scores independientes sin promediar:
+     score_rag (artículos vs. corpus ChromaDB) y score_sjf (tesis vs. SJF en tiempo real).
+     Veredicto global binario con razón explícita (no es un número compuesto):
+     cualquier tesis con rubro discrepante bloquea el veredicto (🔴), independiente del RAG.
+  ✅ vvca_summary incluye score_rag, semaforo_rag, score_sjf, semaforo_sjf, veredicto,
+     verdes/amarillos/rojos. (Ya no existen score_global/score_promedio/semaforo_global
+     ni el score compuesto ponderado de versiones anteriores de este docstring.)
 
 Cambios v3.0:
   ✅ Semáforo VVCA por referencia (score 0-100, 🟢🟡🔴)
@@ -43,7 +45,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 
-from scoring_vvca import semaforo as vvca_semaforo_global, veredicto_global
+from scoring_vvca import veredicto_global
 
 import fitz  # PyMuPDF
 import chromadb
@@ -1179,6 +1181,10 @@ class OpenNotebook:
 # ─────────────────────────────────────────
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
     parser = argparse.ArgumentParser(
         description="OpenNotebook v2.0 — RAG Legal Itosturre",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1301,7 +1307,7 @@ Ejemplos:
         embedder = get_embedder()
         col = get_collection(embedder)
         query_norm = normalize_legal_text(args.texto)
-        results = col.query(query_texts=[query_norm], n_results=args.n, include=["documents", "metadatas", "distances"])
+        results = col.query(query_embeddings=[encode_query(query_norm)], n_results=args.n, include=["documents", "metadatas", "distances"])
         print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {args.n} resultados\n")
         for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
             score = round((1 - dist) * 100)
@@ -1347,8 +1353,9 @@ Ejemplos:
             vs = result["vvca_summary"]
             lines = [
                 f"📋 <b>Auditoría VVCA</b> · {result['total_references_found']} refs · {result['alerts_count']} alertas",
-                f"Score global: {vs['score_promedio']} {vs['semaforo_global']}"
-                f"  🟢{vs['verdes']} 🟡{vs['amarillos']} 🔴{vs['rojos']}",
+                f"RAG: {vs['score_rag']} {vs['semaforo_rag']} · SJF: {vs['score_sjf']} {vs['semaforo_sjf']}"
+                f"  🟢{vs['verdes']} 🟡{vs['amarillos']} 🔴{vs['rojos']}"
+                f"  · Veredicto: {vs['veredicto']['semaforo']} {vs['veredicto']['razon']}",
                 "",
             ]
             for s in result["retrieved_sources"]:

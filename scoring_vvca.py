@@ -12,16 +12,6 @@ no un número compuesto. Las tesis rojas son bloqueantes por sí solas.
 from __future__ import annotations
 
 
-def semaforo(score: float) -> str:
-    if score >= 85:
-        return "🟢"
-    if score >= 70:
-        return "🟡"
-    if score >= 50:
-        return "🟠"
-    return "🔴"
-
-
 def veredicto_global(
     score_rag: float,
     score_sjf: float,
