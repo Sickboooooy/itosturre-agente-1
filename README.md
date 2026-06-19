@@ -59,22 +59,26 @@ pip install -r requirements.txt
 > El modelo de embeddings `intfloat/multilingual-e5-large` (~2 GB) se descarga solo la
 > primera vez que corres un `ingest` o un `audit`.
 
-## 📥 Paso 3 — Corpus legal
+## 📥 Paso 3 — Corpus legal (un solo comando)
 
-El corpus (PDFs de leyes y códigos) **no viaja en el repo** por tamaño. Pídelo a tu
-instructor (enlace de Drive) y descomprímelo en una carpeta, p. ej. `corpus/`.
+El corpus (PDFs de leyes y códigos) y la base vectorial `chroma_db/` **no viajan en el
+repo** por tamaño. El script de bootstrap los baja del Drive compartido, los indexa y
+verifica la cobertura:
 
-Luego **indéxalo** en la base vectorial:
+```bash
+bash scripts/bootstrap_corpus.sh
+```
+
+Esto deja el RAG funcionando. Carpeta del corpus (públicas, "anyone with the link"):
+<https://drive.google.com/drive/folders/1VS_LwlQXMCLfh5YA_nnxXzzQ_xuHkdtf>
+
+**Manual** (si prefieres): descarga los PDFs del Drive a `corpus/` y luego:
 ```bash
 python OpenNotebook.py ingest --directory corpus/
-```
-
-**Verifica la cobertura** (que las leyes que el sistema dice conocer estén indexadas):
-```bash
 python scripts/check_corpus.py
 ```
-Debe terminar en `🟢 Cobertura completa: 0 fuentes ausentes`. Si lista faltantes,
-indéxalas antes de auditar — auditar sin el corpus completo degrada la verificación.
+La verificación debe terminar en `🟢 Cobertura completa: 0 fuentes ausentes`. Si lista
+faltantes, indéxalas antes de auditar — auditar sin el corpus completo degrada la verificación.
 
 ## ✅ Paso 4 — Herramientas Node (scraper SJF, opcional)
 
