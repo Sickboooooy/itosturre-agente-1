@@ -2,8 +2,13 @@
 scoring_vvca.py — Validación VVCA para documentos legales Itosturre.
 
 Dos scores independientes (no promediados):
-  - score_rag:  validación ESTÁTICA  — artículos contra corpus ChromaDB
-  - score_sjf:  validación DINÁMICA  — tesis contra SJF en tiempo real
+  - score_rag:  artículos citados contra el corpus de leyes (ChromaDB)
+  - score_sjf:  tesis CITADAS en el documento contra el corpus local de jurisprudencia
+                (detección de citas falsas/discrepantes — anti-alucinación)
+
+NOTA: el scraper SJF en vivo (services/itosturre-scraper/vvca_audit.ts) es una
+herramienta ESTRATÉGICA aparte — consulta el SJF en tiempo real para comparar y proponer
+tesis que refuercen la planeación legal; NO alimenta este veredicto de citas.
 
 El veredicto global es una decisión binaria con razón explícita,
 no un número compuesto.

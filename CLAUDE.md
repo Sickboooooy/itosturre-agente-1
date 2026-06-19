@@ -458,11 +458,16 @@ ls -la auditorias/
 corpus RAG: `python OpenNotebook.py audit --file <archivo>` (o `vvca_full.py`). Si el corpus no
 lo tiene → `[VERIFICAR EN DOF: dof.gob.mx]`.
 
-**Regla 3 — Verificación en cascada** (mayor a menor confianza):
+**Regla 3 — Dos funciones distintas (no confundir):**
 ```
-SJF en vivo (scraper)  →  Corpus ChromaDB (leyes indexadas)  →  Conocimiento del modelo
-                                                                  (SOLO estructura, nunca citas exactas)
+VERIFICAR CITAS (audit, anti-alucinación)        BÚSQUEDA ESTRATÉGICA (scraper, en vivo)
+  Artículos citados  → Corpus ChromaDB             vvca_audit.ts → SJF en vivo (sjf2)
+  Tesis citadas      → Corpus de jurisprudencia    compara y PROPONE tesis para reforzar
+  (NO inventar; si falta → [VERIFICAR EN DOF/SJF]) la estrategia (no alimenta el veredicto de citas)
 ```
+Confianza para CITAS (mayor a menor): corpus indexado → conocimiento del modelo
+(SOLO estructura, nunca citas exactas). El SJF en vivo es para **mejorar la planeación**,
+no para verificar las citas del documento.
 
 **Regla 4 — Semáforo obligatorio en cualquier cita:**
 ```
@@ -477,8 +482,9 @@ pérdida de instancia, nulidad o prescripción → DETENER, marcar `🚨 ALERTA 
 confirmación explícita antes de continuar.
 
 **Regla 6 — Distinción obligatoria:** `[J]` Jurisprudencia (obligatoria, art. 217 LA) ·
-`[TA]` Tesis aislada (orientadora) · `[PR]` Pleno Regional (obligatoria en su circuito) ·
-`[SCJN-I]` Precedente SCJN (importancia/trascendencia).
+`[TA]` Tesis aislada (orientadora). El auditor automático (`build_vvca_tesis`) hoy clasifica
+solo estas dos. `[PR]` Pleno Regional (obligatoria en su circuito) y `[SCJN-I]` Precedente
+SCJN (importancia/trascendencia) se distinguen **manualmente** por ahora (roadmap del clasificador).
 
 ---
 
