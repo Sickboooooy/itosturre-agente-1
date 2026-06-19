@@ -63,3 +63,7 @@ auditorias/
 
 # Backups locales
 *.bak
+
+# Casos con datos de cliente real — NO versionar (regla #8 CLAUDE.md)
+casos_de_prueba/*aaron*
+casos_de_prueba/*Aaron*

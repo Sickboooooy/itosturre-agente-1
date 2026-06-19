@@ -102,6 +102,8 @@ EXCLUDE_PATTERNS = [
     "20_prompts_juridicos", "itosturre_lead_magnet",
     # Tesis SJF (van por ruta jurisprudencia, no corpus)
     "listado-de-tesis",
+    "FOVISSSTE_Tesis",   # compilación de tesis — NO es ley; va por jurisprudencia, no corpus
+    "_Tesis_Completas",  # cualquier compilación *_Tesis_Completas no es ordenamiento
     # Archivos no legales
     "Chapter_1es", "CONSIGNA", "Bloc de notas",
     "Battlefield", "Marvel", "FrameView", "SOFÍA", "desktop",
@@ -113,8 +115,10 @@ EXCLUDE_PATTERNS = [
 ]
 
 # Threshold de distancia coseno: por debajo → verificado; por encima → alerta.
-# 0.50 = conservador para texto legal mexicano
-COSINE_THRESHOLD = float(os.getenv("COSINE_THRESHOLD", "0.50"))
+# e5-large normalizado: distancia coseno = 1 − similitud. Pares legales relevantes
+# quedan en similitud 0.75-0.90 → distancia 0.10-0.25. Usar 0.25 es el punto de
+# corte calibrado; 0.50 era laxo (aceptaba similitud 0.50 = texto mediocre).
+COSINE_THRESHOLD = float(os.getenv("COSINE_THRESHOLD", "0.25"))
 
 # Regex robusto para artículos legales. Captura:
 #   Art. 247  /  artículo 247  /  arts. 247-250  /  Art. 247 Bis
@@ -134,7 +138,7 @@ ARTICLE_RE = re.compile(
 # Abreviaciones → nombre normalizado del ordenamiento.
 LAW_ALIASES = {
     # Constitución
-    "CPEUM": "Código Constitución Política de los Estados Unidos Mexicanos",
+    "CPEUM": "Constitución Política de los Estados Unidos Mexicanos",
     "Constitución": "Constitución Política de los Estados Unidos Mexicanos",
     "Carta Magna": "Constitución Política de los Estados Unidos Mexicanos",
     "Constitucional": "Constitución Política de los Estados Unidos Mexicanos",
@@ -193,6 +197,26 @@ LAW_ALIASES = {
     "Ley General de Víctimas": "Ley General de Víctimas",
     "LNEP": "Ley Nacional de Ejecución Penal",
     "Ejecución Penal": "Ley Nacional de Ejecución Penal",
+    # Reforma judicial y carrera judicial 2024
+    "LCJ": "Ley de Carrera Judicial",
+    "Carrera Judicial": "Ley de Carrera Judicial",
+    "Ley de Carrera Judicial": "Ley de Carrera Judicial",
+    # Seguridad social / vivienda
+    "ISSSTE": "Ley del ISSSTE",
+    "Ley del ISSSTE": "Ley del ISSSTE",
+    "FOVISSSTE": "Ley del ISSSTE",   # Fondo de vivienda del ISSSTE — art. 167-ss dentro de la Ley del ISSSTE
+    "INFONAVIT": "Ley del INFONAVIT",
+    "LINFONAVIT": "Ley del INFONAVIT",
+    "Ley del INFONAVIT": "Ley del INFONAVIT",
+    # Laboral burocrático
+    "LFTSE": "Ley Federal de Trabajadores al Servicio del Estado",
+    "Ley Federal de Trabajadores al Servicio del Estado": "Ley Federal de Trabajadores al Servicio del Estado",
+    # Derechos de infancia
+    "LGDNNA": "Ley General de Derechos de Niñas, Niños y Adolescentes",
+    "Ley General de Derechos de Niñas": "Ley General de Derechos de Niñas, Niños y Adolescentes",
+    "CDN": "Convención sobre los Derechos del Niño",
+    "Convención sobre los Derechos del Niño": "Convención sobre los Derechos del Niño",
+    "Derechos del Niño": "Convención sobre los Derechos del Niño",
 }
 
 # Mapeo de palabras clave de ley (minúsculas) → nombre exacto del archivo en ChromaDB
@@ -273,6 +297,29 @@ LAW_SOURCE_MAP = {
     "código penal de jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
     "código civil del estado de jalisco": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf",
     "código nacional de procedimientos penales": "CodigoNacionalProcedPenales.pdf",
+    # Reforma judicial 2024
+    "ley de carrera judicial": "LEY DE CARRERA JUDICIAL 2024.pdf",
+    "carrera judicial": "LEY DE CARRERA JUDICIAL 2024.pdf",
+    "lcj": "LEY DE CARRERA JUDICIAL 2024.pdf",
+    # Seguridad social / vivienda
+    "ley del issste": "LEY DEL ISSSTE 2026.pdf",
+    "issste": "LEY DEL ISSSTE 2026.pdf",
+    "fovissste": "LEY DEL ISSSTE 2026.pdf",   # FOVISSSTE es el fondo de vivienda del ISSSTE (cap. VII)
+    "ley del infonavit": "Ley del INFONAVIT 2026.pdf",
+    "infonavit": "Ley del INFONAVIT 2026.pdf",
+    "linfonavit": "Ley del INFONAVIT 2026.pdf",
+    # Laboral burocrático
+    "ley federal de trabajadores al servicio del estado": "Ley Federal de Trabajadores al Servicio del Estado 2026.pdf",
+    "lftse": "Ley Federal de Trabajadores al Servicio del Estado 2026.pdf",
+    # Derechos de infancia
+    "ley general de derechos de niñas": "Ley General de Derechos de Niñas, Niños y Adolescentes 2026.pdf",
+    "ley general de derechos de ninas": "Ley General de Derechos de Niñas, Niños y Adolescentes 2026.pdf",
+    "lgdnna": "Ley General de Derechos de Niñas, Niños y Adolescentes 2026.pdf",
+    "convención sobre los derechos del niño": "Convención sobre los Derechos del Niño.pdf",
+    "convencion sobre los derechos del nino": "Convención sobre los Derechos del Niño.pdf",
+    "cdn": "Convención sobre los Derechos del Niño.pdf",
+    "derechos del niño": "Convención sobre los Derechos del Niño.pdf",
+    "derechos del nino": "Convención sobre los Derechos del Niño.pdf",
     # Nuevas leyes indexadas mayo 2026
     "convención americana": "Convencion Americana sobre Derechos Humanos.pdf",
     "cadh": "Convencion Americana sobre Derechos Humanos.pdf",
@@ -325,7 +372,15 @@ _LEGAL_NORMALIZER: List[Tuple[str, str]] = [
     (r'\bLNED\b',     'Ley Nacional de Extinción de Dominio'),
     (r'\bLGV\b',      'Ley General de Víctimas'),
     (r'\bLNEP\b',     'Ley Nacional de Ejecución Penal'),
-    (r'\bTJAJ\b',     'Tribunal de Justicia Administrativa de Jalisco'),
+    (r'\bLCJ\b',      'Ley de Carrera Judicial'),
+    (r'\bISSTE\b',    'Ley del ISSSTE'),
+    (r'\bINFONAVIT\b','Ley del INFONAVIT'),
+    (r'\bFOVISSSTE\b','Ley del ISSSTE'),
+    (r'\bLFTSE\b',    'Ley Federal de Trabajadores al Servicio del Estado'),
+    (r'\bLGDNNA\b',   'Ley General de Derechos de Niñas Niños y Adolescentes'),
+    (r'\bCDN\b',      'Convención sobre los Derechos del Niño'),
+    # TJAJ expande a nombre de la LEY, no del órgano, para que matchee LAW_SOURCE_MAP
+    (r'\bTJAJ\b',     'Ley de Justicia Administrativa del Estado de Jalisco'),
     (r'\bSCJN\b',     'Suprema Corte de Justicia de la Nación'),
     (r'\bTCC\b',      'Tribunal Colegiado de Circuito'),
     (r'\bPJF\b',      'Poder Judicial Federal'),
@@ -638,6 +693,32 @@ def resolve_law_source(context: str) -> Tuple[Optional[str], Optional[str]]:
     return (best_key, best_file)
 
 
+def resolve_law_source_backward(context_before: str) -> Tuple[Optional[str], Optional[str]]:
+    """Busca el alias de ley MÁS CERCANO al final del texto (el más próximo antes del
+    artículo). Maneja el patrón legal de agrupar artículos bajo un encabezado de ley:
+
+        ### A. Orden constitucional mexicano (CPEUM)
+        - Art. 16 — ...
+        - Art. 19 — ...
+
+    donde la ley vive en el encabezado, fuera de la ventana local del artículo.
+    A igualdad de posición gana el alias más largo (más específico).
+    """
+    ctx = context_before.lower()
+    best_key = None
+    best_file = None
+    best_pos = -1
+    for key, source_file in LAW_SOURCE_MAP.items():
+        pos = ctx.rfind(key)
+        if pos == -1:
+            continue
+        if pos > best_pos or (pos == best_pos and len(key) > (len(best_key or ""))):
+            best_pos = pos
+            best_key = key
+            best_file = source_file
+    return (best_key, best_file)
+
+
 def extract_references(text: str) -> List[Dict]:
     """Extrae referencias a artículos y jurisprudencias del borrador."""
     refs = []
@@ -674,12 +755,23 @@ def extract_references(text: str) -> List[Dict]:
                 if law_name:
                     break
 
+        # 3. Sticky-law (último recurso): artículo agrupado bajo un encabezado de ley.
+        #    Busca la ley del encabezado más cercano hacia atrás (≤600 chars). Se marca
+        #    law_inferred=True para auditabilidad — resuelve por sección, no por adyacencia.
+        law_inferred = False
+        if not law_name:
+            before_ctx = text[max(0, m.start() - 600): m.start()]
+            law_name, source_file = resolve_law_source_backward(before_ctx)
+            if law_name:
+                law_inferred = True
+
         refs.append({
             "type": "article",
             "article": art_num,
             "fraction": frac,
             "law": law_name or "desconocido",
             "source_file": source_file,
+            "law_inferred": law_inferred,
             "raw": m.group(0).strip()
         })
 
@@ -830,7 +922,7 @@ def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
         kw_invocado = _rubro_keywords(rubro_invocado)
         if kw_real and kw_invocado:
             overlap = len(kw_real & kw_invocado) / min(len(kw_real), len(kw_invocado))
-            rubro_mismatch = overlap < 0.20  # < 20% de palabras en común → tesis equivocada
+            rubro_mismatch = overlap < 0.40  # < 40% de palabras en común → tesis equivocada
 
     if rubro_mismatch:
         score = 0  # Registro real con rubro falso es más peligroso que uno inexistente
@@ -960,6 +1052,19 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
             expected_source = ref.get("source_file")
             where_filter = {"source": expected_source} if expected_source else None
 
+            # Guard P0 (anti-falso-🔴): si la ley fue identificada pero su PDF NO está
+            # indexado en el corpus, esto NO es una alucinación — el corpus simplemente no
+            # la contiene. Marcar 🟡 NO VERIFICABLE en vez de dejar que caiga al else de
+            # "no encontrado / alucinación detectada", que tacharía de falsa una cita válida
+            # (p. ej. LGV/PIDCP en el caso Aaron García).
+            if expected_source and expected_source in missing_sources:
+                alerts.append(
+                    f"🟡 NO VERIFICABLE: '{ref['raw']}' — la ley '{expected_source}' no está "
+                    f"indexada en el corpus. NO es alucinación: el corpus no la contiene. "
+                    f"Indexar la ley o verificar en fuente oficial antes de citar."
+                )
+                continue
+
             try:
                 # Usar query_embeddings con task=retrieval.query para encoding asimétrico
                 results = collection.query(
@@ -1004,6 +1109,15 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                         f"Posible alucinación. Verificar en fuente oficial."
                     )
                 else:
+                    # Guard P0 (anti-falso-🟢): si el contexto no nombró la ley, el match
+                    # es solo por número de artículo y pudo caer en otro ordenamiento.
+                    # No bloquear, pero advertir explícitamente — no dar 🟢 ciego.
+                    if not expected_source:
+                        alerts.append(
+                            f"🟡 LEY NO IDENTIFICADA: '{ref['raw']}' — coincidencia por número "
+                            f"de artículo contra '{best_source}'. El contexto no nombró el "
+                            f"ordenamiento; verificar que sea la ley correcta antes de citar."
+                        )
                     retrieved_sources.append({
                         "reference": ref["raw"],
                         "law": ref["law"],
@@ -1012,6 +1126,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                         "source_file": best_source,
                         "page": best_meta.get("page", "?"),
                         "expected_source": expected_source,
+                        "law_inferred": ref.get("law_inferred", False),
                         "relevance_score": round(1 - best_distance, 3),
                         "retrieved_text": best_doc[:600],
                         "vvca": vvca,
@@ -1092,7 +1207,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     tesis_rojas = tesis_no_encontradas + tesis_mismatch
 
     # ── Veredicto binario — las tesis rojas son bloqueantes por sí solas
-    veredicto = veredicto_global(score_rag, score_sjf, tesis_rojas, tesis_total_invocadas)
+    veredicto = veredicto_global(score_rag, score_sjf, tesis_mismatch, tesis_no_encontradas, tesis_total_invocadas)
 
     all_scores = art_scores + jur_scores
     verdes    = sum(1 for sc in all_scores if sc >= 85)
