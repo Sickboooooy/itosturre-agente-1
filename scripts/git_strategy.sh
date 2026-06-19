@@ -36,6 +36,7 @@ case "$step" in
     # cliente real — esos van en commits aparte o se mantienen fuera de git).
     git add .gitignore OpenNotebook.py scoring_vvca.py vvca_full.py \
             scripts/check_corpus.py scripts/git_strategy.sh scripts/bootstrap_corpus.sh \
+            scripts/run_regression.py \
             README.md CONTRIBUTING.md CLAUDE.md docs/PROTOCOLO_VVCA.md
     echo "── Cambios a commitear (scopeados al P0): ──"
     git status --short
