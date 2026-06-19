@@ -1,302 +1,193 @@
-# ⚖️ Agente Itosturre — Auditoría Legal Automática
+# ⚖️ Agente Itosturre — Auditoría Legal Anti-Alucinaciones
 
-Herramienta para auditar tus demandas, escritos y conceptos de impugnación **en segundos** usando IA.
+Herramienta para auditar demandas, escritos y conceptos de impugnación con IA bajo el
+**Protocolo VVCA** (Verificación · Validación · Contextualización · Auditabilidad), sobre
+un corpus legal mexicano indexado localmente.
 
 ✨ **Qué hace:**
-- 🔍 Verifica que tus citas legales sean correctas
-- 📚 Busca jurisprudencia de la Suprema Corte de Justicia
-- 📄 Genera reportes en PDF con análisis completo
+- 🔍 Verifica cada cita de artículo contra el corpus oficial (RAG sobre ChromaDB)
+- 🚦 Asigna un semáforo VVCA (🟢/🟡/🔴) por referencia, con razón explícita
+- 📚 Verifica tesis/jurisprudencia contra el SJF en tiempo real (scraper)
+- 🧾 Deja el material listo para un reporte (Word con capturas SJF + RAG)
 
-Hecha por [**Itosturre LegalTech**](https://itosturre.com) para el curso "IA Estratégica para Abogados" (junio 2026).
+Hecha por [**Itosturre LegalTech**](https://itosturre.com) para el curso
+"IA Estratégica para Abogados" (junio 2026).
+
+> ⚠️ **El Protocolo Anti-Alucinación es innegociable.** La herramienta nunca inventa
+> número de tesis, registro SJF, época o localización. Si una cita no se puede verificar,
+> lo dice — no la maquilla. La validación final corresponde a un abogado humano.
 
 ---
 
-## 📋 Requisitos (¿Qué necesito instalar?)
+## 📋 Requisitos
 
-Antes de empezar, necesitas tres cosas. Si ya las tienes, sáltate este paso:
+| | Versión | Descarga |
+|---|---|---|
+| Python | 3.10+ (este equipo usa el global 3.14, sin venv) | https://www.python.org/downloads/ |
+| Node.js | 18+ (solo para el scraper SJF) | https://nodejs.org/ |
 
-✅ **Python 3.10+** — [Descargar](https://www.python.org/downloads/)  
-✅ **Node.js 18+** — [Descargar](https://nodejs.org/)  
-✅ **Claude Code** — [Instalar](https://claude.com/claude-code) (es gratis)
-
-**¿Cómo sé si ya lo tengo?** Abre tu terminal/PowerShell y corre:
+Verifica lo que ya tienes:
 ```bash
 python --version
 node --version
 ```
 
-Si te muestra un número, ¡ya lo tienes! 👍
-
 ---
 
-## 🚀 Paso 1: Descargar el repositorio
+## 🚀 Paso 1 — Clonar el repositorio
 
-**Opción A — Por terminal (recomendado):**
 ```bash
 git clone https://github.com/Sickboooooy/itosturre-agente.git
 cd itosturre-agente
 ```
 
-**Opción B — Descargarlo como ZIP:**
-1. Ve a https://github.com/Sickboooooy/itosturre-agente
-2. Haz clic en **Code** → **Download ZIP**
-3. Descomprime en tu computadora
-4. Abre terminal en esa carpeta
+## 📦 Paso 2 — Entorno Python
 
----
-
-## 📦 Paso 2: Preparar el entorno Python
-
-Esto crea un "entorno virtual" donde viven todas tus herramientas sin contaminarte la compu.
-
-**En Windows (PowerShell):**
-```bash
+**Windows (PowerShell):**
+```powershell
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-**En Mac/Linux:**
+**Mac/Linux:**
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-✅ Cuando veas `(venv)` al inicio de tu terminal, ¡está activado!
+> El modelo de embeddings `intfloat/multilingual-e5-large` (~2 GB) se descarga solo la
+> primera vez que corres un `ingest` o un `audit`.
 
----
+## 📥 Paso 3 — Corpus legal (un solo comando)
 
-## 📥 Paso 3: Descargar el corpus legal
-
-Necesitas los **38 PDFs** de leyes y jurisprudencia. Sin esto, la herramienta no funciona.
-
-### 3a. Descarga desde Google Drive
-📥 **[Corpus Legal Itosturre](ENLACE_DRIVE_AQUI)**
-
-### 3b. Extrae en la carpeta correcta
-Descomprime los PDFs en la carpeta `corpus/`:
-
-```
-Tu carpeta itosturre-agente/
-├── opennotebook.py
-├── scraper_sjf.ts
-├── corpus/
-│   ├── codigo_civil_federal.pdf
-│   ├── ley_federal_trabajo.pdf
-│   ├── codigo_penal_federal.pdf
-│   └── [35 más PDFs aquí]
-└── ...
-```
-
----
-
-## ✅ Paso 4: Instalar herramientas Node (para buscar jurisprudencia)
-
-Ahora instala las librerías de Node (el scraper que busca en la Suprema Corte):
+El corpus (PDFs de leyes y códigos) y la base vectorial `chroma_db/` **no viajan en el
+repo** por tamaño. El script de bootstrap los baja del Drive compartido, los indexa y
+verifica la cobertura:
 
 ```bash
-npm install
+bash scripts/bootstrap_corpus.sh
 ```
 
-Espera a que termine. Verás una línea que dice `added X packages`.
+Esto deja el RAG funcionando. Carpeta del corpus (públicas, "anyone with the link"):
+<https://drive.google.com/drive/folders/1VS_LwlQXMCLfh5YA_nnxXzzQ_xuHkdtf>
 
----
-
-## 🎯 ¿YA ESTOY LISTO?
-
-Verifica que todo funciona. Corre esto:
-
-```bash
-python opennotebook.py --version
-```
-
-Si ves un número de versión, ¡**¡¡LISTO!!** 🎉
-
----
-
-## 💼 AHORA SÍ: Cómo usar la herramienta
-
-### Opción A: 🔍 Auditar tu demanda/escrito
-
-Tienes un archivo `mi_demanda.md` (Word convertido a texto, o cualquier archivo).
-
-**Paso:**
-```bash
-python opennotebook.py audit --file mi_demanda.md
-```
-
-**¿Qué pasa?**
-- ✅ Lee tu demanda
-- ✅ Verifica cada cita de ley
-- ✅ Te muestra un **score VVCA** (0–100)
-  - 🟢 **85+** = Bueno, cita seguro
-  - 🟡 **60–84** = Ten cuidado, verifica
-  - 🔴 **<60** = No confíes, investiga más
-
-**Ejemplo de output:**
-```json
-{
-  "score": 82,
-  "estatus": "amarillo",
-  "artículos_verificados": [
-    {"artículo": "Art. 388 CCF", "score": 0.95, "estatus": "✅"},
-    {"artículo": "Art. 51 LFPCA", "score": 0.88, "estatus": "✅"}
-  ],
-  "alertas": []
-}
-```
-
----
-
-### Opción B: 📚 Buscar jurisprudencia de la Suprema Corte
-
-**Quieres encontrar una tesis sobre un tema específico.**
-
-**Paso 1 — Búsqueda simple:**
-```bash
-npx ts-node scraper_sjf.ts "pensión alimenticia"
-```
-
-Reemplaza `"pensión alimenticia"` por tu tema.
-
-**Paso 2 — Búsqueda múltiple (3+ temas):**
-
-Edita el archivo `scraper_batch.ts` y agrega tus temas:
-```typescript
-const TERMINOS = [
-  "pensión alimenticia",
-  "incapacidad temporal",
-  "divorcio necesario"
-];
-```
-
-Luego corre:
-```bash
-npx ts-node scraper_batch.ts
-```
-
-**¿Qué obtienes?**
-- 📋 Número de registro SJF
-- 📖 Texto completo de la tesis
-- 📅 Fecha de la jurisprudencia
-- 🏛️ Tribunal que la emitió
-
-Resultado guardado en `tesis_final.json`.
-
----
-
-### Opción C: 📄 Generar PDF con auditoría completa
-
-**Quieres un reporte bonito para el cliente o para llevar al tribunal.**
-
-```bash
-python generar_pdf_auditoria.py --draft mi_demanda.md --output auditoria.pdf
-```
-
-**¿Qué incluye el PDF?**
-- ✅ Análisis de cada artículo citado
-- ✅ Score VVCA con semáforo (🟢🟡🔴)
-- ✅ Jurisprudencia relevante (top 5)
-- ✅ Recomendaciones de cambios
-- ✅ Anexo con capturas de SJF
-
----
-
-## 📚 Flujo del Curso (Sesiones 3-4, junio 2026)
-
-### 📅 Sesión 3 (18 junio — Instalación)
-1. Clonas el repo
-2. Corres Paso 1 → Paso 4 (arriba)
-3. Verificas que todo funciona (Paso 4)
-4. Preguntas si algo falla → resolvemos juntos
-
-### 📅 Sesión 4 (25 junio — Caso real)
-1. Traes una demanda tuya (o inventada)
-2. La conviertes a `.md` o `.txt`
-3. Corres: `python opennotebook.py audit --file tu_archivo.md`
-4. Interpretas el score VVCA
-5. Generas PDF: `python generar_pdf_auditoria.py --draft tu_archivo.md --output resultado.pdf`
-6. Lo envías al cliente o lo archivas
-
----
-
-## ⚠️ Si algo falla...
-
-### "No encuentra OpenNotebook"
-```bash
-# Asegúrate de activar el entorno:
-source venv/bin/activate  # Mac/Linux
-.\venv\Scripts\activate   # Windows
-```
-
-### "Error de Playwright/Chromium"
-```bash
-# Instala el navegador:
-npx playwright install chromium
-npm install
-```
-
-### "Corpus no encontrado"
-- Verifica que descargaste los PDFs
-- Que estén en la carpeta `corpus/`
-- Intenta reingestar:
+**Manual** (si prefieres): descarga los PDFs del Drive a `corpus/` y luego:
 ```bash
 python OpenNotebook.py ingest --directory corpus/
+python scripts/check_corpus.py
 ```
+La verificación debe terminar en `🟢 Cobertura completa: 0 fuentes ausentes`. Si lista
+faltantes, indéxalas antes de auditar — auditar sin el corpus completo degrada la verificación.
 
-### "¿Por qué me pide Claude Code?"
-OpenNotebook funciona mejor con Claude Code porque puede usar IA para verificar citas. Si no tienes Claude Code, aún funciona, pero menos potente.
+## ✅ Paso 4 — Herramientas Node (scraper SJF, opcional)
+
+```bash
+cd services/itosturre-scraper && npm install && npx playwright install chromium && cd ../..
+```
 
 ---
 
-## 📞 Soporte & Preguntas
+## 💼 Cómo usar la herramienta
 
-**Durante el curso (junio 2026):**
-- 💬 Pregunta en clase o en Telegram
-- 📧 licjorgefab@itosturre.com
+### A) 🔍 Auditar un escrito
 
-**Después del curso:**
-- 🔗 https://itosturre.com
-- 📱 @itosclaude_bot (Telegram)
+```bash
+python OpenNotebook.py audit --file mi_demanda.md
+# salida lista para Telegram:
+python OpenNotebook.py audit --file mi_demanda.md --format telegram
+```
+
+Lee el JSON: cada referencia trae su `vvca` con **score 0–100** y semáforo:
+
+| Semáforo | Score | Acción |
+|---|---|---|
+| 🟢 | ≥85 | Citar con seguridad |
+| 🟡 | 60–84 | Citar con reserva — verificar |
+| 🔴 | <60 | No citar — investigar |
+
+El campo `vvca_summary.veredicto` da una **decisión binaria con razón**: una tesis con
+rubro discrepante bloquea el veredicto (🔴) por sí sola, sin importar el RAG. Si el corpus
+no contiene una ley citada, el sistema lo marca **🟡 NO VERIFICABLE** (no la tacha de
+alucinación) y te pide indexarla o verificar en fuente oficial.
+
+> Si auditas con `--force` y el corpus está incompleto, el resultado incluye
+> `corpus_warning` con las leyes no verificadas.
+
+### B) 📚 Buscar / verificar jurisprudencia en el SJF
+
+```bash
+cd services/itosturre-scraper
+npx ts-node --esm vvca_audit.ts --out <dir_expediente> --contexto caso.json 2024783 2003551
+```
+Con `--contexto caso.json` evalúa la relevancia de cada tesis al caso, descarta las
+inaplicables y busca alternativas de oficio. Resultado en `<dir_expediente>/auditoria_vvca.json`
++ capturas `sjf_<registro>.png`.
+
+### C) 🧩 Pipeline completo (recomendado)
+
+`vvca_full.py` orquesta todo con rutas parametrizadas (sin editar scripts por caso):
+```bash
+python vvca_full.py --caso auditorias/2026-06-18-MI-CASO \
+    --borrador mi_demanda.md \
+    --contexto caso.json --registros 2024783 2003551
+```
+Hace: gate de cobertura → audit RAG → scraper SJF → capturas RAG → `vvca_full.json`
+consolidado. (El `.docx` final sigue siendo un paso manual por caso.)
+
+---
+
+## 🧠 Búsqueda semántica directa
+
+```bash
+python OpenNotebook.py query "prisión preventiva oficiosa CNPP" --n 5
+```
+
+---
+
+## ⚠️ Si algo falla
+
+| Síntoma | Solución |
+|---|---|
+| "Base vectorial no encontrada" | Corre primero `python OpenNotebook.py ingest --directory corpus/` |
+| "corpus_incomplete" | Indexa las leyes que liste, o añade `--force` para auditar con advertencia |
+| Emojis rotos / `charmap codec` | La consola fuerza UTF-8 sola; si persiste, usa Windows Terminal |
+| Error de Playwright/Chromium | `cd services/itosturre-scraper && npx playwright install chromium` |
+| `check_corpus.py` lista faltantes | Re-indexa esas leyes desde su PDF oficial |
+
+---
+
+## 📂 Estructura real
+
+```
+itosturre-agente/
+├── OpenNotebook.py            # Motor RAG + auditoría VVCA (CLI: ingest/audit/query/correct/calibrate)
+├── scoring_vvca.py            # Veredicto binario VVCA (dos scores independientes)
+├── vvca_full.py              # Pipeline unificado parametrizado
+├── capturar_rag.py           # Screenshots de chunks RAG para el reporte
+├── scripts/
+│   ├── check_corpus.py       # Verificador de cobertura del corpus
+│   └── git_strategy.sh       # Disciplina de ramas (0=rama 1=commit 2=push 3=merge)
+├── services/itosturre-scraper/  # Scraper SJF (TypeScript/Playwright)
+├── chroma_db/                # Base vectorial (generada por ingest — no se versiona)
+└── docs/PROTOCOLO_VVCA.md    # Especificación del scoring y los guards
+```
 
 ---
 
 ## ⚖️ Aviso Legal
 
-Esta herramienta es **educativa**. Úsala para aprender, no para reemplazar tu juicio legal.
+Herramienta de **apoyo** a la verificación. **Tú** eres responsable de los escritos que
+presentes. Verifica toda cita en fuentes oficiales antes de uso procesal:
+sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx.
 
-**Responsabilidad:** Tú eres responsable de las demandas que presentes. OpenNotebook te ayuda a verificar, pero la decisión final es tuya.
-
-**Licencia:** Uso educativo. No comercial.
+**Licencia:** uso educativo, no comercial.
 
 ---
 
 ## 👥 Equipo
 
-**Fundadores:**
-
-🏛️ **Lic. Jorge Fabián Martínez Sánchez** — Director Legal & IA  
-*25 años de experiencia en Poder Judicial Federal*
-
-💻 **Ing. Aldo Guillermo Madrigal** — CTO & Lead Developer  
-*Especialista en Backend y Sistemas Distribuidos*
-
----
+🏛️ **Lic. Jorge Fabián Martínez Sánchez** — Director Legal & IA · 25 años en el Poder Judicial Federal
+💻 **Ing. Aldo Guillermo Madrigal** — CTO & Lead Developer
 
 **Itosturre LegalTech © 2026.** Hecho con ⚖️ y ❤️.
-
----
-
-## 🚦 Estado actual
-
-✅ OpenNotebook — RAG auditoría  
-✅ SJF Scraper — Búsqueda jurisprudencia  
-✅ PDF Generator — Reportes ejecutivos  
-✅ Docs — Listo para alumnos  
-
-🚀 **Lista para el curso junio 2026.**
-
----
-
-**¿Preguntas? Pregunta en clase. ¡Nos vemos en la sesión 3!** 👨‍⚖️👩‍⚖️
