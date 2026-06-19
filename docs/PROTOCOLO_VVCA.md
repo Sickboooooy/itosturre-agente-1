@@ -39,6 +39,9 @@ Reglas en orden de precedencia:
 
 1. `tesis_discrepantes > 0` → **🔴 bloqueante** — registro real con rubro que NO coincide con
    el invocado (alucinación o cita maliciosa). USO PROCESAL PROHIBIDO.
+   *Criterio:* se marca discrepante cuando el solapamiento de palabras clave (>4 chars) entre
+   el rubro real y el invocado es **< 40%** (`OpenNotebook.py`, `build_vvca_tesis`). Es el
+   umbral del 🔴 bloqueante — el más fuerte del sistema; ajustarlo con cuidado.
 2. `tesis_no_encontradas > 0` → **🟡** — ausentes del corpus local; *no confirmadas como falsas*
    (el corpus puede estar incompleto).
 3. `score_rag < 70` → **🟡** — artículos con verificación insuficiente.
@@ -71,9 +74,15 @@ Comportamiento al auditar (`audit()`):
   "alucinación": el corpus simplemente no la contiene. (Guard P0 — antes producía un falso 🔴
   que tachaba de falsa una cita válida, p. ej. LGV/PIDCP.)
 - **Artículo sin ley identificable** (ni siquiera por sticky-law) que igual hace match por
-  número → `🟡 LEY NO IDENTIFICADA`, nunca 🟢 ciego. (Guard P0 — antes un "Art. 5" suelto
-  podía matchear el Art. 5 de cualquier código y pasar verde.)
+  número → `🟡 LEY NO IDENTIFICADA`, nunca 🟢 ciego. El score del propio source se **capa a
+  84** (🟡) en `build_vvca` para que el semáforo tampoco quede verde. (Guard P0 — antes un
+  "Art. 5" suelto podía matchear el Art. 5 de cualquier código y pasar verde.)
+- **Tesis citada no encontrada** en el corpus local → `🟡 NO VERIFICABLE` (no confirmada
+  falsa); cuenta en `amarillos`, no en `rojos`, coherente con el veredicto.
 - **No encontrado con la fuente esperada** → 🔴 alerta crítica (posible alucinación).
+
+> El guard 🟡 NO VERIFICABLE para una ley ausente solo se ejerce con `--force`; sin `--force`
+> la auditoría se **detiene** antes con `status: corpus_incomplete` (ver §5).
 
 ## 5. Cobertura del corpus
 

@@ -6,8 +6,9 @@ un corpus legal mexicano indexado localmente.
 
 ✨ **Qué hace:**
 - 🔍 Verifica cada cita de artículo contra el corpus oficial (RAG sobre ChromaDB)
+- 📚 Verifica las tesis/jurisprudencia **citadas** en el documento contra el corpus de jurisprudencia (anti-alucinación)
 - 🚦 Asigna un semáforo VVCA (🟢/🟡/🔴) por referencia, con razón explícita
-- 📚 Verifica tesis/jurisprudencia contra el SJF en tiempo real (scraper)
+- 🔭 Scraper SJF en vivo (aparte): consulta el SJF en tiempo real para **comparar y proponer** tesis que refuercen la estrategia
 - 🧾 Deja el material listo para un reporte (Word con capturas SJF + RAG)
 
 Hecha por [**Itosturre LegalTech**](https://itosturre.com) para el curso
@@ -166,9 +167,11 @@ itosturre-agente/
 ├── vvca_full.py              # Pipeline unificado parametrizado
 ├── capturar_rag.py           # Screenshots de chunks RAG para el reporte
 ├── scripts/
+│   ├── bootstrap_corpus.sh   # Descarga el corpus del Drive + ingest + verifica (onboarding)
 │   ├── check_corpus.py       # Verificador de cobertura del corpus
+│   ├── run_regression.py     # Suite de regresión VVCA (gate pre-merge)
 │   └── git_strategy.sh       # Disciplina de ramas (0=rama 1=commit 2=push 3=merge)
-├── services/itosturre-scraper/  # Scraper SJF (TypeScript/Playwright)
+├── services/itosturre-scraper/  # Scraper SJF en vivo — búsqueda estratégica (TS/Playwright)
 ├── chroma_db/                # Base vectorial (generada por ingest — no se versiona)
 └── docs/PROTOCOLO_VVCA.md    # Especificación del scoring y los guards
 ```

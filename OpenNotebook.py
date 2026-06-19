@@ -14,7 +14,8 @@ Cambios v4.0:
      Prefijo de contexto inyectado en sub-chunks para mantener referencia al artículo/cláusula.
      Max chunk size aumentado 1200 → 2000 chars. Metadata incluye doc_type.
   ✅ Scoring rediseñado (scoring_vvca.py) — dos scores independientes sin promediar:
-     score_rag (artículos vs. corpus ChromaDB) y score_sjf (tesis vs. SJF en tiempo real).
+     score_rag (artículos vs. corpus ChromaDB) y score_sjf (tesis CITADAS vs. corpus
+     local de jurisprudencia; el scraper SJF en vivo es una herramienta estratégica aparte).
      Veredicto global binario con razón explícita (no es un número compuesto):
      cualquier tesis con rubro discrepante bloquea el veredicto (🔴), independiente del RAG.
   ✅ vvca_summary incluye score_rag, semaforo_rag, score_sjf, semaforo_sjf, veredicto,
@@ -861,9 +862,12 @@ def build_vvca(
     source_match: bool,
     source_file: str,
     page: str,
-    retrieved_text: str,
 ) -> Dict:
     score = vvca_score(distance, source_match, has_source_file=bool(ref.get("source_file")))
+    # Anti-falso-🟢: sin ley identificada en el contexto el match es solo por número de
+    # artículo; no dar verde aunque la distancia sea baja — capar a 🟡 (84).
+    if not ref.get("source_file"):
+        score = min(score, 84)
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
     art = ref.get("article", "?")
@@ -1027,7 +1031,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     f"⚠️  Corpus incompleto: {len(missing_sources)} ley(es) referenciada(s) "
                     f"no están indexadas en ChromaDB.\n"
                     + "\n".join(f"  • {s}" for s in missing_sources)
-                    + "\n\nIndexar primero: python OpenNotebook.py ingest /ruta/corpus/\n"
+                    + "\n\nIndexar primero: python OpenNotebook.py ingest --directory /ruta/corpus/\n"
                     "O continuar con: --force (el resultado incluirá advertencia)."
                 ),
                 "alerts": [],
@@ -1093,7 +1097,6 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     source_match=source_match,
                     source_file=best_source,
                     page=best_meta.get("page", "?"),
-                    retrieved_text=best_doc,
                 )
 
                 if not source_match and best_distance <= COSINE_THRESHOLD:
@@ -1178,8 +1181,8 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
 
             if not found_in_tesis:
                 alerts.append(
-                    f"⚠️  ALERTA (🔴 score 30): Registro digital {ref['registro']} "
-                    f"no encontrado en corpus de jurisprudencia local. "
+                    f"🟡 NO VERIFICABLE: Registro digital {ref['registro']} "
+                    f"no encontrado en el corpus de jurisprudencia local (no confirmado como falso). "
                     f"Verificar en sjf2.scjn.gob.mx antes de citar."
                 )
 
@@ -1211,8 +1214,10 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
 
     all_scores = art_scores + jur_scores
     verdes    = sum(1 for sc in all_scores if sc >= 85)
-    amarillos = sum(1 for sc in all_scores if 60 <= sc < 85)
-    rojos     = sum(1 for sc in all_scores if sc < 60) + tesis_no_encontradas
+    # Tesis no encontrada = 🟡 (corpus incompleto, no confirmada falsa) — coherente con
+    # veredicto_global; NO va al bucket rojo.
+    amarillos = sum(1 for sc in all_scores if 60 <= sc < 85) + tesis_no_encontradas
+    rojos     = sum(1 for sc in all_scores if sc < 60)
 
     result = {
         "status": "ok",
