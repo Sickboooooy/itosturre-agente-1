@@ -81,11 +81,17 @@ python scripts/check_corpus.py
 La verificación debe terminar en `🟢 Cobertura completa: 0 fuentes ausentes`. Si lista
 faltantes, indéxalas antes de auditar — auditar sin el corpus completo degrada la verificación.
 
-## ✅ Paso 4 — Herramientas Node (scraper SJF, opcional)
+## ✅ Paso 4 — Scraper SJF (submódulo, opcional)
+
+El scraper SJF vive en su propio repo como **submódulo** (`services/itosturre-scraper`). Si
+clonaste sin `--recursive`, inicialízalo primero:
 
 ```bash
+git submodule update --init --recursive
 cd services/itosturre-scraper && npm install && npx playwright install chromium && cd ../..
 ```
+
+> Tip: clona el repo con `git clone --recursive ...` para traer el submódulo de una vez.
 
 ---
 
