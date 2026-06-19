@@ -1,0 +1,3 @@
+[submodule "services/itosturre-scraper"]
+	path = services/itosturre-scraper
+	url = https://github.com/Sickboooooy/itosturre-scraper.git
