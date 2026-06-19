@@ -89,7 +89,7 @@ COLLECTION_NAME = "corpus_legal_itosturre"
 EMBED_MODEL = "intfloat/multilingual-e5-large"
 
 # Tamaño máximo de chunk antes de sub-dividir con el splitter de respaldo.
-# jina-v3 maneja hasta 8192 tokens (~32k chars); 2000 chars ≈ 500 tokens — bien dentro del límite.
+# e5-large trunca a 512 tokens de secuencia; 2000 chars ≈ 500 tokens — justo dentro del límite.
 MAX_CHUNK_SIZE = int(os.getenv("MAX_CHUNK_SIZE", "2000"))
 
 # PDFs legales — excluir documentos personales y filenames con typos conocidos
@@ -108,7 +108,7 @@ EXCLUDE_PATTERNS = [
     "Chapter_1es", "CONSIGNA", "Bloc de notas",
     "Battlefield", "Marvel", "FrameView", "SOFÍA", "desktop",
     # Typos y duplicados
-    "EXTINSION",               # typo — usar LEY NACIONAL EXTINSION ya corregida
+    "EXTINSION",               # typo de filename — el correcto es "...EXTINCION..."; excluye copias mal nombradas
     "codigo_civil_de_jalisco_1",  # duplicado de Codigo-Civil-del-Estado-de-Jalisco_3
     # Fuera de jurisdicción (contaminaban casos de Jalisco por similitud de nº de artículo)
     "NUEVO LEON", "NUEVO LEÓN",
@@ -346,8 +346,8 @@ LAW_SOURCE_MAP = {
 # NORMALIZACIÓN DE TEXTO LEGAL
 # ─────────────────────────────────────────
 
-# Expansión de acrónimos antes del embed — mejora recall aunque jina-v3 reconoce
-# mejor el dominio legal; la expansión ayuda en consultas muy cortas o mal formateadas.
+# Expansión de acrónimos antes del embed — mejora recall; e5-large es multilingüe pero
+# genérico, así que la expansión ayuda sobre todo en consultas cortas o mal formateadas.
 _LEGAL_NORMALIZER: List[Tuple[str, str]] = [
     (r'\bCPEUM\b',    'Constitución Política de los Estados Unidos Mexicanos'),
     (r'\bCNPP\b',     'Código Nacional de Procedimientos Penales'),
@@ -1046,7 +1046,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                 query_raw += f" fracción {ref['fraction']}"
             if ref["law"] and ref["law"] != "desconocido":
                 query_raw += f" {ref['law']}"
-            # Normalizar acrónimos para mejorar recall en e5-small
+            # Normalizar acrónimos para mejorar recall en e5-large
             query = normalize_legal_text(query_raw)
 
             expected_source = ref.get("source_file")

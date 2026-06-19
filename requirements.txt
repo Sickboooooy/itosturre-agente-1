@@ -1,14 +1,16 @@
-# Auditoría Legal — OpenNotebook + PDF Generator
+# Auditoría Legal Itosturre — RAG (OpenNotebook) + scraper SJF
 # Python 3.10+
 
 # RAG & LLM
 chromadb>=1.5.5
 anthropic>=0.49.0
 sentence-transformers>=2.7.0
-# jina-embeddings-v3 se descarga automáticamente via sentence-transformers
-# Requiere trust_remote_code=True — ver get_embedder() en OpenNotebook.py
+# Modelo: intfloat/multilingual-e5-large (1024d). Se descarga solo en el primer
+# ingest/audit. Encoding asimétrico e5: prefijos "passage:" (ingest) / "query:"
+# (búsqueda). Sin trust_remote_code. Ver get_embedder() en OpenNotebook.py.
 
-# PDF Generation
+# PDF — solo para el generador legacy en services/itosturre-wa/juicios/ (el entregable
+# canónico es Word con capturas, no PDF). pillow lo usa también capturar_rag.py.
 reportlab>=4.4.10
 pypdf>=4.3.0
 pillow>=12.1.0
