@@ -33,6 +33,10 @@ yarn-debug.log*
 yarn-error.log*
 
 
+# Dev Container — NO ignorar .devcontainer/ (queremos versionar la config)
+# Sí ignorar el caché local del modelo HF si alguien lo descargó fuera del volumen
+.cache/huggingface/
+
 # IDE
 .vscode/
 .idea/
