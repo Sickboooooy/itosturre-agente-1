@@ -1,0 +1,69 @@
+{
+  "name": "Itosturre Legal Agent",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+
+  // Node 20 LTS como feature — no contamina el Dockerfile
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" }
+  },
+
+  // Volumen nombrado para el modelo HuggingFace (~560 MB).
+  // Sin esto el modelo se re-descarga en cada rebuild.
+  "mounts": [
+    "source=itosturre-hf-cache,target=/root/.cache/huggingface,type=volume"
+  ],
+
+  // Variables que resuelven los problemas de encoding de Windows de una vez por todas.
+  // CHROMA_PATH apunta dentro del workspace (ya montado por VS Code).
+  "remoteEnv": {
+    "PYTHONIOENCODING": "utf-8",
+    "PYTHONUTF8": "1",
+    "CHROMA_PATH": "/workspaces/itosturre-agente/chroma_db",
+    "HF_HOME": "/root/.cache/huggingface"
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance",
+        "ms-python.debugpy",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "ms-vscode.vscode-typescript-next",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "eamodio.gitlens"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.terminal.activateEnvironment": false,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.python"
+        },
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.env.linux": {
+          "PYTHONIOENCODING": "utf-8",
+          "PYTHONUTF8": "1"
+        },
+        "files.encoding": "utf8",
+        "files.eol": "\n"
+      }
+    }
+  },
+
+  // Reenviar puertos de servicios locales si los levantas dentro del contenedor
+  "forwardPorts": [8080, 5678, 5680],
+  "portsAttributes": {
+    "8080": { "label": "itosturre-core API" },
+    "5678": { "label": "n8n UI" },
+    "5680": { "label": "Bridge HTTP" }
+  }
+}
