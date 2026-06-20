@@ -1329,38 +1329,15 @@ class OpenNotebook:
             print(json.dumps(result_list, ensure_ascii=False, indent=2))
         return result_list
 
-# Convenience wrapper for programmatic query
-def OpenNotebook(text: str, n: int = 5, law: Optional[str] = None, json: bool = False, verbose: bool = False) -> List[Dict]:
-    """Convenience function that creates an OpenNotebook instance and performs a query.
-
-    Returns a list of result dictionaries. If json is True, also prints JSON output.
-    """
-    notebook = OpenNotebook()
-    return notebook.query(text, n=n, law=law, json_output=json, verbose=verbose)
-
-
 
 # ─────────────────────────────────────────
-# Convenience wrapper for programmatic query
-def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json_output: bool = False, verbose: bool = False) -> List[Dict]:
-    """Convenience function that creates an OpenNotebook instance and performs a query.
-
-    Returns a list of result dictionaries. If json_output is True, also prints JSON output.
-    """
-    notebook = OpenNotebook()
-    return notebook.query(text, n=n, law=law, json_output=json_output, verbose=verbose)
-
 # CLI
 # ─────────────────────────────────────────
 
-# Convenience wrapper for programmatic query
-def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json: bool = False, verbose: bool = False) -> List[Dict]:
-    """Convenience function that creates an OpenNotebook instance and performs a query.
-
-    Returns a list of result dictionaries. If json is True, also prints JSON output.
-    """
+def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json_output: bool = False, verbose: bool = False) -> List[Dict]:
+    """Convenience wrapper: crea instancia de OpenNotebook y ejecuta query semántico."""
     notebook = OpenNotebook()
-    return notebook.query(text, n=n, law=law, json_output=json, verbose=verbose)
+    return notebook.query(text, n=n, law=law, json_output=json_output, verbose=verbose)
 
 
 def main():
