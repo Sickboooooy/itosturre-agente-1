@@ -1296,10 +1296,72 @@ class OpenNotebook:
         self._embedder = None
         self._collection = None
 
+    def query(self, text: str, n: int = 5, law: Optional[str] = None, json_output: bool = False, verbose: bool = False) -> List[Dict]:
+        """Perform a semantic search over the corpus.
+
+        Returns a list of result dictionaries. If json_output is True, prints JSON.
+        """
+        self._ensure_loaded()
+        embedder = get_embedder()
+        col = get_collection(embedder)
+        query_norm = normalize_legal_text(text)
+        where_filter = {"source": law} if law else None
+        results = col.query(
+            query_embeddings=[encode_query(query_norm)],
+            n_results=n,
+            where=where_filter,
+            include=["documents", "metadatas", "distances"]
+        )
+        result_list = []
+        for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
+            score = round((1 - dist) * 100)
+            sem = vvca_semaforo(score)
+            source = meta.get('source', '?')
+            page = meta.get('page', '?')
+            result_list.append({
+                "score": score,
+                "semaforo": sem,
+                "source": source,
+                "page": page,
+                "snippet": doc.strip()
+            })
+        if json_output:
+            print(json.dumps(result_list, ensure_ascii=False, indent=2))
+        return result_list
+
+# Convenience wrapper for programmatic query
+def OpenNotebook(text: str, n: int = 5, law: Optional[str] = None, json: bool = False, verbose: bool = False) -> List[Dict]:
+    """Convenience function that creates an OpenNotebook instance and performs a query.
+
+    Returns a list of result dictionaries. If json is True, also prints JSON output.
+    """
+    notebook = OpenNotebook()
+    return notebook.query(text, n=n, law=law, json_output=json, verbose=verbose)
+
+
 
 # ─────────────────────────────────────────
+# Convenience wrapper for programmatic query
+def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json_output: bool = False, verbose: bool = False) -> List[Dict]:
+    """Convenience function that creates an OpenNotebook instance and performs a query.
+
+    Returns a list of result dictionaries. If json_output is True, also prints JSON output.
+    """
+    notebook = OpenNotebook()
+    return notebook.query(text, n=n, law=law, json_output=json_output, verbose=verbose)
+
 # CLI
 # ─────────────────────────────────────────
+
+# Convenience wrapper for programmatic query
+def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json: bool = False, verbose: bool = False) -> List[Dict]:
+    """Convenience function that creates an OpenNotebook instance and performs a query.
+
+    Returns a list of result dictionaries. If json is True, also prints JSON output.
+    """
+    notebook = OpenNotebook()
+    return notebook.query(text, n=n, law=law, json_output=json, verbose=verbose)
+
 
 def main():
     if hasattr(sys.stdout, "reconfigure"):
@@ -1344,6 +1406,8 @@ Ejemplos:
     query_parser.add_argument("texto", help="Texto a buscar (entre comillas)")
     query_parser.add_argument("--n", type=int, default=5, help="Número de resultados (default: 5)")
     query_parser.add_argument("--verbose", action="store_true")
+    query_parser.add_argument("--law", help="Filtrar resultados por nombre de la ley (source file alias)")
+    query_parser.add_argument("--json", action="store_true", help="Emitir resultados también en formato JSON")
 
     # Comando: audit
     audit_parser = subparsers.add_parser("audit", help="Auditar un borrador legal")
@@ -1428,14 +1492,34 @@ Ejemplos:
         embedder = get_embedder()
         col = get_collection(embedder)
         query_norm = normalize_legal_text(args.texto)
-        results = col.query(query_embeddings=[encode_query(query_norm)], n_results=args.n, include=["documents", "metadatas", "distances"])
-        print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {args.n} resultados\n")
+        # Optional law filter
+        where_filter = {"source": args.law} if getattr(args, "law", None) else None
+        results = col.query(
+            query_embeddings=[encode_query(query_norm)],
+            n_results=args.n,
+            where=where_filter,
+            include=["documents", "metadatas", "distances"]
+        )
+        result_list = []
+        print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {args.n} resultados")
         for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
             score = round((1 - dist) * 100)
             sem = vvca_semaforo(score)
-            print(f"{sem} Score {score} | {meta.get('source','?')} pág.{meta.get('page','?')}")
+            source = meta.get('source', '?')
+            page = meta.get('page', '?')
+            print(f"{sem} Score {score} | {source} pág.{page}")
             print(f"   {doc[:200].strip()}")
             print()
+            result_list.append({
+                "score": score,
+                "semaforo": sem,
+                "source": source,
+                "page": page,
+                "snippet": doc.strip()
+            })
+        # Output JSON if requested
+        if getattr(args, "json", False):
+            print(json.dumps(result_list, ensure_ascii=False, indent=2))
 
     elif args.command == "ingest":
         setup_logging(args.verbose)
