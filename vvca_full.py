@@ -32,6 +32,8 @@ REPO = Path(__file__).resolve().parent
 
 def run(cmd: list, **kw) -> subprocess.CompletedProcess:
     print(f"\n$ {' '.join(str(c) for c in cmd)}")
+    if kw.get("text") and "encoding" not in kw:
+        kw["encoding"] = "utf-8"
     return subprocess.run(cmd, **kw)
 
 
@@ -86,11 +88,12 @@ def main() -> int:
     ra = run([args.python, str(REPO / "OpenNotebook.py"), "audit", "--file", str(borrador)]
              + (["--force"] if args.force else []),
              capture_output=True, text=True)
-    (caso / "audit_rag.json").write_text(ra.stdout, encoding="utf-8")
+    rag_stdout = ra.stdout or ""
+    (caso / "audit_rag.json").write_text(rag_stdout, encoding="utf-8")
     try:
-        audit = json.loads(ra.stdout)
+        audit = json.loads(rag_stdout)
     except json.JSONDecodeError:
-        audit = {"status": "parse_error", "stderr": ra.stderr[-2000:]}
+        audit = {"status": "parse_error", "stderr": (ra.stderr or "")[-2000:]}
     summary["pasos"]["rag_audit"] = audit.get("vvca_summary", audit.get("status"))
 
     # ── 3. SJF tesis (opcional) ──────────────────────────────────────────────

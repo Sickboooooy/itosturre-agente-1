@@ -150,6 +150,11 @@ consolidado. (El `.docx` final sigue siendo un paso manual por caso.)
 python OpenNotebook.py query "prisión preventiva oficiosa CNPP" --n 5
 ```
 
+```python
+from OpenNotebook import OpenNotebook_query
+results = OpenNotebook_query("prisión preventiva oficiosa CNPP", n=5, json=True)
+print(results)
+```
 ---
 
 ## ⚠️ Si algo falla
