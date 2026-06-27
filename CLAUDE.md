@@ -49,6 +49,10 @@ MENÚ PRINCIPAL.** No esperes a que el usuario te diga qué necesita — pregún
   1️⃣1️⃣  Borrador de escrito/demanda judicial (proemio → hechos → derecho → pedimentos)
   1️⃣2️⃣  Preparación de testigos e interrogatorio (desahogo / juicio oral)
 
+  ──── 📑 Corporativo / Comercial (B2B) ────
+  1️⃣3️⃣  Revisión de contrato + redlining vs. playbook (semáforo de riesgo)
+  1️⃣4️⃣  Triaje masivo de NDAs (3 flujos: estándar / asesor / completa)
+
   [ Escribe el número o describe tu necesidad ]
 ```
 
@@ -515,6 +519,55 @@ verdad con claridad. Salida: `prep-testigo-<nombre>.md`.
 
 ---
 
+## MENÚ 13 — REVISIÓN DE CONTRATO + REDLINING (skill `review-contract`)
+
+Cuando el usuario seleccione **13** o mencione "contrato", "revisar contrato", "redlining",
+"control de cambios", "cláusula", "playbook", "indemnización", "límite de responsabilidad" →
+invocar la skill **`review-contract`**.
+
+```
+════════════════════════════════════════════════
+  📑 REVISIÓN DE CONTRATO + REDLINING vs. PLAYBOOK
+════════════════════════════════════════════════
+
+¿Qué contrato? (prestación de servicios · licencia de software · proveeduría ·
+distribución · arrendamiento · otro)
+
+¿A quién representamos?
+  A) Cliente / adquirente (recibe el servicio o bien)
+  B) Prestador / proveedor (lo otorga)
+
+¿Tienes el playbook del cliente?
+  S) Sí, lo proporciono   N) No → uso el playbook por defecto (CCF/CCom) y lo advierto
+```
+Razonamiento **holístico** (cruza cláusulas: una indemnización amplia mitigada por tope de
+responsabilidad NO se marca aislada). Semáforo 🔴/🟡/🟢 (un 🔴 vivo = no firmar sin negociar).
+Entregable: informe + **`<contrato>-redline.docx`** con control de cambios (skill `docx`).
+
+---
+
+## MENÚ 14 — TRIAJE MASIVO DE NDAs (skill `triage-nda`)
+
+Cuando el usuario seleccione **14** o mencione "NDA", "acuerdo/convenio de confidencialidad",
+"triaje", "clasificar contratos", "carpeta de NDAs" → invocar la skill **`triage-nda`**.
+
+```
+════════════════════════════════════════════════
+  📑 TRIAJE MASIVO DE NDAs (3 flujos)
+════════════════════════════════════════════════
+
+Entrada: carpeta con los NDAs (.docx/.pdf/.md). PDF escaneado → OCR (skill pdf).
+
+Rutea cada NDA a:
+  🟢 Aprobación Estándar → firma electrónica del apoderado (sin abogado)
+  🟡 Revisión del Asesor → abogado júnior (con puntos ya anotados)
+  🔴 Revisión Completa   → abogado sénior (términos inusuales: PI, no competencia…)
+```
+Marco MX: LFPDPPP (datos), secreto industrial, libertad de trabajo (art. 5 CPEUM).
+No se promedia: un solo 🔴 manda el NDA a Revisión Completa. Salida: `triaje-nda-reporte.md`.
+
+---
+
 ## PROTOCOLO ANTI-ALUCINACIÓN (NÚCLEO VVCA) — activo en TODAS las funciones, sin excepción
 
 **Regla 1 — Citas jurisprudenciales.** NUNCA inventar número/clave de tesis, registro IUS,
@@ -617,7 +670,10 @@ cd services/itosturre-scraper && npx ts-node --esm vvca_audit.ts --out <dir> --c
 #   cronologia-expediente  → MENÚ 10 · cronología foliada + plazos + inconsistencias
 #   escrito-judicial       → MENÚ 11 · motor de redacción (proemio→hechos→derecho→pedimentos)
 #   prep-testigos          → MENÚ 12 · perfil + documentos + guion de interrogatorio (CNPP)
-# Apoyos: skill `pdf` (OCR de expedientes), skill `docx` (export a Word). Toda cita → VVCA.
+# Skills CORPORATIVO / COMERCIAL (B2B):
+#   review-contract        → MENÚ 13 · revisión cláusula a cláusula + redlines Word (semáforo)
+#   triage-nda             → MENÚ 14 · triaje masivo de NDAs en 3 flujos de ruteo
+# Apoyos: skill `pdf` (OCR), skill `docx` (Word / control de cambios). Toda cita → VVCA.
 
 # Reporte Word: paso manual POR CASO (cada expediente tiene su generar_word.py
 # con rutas propias en auditorias/<slug>/). No existe un generador genérico todavía.
