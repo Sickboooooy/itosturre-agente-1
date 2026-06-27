@@ -44,6 +44,11 @@ MENÚ PRINCIPAL.** No esperes a que el usuario te diga qué necesita — pregún
   8️⃣  Competencia orgánica (¿ante quién presento?)
   9️⃣  Historial de auditorías
 
+  ──── ⚖️ Litigio (expedientes) ────
+  🔟  Cronología de expediente (foliado + plazos + inconsistencias)
+  1️⃣1️⃣  Borrador de escrito/demanda judicial (proemio → hechos → derecho → pedimentos)
+  1️⃣2️⃣  Preparación de testigos e interrogatorio (desahogo / juicio oral)
+
   [ Escribe el número o describe tu necesidad ]
 ```
 
@@ -448,6 +453,68 @@ ls -la auditorias/
 
 ---
 
+## MENÚ 10 — CRONOLOGÍA DE EXPEDIENTE (skill `cronologia-expediente`)
+
+Cuando el usuario seleccione **10** o mencione "cronología", "línea de tiempo", "expediente",
+"constancias", "foliado", "fojas" → invocar la skill **`cronologia-expediente`**.
+
+```
+════════════════════════════════════════════════
+  📑 CRONOLOGÍA DE EXPEDIENTE (litigio)
+════════════════════════════════════════════════
+
+¿Qué me das de entrada?
+  A) Carpeta con el expediente digitalizado (PDF/imágenes)
+  B) Un solo PDF (constancias en un archivo)
+  C) Expediente + caso.json (órgano, partes, materia)
+
+¿Qué priorizo?
+  1) Línea de tiempo completa foja por foja
+  2) Solo plazos por vencer y pruebas omitidas
+  3) Solo inconsistencias fácticas entre las partes
+  4) Todo (cronología + plazos + inconsistencias + pruebas)
+```
+Produce: tabla cronológica anclada a foliado · inconsistencias 🔴/🟡/⚪ · plazos 🚨 · pruebas.
+Si el PDF está escaneado → OCR con skill `pdf` primero. Salida: `cronologia-<expediente>.md`.
+
+---
+
+## MENÚ 11 — BORRADOR DE ESCRITO/DEMANDA (skill `escrito-judicial`)
+
+Cuando el usuario seleccione **11** (o **2** del menú de redacción) → invocar la skill
+**`escrito-judicial`**. Es el motor de redacción detrás del MENÚ 2: recolecta datos una pregunta a
+la vez, redacta en cascada (proemio → hechos → derecho/conceptos de violación o agravios →
+pedimentos), marca `[VERIFICAR EN SJF]` / `[COMPLETAR]`, añade la advertencia fija al pie y ofrece
+auditar con VVCA. **Si ya hay una cronología del caso, la usa como fuente de los HECHOS.**
+
+---
+
+## MENÚ 12 — PREPARACIÓN DE TESTIGOS / INTERROGATORIO (skill `prep-testigos`)
+
+Cuando el usuario seleccione **12** o mencione "testigo", "interrogatorio", "contrainterrogatorio",
+"desahogo", "audiencia de juicio" → invocar la skill **`prep-testigos`**.
+
+```
+════════════════════════════════════════════════
+  🗣️ PREPARACIÓN DE TESTIGO / INTERROGATORIO
+════════════════════════════════════════════════
+
+¿El testigo es?
+  A) Propio (de la firma) → interrogatorio directo (acreditar)
+  B) De la contraparte    → contrainterrogatorio (confrontar)
+
+¿Qué necesitas?
+  1) Perfil del testigo + relevancia para la litis
+  2) Documentos clave del expediente para la audiencia
+  3) Guion de preguntas (acreditación → contrainterrogatorio)
+  4) Riesgos del propio testigo + mitigación legítima
+  5) Guía completa (todo lo anterior)
+```
+Marco: arts. 371-375 CNPP (juicio oral). 🚫 Nunca prepara testimonio falso — solo declarar la
+verdad con claridad. Salida: `prep-testigo-<nombre>.md`.
+
+---
+
 ## PROTOCOLO ANTI-ALUCINACIÓN (NÚCLEO VVCA) — activo en TODAS las funciones, sin excepción
 
 **Regla 1 — Citas jurisprudenciales.** NUNCA inventar número/clave de tesis, registro IUS,
@@ -529,6 +596,12 @@ python OpenNotebook.py ingest --directory "<carpeta_pdfs>"
 
 # Búsqueda/verificación de tesis en SJF en vivo (Playwright)
 cd services/itosturre-scraper && npx ts-node --esm vvca_audit.ts --out <dir> --contexto caso.json <IUS...>
+
+# Skills de LITIGIO (se invocan por nombre vía Skill; viven en services/itosturre-skills/skills/)
+#   cronologia-expediente  → MENÚ 10 · cronología foliada + plazos + inconsistencias
+#   escrito-judicial       → MENÚ 11 · motor de redacción (proemio→hechos→derecho→pedimentos)
+#   prep-testigos          → MENÚ 12 · perfil + documentos + guion de interrogatorio (CNPP)
+# Apoyos: skill `pdf` (OCR de expedientes), skill `docx` (export a Word). Toda cita → VVCA.
 
 # Reporte Word: paso manual POR CASO (cada expediente tiene su generar_word.py
 # con rutas propias en auditorias/<slug>/). No existe un generador genérico todavía.
