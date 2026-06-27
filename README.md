@@ -24,14 +24,18 @@ Hecha por [**Itosturre LegalTech**](https://itosturre.com) para el curso
 
 | | Versión | Descarga |
 |---|---|---|
-| Python | 3.10+ (este equipo usa el global 3.14, sin venv) | https://www.python.org/downloads/ |
+| Python | 3.10+ — **verificado en Python 3.14.2** (torch 2.12.1, chromadb 1.5.9, sentence-transformers 5.6.0 instalan sin problema) | https://www.python.org/downloads/ |
 | Node.js | 18+ (solo para el scraper SJF) | https://nodejs.org/ |
 
 Verifica lo que ya tienes:
 ```bash
-python --version
+python3 --version   # en macOS no existe el binario `python` a secas, usa python3
 node --version
 ```
+
+> ⚠️ **macOS (Homebrew):** solo existe `python3`, no `python`. Por eso **debes** trabajar
+> dentro de un venv (Paso 2): una vez activado, `python` apunta al intérprete del venv y
+> todos los comandos de abajo funcionan tal cual.
 
 ---
 
@@ -67,15 +71,25 @@ repo** por tamaño. El script de bootstrap los baja del Drive compartido, los in
 verifica la cobertura:
 
 ```bash
+# con el venv ACTIVADO (source venv/bin/activate) — el script usa `python`:
 bash scripts/bootstrap_corpus.sh
+
+# o, sin activar el venv (macOS no tiene `python` global), apúntalo al venv:
+PYTHON="$(pwd)/venv/bin/python" bash scripts/bootstrap_corpus.sh
 ```
 
-Esto deja el RAG funcionando. Carpeta del corpus (públicas, "anyone with the link"):
-<https://drive.google.com/drive/folders/1VS_LwlQXMCLfh5YA_nnxXzzQ_xuHkdtf>
+> ⚠️ `bootstrap_corpus.sh` invoca `python` por defecto. En macOS ese binario no existe
+> (solo `python3`), así que **o activas el venv primero** o pasas `PYTHON=...` como arriba.
+> De lo contrario el ingest falla con "command not found" o usa un Python sin dependencias.
 
-**Manual** (si prefieres): descarga los PDFs del Drive a `corpus/` y luego:
+Esto deja el RAG funcionando. Carpeta del corpus en Drive — **pública en modo solo lectura**
+("anyone with the link · Lector", verificado el 2026-06-19; antes estaba en *Editor*, se
+corrigió para que nadie externo pueda alterar los PDFs):
+<https://drive.google.com/drive/folders/1VS_LwlQXMCLfh5YA_nnxXzzQ_xuHkdtf> · 47 PDFs.
+
+**Manual** (si prefieres): descarga los PDFs del Drive a `corpus/` y luego, con el venv activo:
 ```bash
-python OpenNotebook.py ingest --directory corpus/
+python OpenNotebook.py ingest --directory corpus/   # = venv/bin/python si no lo activaste
 python scripts/check_corpus.py
 ```
 La verificación debe terminar en `🟢 Cobertura completa: 0 fuentes ausentes`. Si lista
@@ -92,6 +106,36 @@ cd services/itosturre-scraper && npm install && npx playwright install chromium 
 ```
 
 > Tip: clona el repo con `git clone --recursive ...` para traer el submódulo de una vez.
+
+---
+
+## ✅ Setup verificado en este equipo (macOS · Python 3.14.2 · 2026-06-19)
+
+Secuencia exacta que dejó el RAG funcional desde un clon limpio. Reprodúcela tal cual si
+partes de cero (los comandos asumen que estás en la raíz del repo):
+
+```bash
+# 1) venv con python3 (en macOS NO existe `python` a secas)
+python3 -m venv venv
+./venv/bin/python -m pip install --upgrade pip
+
+# 2) dependencias (requirements.txt + gdown para el bootstrap)
+./venv/bin/python -m pip install -r requirements.txt gdown
+
+# 3) corpus: descarga del Drive + ingest + verificación
+PYTHON="$(pwd)/venv/bin/python" bash scripts/bootstrap_corpus.sh
+```
+
+**Dos dependencias faltaban en `requirements.txt`** y rompían el `ingest`; ya están
+agregadas (si clonaste antes de este fix, reinstala con el comando del paso 2):
+
+| Faltaba | Síntoma | Paquete |
+|---|---|---|
+| Extracción de texto de PDFs | `ModuleNotFoundError: No module named 'fitz'` | `PyMuPDF` |
+| Chunking del corpus | `ModuleNotFoundError: No module named 'langchain_text_splitters'` | `langchain-text-splitters` |
+
+> **Compatibilidad Python 3.14:** sin problemas — `torch 2.12.1`, `chromadb 1.5.9`,
+> `sentence-transformers 5.6.0`, `PyMuPDF 1.27.2` traen wheels para cp314/arm64.
 
 ---
 
@@ -161,6 +205,9 @@ print(results)
 
 | Síntoma | Solución |
 |---|---|
+| `ModuleNotFoundError: No module named 'fitz'` | Falta PyMuPDF: `pip install PyMuPDF` (ya está en requirements.txt; reinstala con `pip install -r requirements.txt`) |
+| `ModuleNotFoundError: No module named 'langchain_text_splitters'` | `pip install langchain-text-splitters` (ya está en requirements.txt) |
+| `python: command not found` (macOS) | No existe `python` global, solo `python3`. Activa el venv (`source venv/bin/activate`) o usa `venv/bin/python` / `PYTHON=venv/bin/python` con el bootstrap |
 | "Base vectorial no encontrada" | Corre primero `python OpenNotebook.py ingest --directory corpus/` |
 | "corpus_incomplete" | Indexa las leyes que liste, o añade `--force` para auditar con advertencia |
 | Emojis rotos / `charmap codec` | La consola fuerza UTF-8 sola; si persiste, usa Windows Terminal |

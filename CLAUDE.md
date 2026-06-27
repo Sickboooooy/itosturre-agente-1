@@ -573,8 +573,24 @@ En conflicto normativo: aplicar siempre pro persona (art. 1° párr. 2° CPEUM).
 
 ## HERRAMIENTAS DISPONIBLES EN EL IDE (comandos REALES — usar sin pedir permiso)
 
+> ⚙️ **ENTORNO PYTHON DE ESTE EQUIPO (macOS · Python 3.14.2) — leer antes de ejecutar:**
+> - Las dependencias viven en un **venv** en `./venv/`. En este Mac **NO existe el binario
+>   `python` global** (solo `python3`), y `source venv/bin/activate` **no persiste** entre
+>   llamadas de shell del IDE (cada Bash arranca limpio).
+> - **Por eso, ejecuta SIEMPRE los comandos `python ...` de abajo como `./venv/bin/python ...`**
+>   (sustituye `python` → `./venv/bin/python`). Ej: `./venv/bin/python OpenNotebook.py query "..."`.
+> - Setup desde clon limpio (una sola vez): `python3 -m venv venv` →
+>   `./venv/bin/python -m pip install -r requirements.txt gdown` →
+>   `PYTHON="$(pwd)/venv/bin/python" bash scripts/bootstrap_corpus.sh`.
+> - `requirements.txt` incluye **PyMuPDF** y **langchain-text-splitters** (eran imports de
+>   OpenNotebook.py que faltaban y abortaban el `ingest`). Si un comando falla con
+>   `ModuleNotFoundError`, reinstala requirements en el venv.
+> - Corpus: 47 PDFs del Drive (carpeta pública en **solo lectura**). El RAG queda indexado
+>   en `chroma_db/` tras el bootstrap; verifica con `./venv/bin/python scripts/check_corpus.py`.
+
 ```bash
 # Pipeline VVCA unificado (audit RAG + SJF + capturas → vvca_full.json)
+# (en este equipo: anteponer ./venv/bin/ a cada `python`, ver nota de arriba)
 python vvca_full.py --caso auditorias/<slug> --borrador <archivo.md>
 python vvca_full.py --caso auditorias/<slug> --texto "<texto pegado>"
 python vvca_full.py --caso auditorias/<slug> --borrador <archivo.md> \
