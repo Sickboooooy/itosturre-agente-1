@@ -811,6 +811,43 @@ def vvca_semaforo(score: int) -> str:
     return "🔴"
 
 
+def disclaimer_graduado(veredicto: dict) -> dict:
+    """Disclaimer proporcional al riesgo del veredicto (para el pie del escrito/Word).
+
+    🟢 estándar · 🟡 con advertencias (requiere acuse) · 🔴 bloqueado (no presentar).
+    El pie fijo de siempre se vuelve invisible; este escala el tono y, en 🟡/🔴,
+    marca `requiere_acuse=True` para que el abogado deje constancia (Capa 2).
+    """
+    base = (
+        "Borrador generado por Itosturre (IA). La verificación de citas (Capa 1) es "
+        "automatizada y NO garantiza la pertinencia procesal ni la vigencia definitiva; "
+        "la Capa 2 es criterio del abogado firmante, responsable de la versión final."
+    )
+    nivel = veredicto.get("semaforo", "🟡")
+    razon = veredicto.get("razon", "")
+    accion = veredicto.get("accion", "")
+    if nivel == "🔴":
+        return {
+            "nivel": "🔴",
+            "encabezado": "🚨 DOCUMENTO BLOQUEADO — NO PRESENTAR SIN CORREGIR",
+            "texto": f"{razon}. {accion}. {base}",
+            "requiere_acuse": True,
+        }
+    if nivel == "🟡":
+        return {
+            "nivel": "🟡",
+            "encabezado": "⚠️ BORRADOR CON ADVERTENCIAS — REVISAR ANTES DE PRESENTAR",
+            "texto": f"{razon}. {accion}. {base}",
+            "requiere_acuse": True,
+        }
+    return {
+        "nivel": "🟢",
+        "encabezado": "✅ CITAS VERIFICADAS (Capa 1) — PENDIENTE PERTINENCIA (Capa 2)",
+        "texto": f"Verificación automatizada sin discrepancias. {base}",
+        "requiere_acuse": False,
+    }
+
+
 def vvca_contextualizacion(source_file: str) -> str:
     s = source_file.lower()
     if "cpeum" in s or "estados unidos mexicanos" in s:
@@ -894,6 +931,16 @@ def build_vvca(
         "V_validacion": v_validacion,
         "C_contextualizacion": c_contextualizacion,
         "A_auditabilidad": a_auditabilidad,
+        # Traza reproducible del veredicto por cita (explicabilidad — no caja negra).
+        "explicabilidad": {
+            "coseno": round(distance, 4),
+            "umbral": COSINE_THRESHOLD,
+            "aprobado_umbral": distance <= COSINE_THRESHOLD,
+            "coincide_fuente": source_match,
+            "fuente_encontrada": source_file,
+            "fuente_esperada": ref.get("source_file"),
+            "ley_inferida": bool(ref.get("law_inferred")),
+        },
     }
 
 
@@ -906,6 +953,65 @@ def _rubro_keywords(text: str) -> set:
         w.lower() for w in re.findall(r'[A-Za-záéíóúÁÉÍÓÚüÜñÑ]{5,}', text)
         if w.lower() not in stop
     }
+
+
+def _fuerza(sello: str, organo: str, obligatoria: bool, ambito: str, fundamento: str) -> Dict:
+    return {
+        "sello": sello,
+        "organo": organo,
+        "obligatoria": obligatoria,
+        "ambito": ambito,
+        "fundamento": fundamento,
+    }
+
+
+_ROMANO = r"[IVXLCDM]+"
+
+
+def classify_fuerza_vinculante(numero_tesis: str, tipo_tesis: str = "") -> Dict:
+    """Clasifica la fuerza vinculante de una tesis a partir de su clave (numero_tesis).
+
+    El corpus local trae `numero_tesis` (la clave) pero no `sala`/`epoca`, así que la
+    clave es la señal primaria. Sellos:
+      [J-PLENO]/[J-SALA] jurisprudencia de la SCJN (obligatoria, nacional · art. 217 LA)
+      [PR]  Pleno Regional      (obligatoria en la región · Acuerdo General 5/2021)
+      [PC]  Pleno de Circuito   (obligatoria en el circuito · art. 217 LA)
+      [J-TCC] jurisprudencia de TCC (obligatoria en su circuito · art. 217 LA)
+      [SCJN-P] tesis aislada/precedente de la SCJN (orientadora; puede ser precedente
+               obligatorio por mayoría calificada — reforma art. 94 CPEUM 2021, VERIFICAR)
+      [TA]  tesis aislada       (orientadora, no obligatoria)
+
+    NOTA: [PR] y [SCJN-P] antes se distinguían a mano (Regla 6 del protocolo VVCA); este
+    clasificador los automatiza desde la clave. La condición de precedente OBLIGATORIO de
+    la SCJN requiere confirmar la votación — se marca como orientadora y a verificar.
+    """
+    up = (numero_tesis or "").strip().upper()
+    # Dos convenciones de clave para jurisprudencia:
+    #   "/J."   → Pleno/Salas de la SCJN (ej. P./J. 89/2026 · 1a./J. 68/2022)
+    #   "J/N"   → TCC, Plenos de Circuito y Plenos Regionales (ej. I.1o.P. J/7 · PR.A.CS. J/1)
+    es_jur = bool(re.search(r"/J\.|J/\d", up)) or bool(re.search(r"jurisprudencia", tipo_tesis or "", re.I))
+
+    if re.match(r"P\./J\.", up):
+        return _fuerza("[J-PLENO]", "Pleno de la SCJN", True, "nacional",
+                       "art. 217 LA — jurisprudencia obligatoria (Pleno de la SCJN)")
+    if re.match(r"[1-4]A\./J\.", up):
+        return _fuerza("[J-SALA]", "Sala de la SCJN", True, "nacional",
+                       "art. 217 LA — jurisprudencia obligatoria (Sala de la SCJN)")
+    if re.match(r"PR\.", up):
+        return _fuerza("[PR]", "Pleno Regional", True, "regional",
+                       "Acuerdo General 5/2021 — obligatoria en la región (Pleno Regional)")
+    if re.match(r"PC\.", up):
+        return _fuerza("[PC]", "Pleno de Circuito", True, "circuito",
+                       "art. 217 LA — obligatoria en el circuito (Pleno de Circuito)")
+    if es_jur:
+        return _fuerza("[J-TCC]", "Tribunal Colegiado de Circuito", True, "circuito",
+                       "art. 217 LA — jurisprudencia de TCC (obligatoria en su circuito)")
+    if re.match(r"(?:[1-4]A|P)\.\s*" + _ROMANO + r"\b", up):
+        return _fuerza("[SCJN-P]", "SCJN — tesis aislada / posible precedente", False, "orientadora",
+                       "Tesis aislada de la SCJN — orientadora; verificar si es precedente "
+                       "obligatorio por mayoría calificada (reforma art. 94 CPEUM 2021)")
+    return _fuerza("[TA]", "Tesis aislada", False, "orientadora",
+                   "Tesis aislada — orientadora, no obligatoria (art. 217 LA a contrario)")
 
 
 def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
@@ -921,6 +1027,7 @@ def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
     # ctx_invocado trae hasta 400 chars previos (contiene el rubro si está en el texto)
     rubro_invocado = ref.get("ctx_invocado", ref.get("raw", ""))
     rubro_mismatch = False
+    overlap = None
     if rubro_real and rubro_invocado:
         kw_real     = _rubro_keywords(rubro_real)
         kw_invocado = _rubro_keywords(rubro_invocado)
@@ -950,14 +1057,36 @@ def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
         if any([epoca, sala, materia]) else "Ver detalle en SJF"
     )
 
+    # Fuerza vinculante ([J]/[PR]/[PC]/[TCC]/[SCJN-P]/[TA]) desde la clave.
+    fuerza = classify_fuerza_vinculante(numero, tipo)
+
+    # Estado de vigencia: por defecto "vigente". Solo si el corpus/scraper marcó el
+    # criterio como superado/interrumpido/sustituido dispara el bloqueo (falso verde).
+    _estado_raw = item.get("estado_vigencia") or item.get("vigencia") or "vigente"
+    estado_vigencia = str(_estado_raw).strip().lower()
+    if estado_vigencia not in ("vigente", "superada", "interrumpida", "sustituida"):
+        estado_vigencia = "vigente"
+
     return {
         "score": score,
         "semaforo": semaforo,
         "rubro_mismatch": rubro_mismatch,
+        "fuerza_vinculante": fuerza,
+        "estado_vigencia": estado_vigencia,
         "V_verificacion": verificacion,
         "V_validacion": tipo_label,
         "C_contextualizacion": contexto,
         "A_auditabilidad": f"{numero} · Reg. {registro} · {sala} · {source_file}",
+        # Traza reproducible por cita (explicabilidad).
+        "explicabilidad": {
+            "registro": registro,
+            "overlap_rubro": round(overlap, 3) if overlap is not None else None,
+            "umbral_mismatch": 0.40,
+            "rubro_real": rubro_real[:160],
+            "rubro_invocado": (rubro_invocado or "")[:160],
+            "estado_vigencia": estado_vigencia,
+            "fuente": source_file,
+        },
     }
 
 
@@ -1209,8 +1338,27 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     )
     tesis_rojas = tesis_no_encontradas + tesis_mismatch
 
+    # Tesis con criterio superado/interrumpido/sustituido (falso verde). Por defecto 0:
+    # el corpus solo marca vigencia si el scraper la capturó (sección NOTAS del SJF).
+    tesis_superadas = sum(
+        1 for s in retrieved_sources
+        if s.get("ref_type") == "jurisprudencia"
+        and s.get("vvca", {}).get("estado_vigencia") in ("superada", "interrumpida", "sustituida")
+    )
+
+    # Conteo por fuerza vinculante ([J-PLENO]/[J-SALA]/[PR]/[PC]/[J-TCC]/[SCJN-P]/[TA])
+    tesis_por_fuerza: Dict[str, int] = {}
+    for s in retrieved_sources:
+        if s.get("ref_type") == "jurisprudencia":
+            sello = s.get("vvca", {}).get("fuerza_vinculante", {}).get("sello")
+            if sello:
+                tesis_por_fuerza[sello] = tesis_por_fuerza.get(sello, 0) + 1
+
     # ── Veredicto binario — las tesis rojas son bloqueantes por sí solas
-    veredicto = veredicto_global(score_rag, score_sjf, tesis_mismatch, tesis_no_encontradas, tesis_total_invocadas)
+    veredicto = veredicto_global(
+        score_rag, score_sjf, tesis_mismatch, tesis_no_encontradas,
+        tesis_total_invocadas, tesis_superadas,
+    )
 
     all_scores = art_scores + jur_scores
     verdes    = sum(1 for sc in all_scores if sc >= 85)
@@ -1236,7 +1384,10 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
             "tesis_rojas":         tesis_rojas,
             "tesis_mismatch":      tesis_mismatch,
             "tesis_no_encontradas": tesis_no_encontradas,
+            "tesis_superadas":     tesis_superadas,
+            "tesis_por_fuerza":    tesis_por_fuerza,
             "veredicto":           veredicto,
+            "disclaimer":          disclaimer_graduado(veredicto),
             "verdes":   verdes,
             "amarillos": amarillos,
             "rojos":     rojos,
