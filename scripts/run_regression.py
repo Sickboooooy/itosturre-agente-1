@@ -12,6 +12,11 @@ Invariantes:
   3. Ningún caso lanza excepción al auditar.
   4. Sin alertas "LEY NO IDENTIFICADA" residuales (sticky-law resuelve
      constitucionales/tratados agrupados bajo encabezado de ley).
+  5. Fase 1 — cada tesis verificada trae sello de fuerza vinculante y estado de vigencia;
+     el disclaimer graduado es coherente con el veredicto.
+  6. Fase 1 — regla de vigencia (falso verde): una tesis superada bloquea (🔴), y es
+     default-safe (0 superadas no altera el veredicto).
+  7. Fase 1 — el clasificador de fuerza vinculante asigna el sello correcto por clave.
 
 Uso: python scripts/run_regression.py
 """
@@ -28,6 +33,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 import OpenNotebook as ON  # noqa: E402
+import scoring_vvca  # noqa: E402
 
 fails: list[str] = []
 
@@ -88,6 +94,44 @@ def main() -> int:
             check("caso_001: veredicto apto", vered.get("apto") is True,
                   vered.get("razon", ""))
             check("caso_001: sin alertas 🔴", not rojas, f"{len(rojas)} rojas")
+
+        # invariante 5 — Fase 1: disclaimer graduado + sellos por tesis
+        vs = res.get("vvca_summary", {})
+        disc = vs.get("disclaimer", {})
+        vered_sem = vs.get("veredicto", {}).get("semaforo")
+        check(f"{caso.name}: disclaimer graduado coherente con veredicto",
+              disc.get("nivel") == vered_sem, f"disc={disc.get('nivel')} vered={vered_sem}")
+        tesis_src = [s for s in res.get("retrieved_sources", [])
+                     if s.get("ref_type") == "jurisprudencia"]
+        sin_sello = [s for s in tesis_src
+                     if not s.get("vvca", {}).get("fuerza_vinculante", {}).get("sello")]
+        sin_estado = [s for s in tesis_src if not s.get("vvca", {}).get("estado_vigencia")]
+        check(f"{caso.name}: tesis con sello de fuerza vinculante", not sin_sello,
+              f"{len(sin_sello)} sin sello")
+        check(f"{caso.name}: tesis con estado de vigencia", not sin_estado,
+              f"{len(sin_estado)} sin estado")
+
+    # 6-7. Reglas nuevas como self-test (no dependen de casos_de_prueba)
+    v_sup = scoring_vvca.veredicto_global(90, 95, 0, 0, 3, tesis_superadas=1)
+    check("Vigencia: tesis superada bloquea (🔴)",
+          v_sup.get("apto") is False and v_sup.get("semaforo") == "🔴",
+          v_sup.get("razon", ""))
+    v_safe = scoring_vvca.veredicto_global(90, 95, 0, 0, 3)
+    check("Vigencia: default-safe (0 superadas no bloquea)", v_safe.get("apto") is True)
+
+    esperado = {
+        "P./J. 89/2026 (12a.)": "[J-PLENO]",
+        "1a./J. 68/2022 (11a.)": "[J-SALA]",
+        "PR.A.CS. J/1 A (11a.)": "[PR]",
+        "PC.III.P. J/7 P": "[PC]",
+        "I.1o.P. J/7": "[J-TCC]",
+        "1a. CCCXL/2015": "[SCJN-P]",
+        "I.5o.C.220 C (11a.)": "[TA]",
+    }
+    malos = {c: ON.classify_fuerza_vinculante(c)["sello"]
+             for c, esp in esperado.items()
+             if ON.classify_fuerza_vinculante(c)["sello"] != esp}
+    check("Clasificador de fuerza vinculante (7 claves)", not malos, str(malos))
 
     return _final()
 

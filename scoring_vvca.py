@@ -29,15 +29,17 @@ def veredicto_global(
     tesis_discrepantes: int,
     tesis_no_encontradas: int,
     tesis_total: int,
+    tesis_superadas: int = 0,
 ) -> dict:
     """
     Veredicto binario con razón explícita. No promedia los dos scores.
 
     Reglas de precedencia (se evalúan en orden):
       1. tesis_discrepantes > 0  → ROJO bloqueante (rubro falsificado o equivocado)
-      2. tesis_no_encontradas > 0 → AMARILLO (corpus incompleto, no necesariamente error)
-      3. RAG < 70                → AMARILLO (artículos con verificación insuficiente)
-      4. Sin problemas           → VERDE
+      2. tesis_superadas > 0     → ROJO bloqueante (falso verde: cita real, criterio muerto)
+      3. tesis_no_encontradas > 0 → AMARILLO (corpus incompleto, no necesariamente error)
+      4. RAG < 70                → AMARILLO (artículos con verificación insuficiente)
+      5. Sin problemas           → VERDE
 
     Args:
         score_rag:              promedio VVCA de artículos verificados (0-100)
@@ -45,6 +47,9 @@ def veredicto_global(
         tesis_discrepantes:     tesis con rubro que NO coincide con el corpus SJF real
         tesis_no_encontradas:   tesis invocadas que no se encontraron en el corpus local
         tesis_total:            total de tesis invocadas en el documento
+        tesis_superadas:        tesis cuyo criterio fue superado/interrumpido/sustituido
+                                (rubro correcto pero criterio ya no vigente — "falso verde").
+                                Default 0: sin dato de vigencia el veredicto no cambia.
 
     Returns:
         dict con apto, semaforo, razon, accion
@@ -58,6 +63,18 @@ def veredicto_global(
                 "USO PROCESAL PROHIBIDO"
             ),
             "accion": "Sustituir tesis antes de cualquier uso procesal",
+        }
+
+    if tesis_superadas > 0:
+        return {
+            "apto": False,
+            "semaforo": "🔴",
+            "razon": (
+                f"{tesis_superadas}/{tesis_total} tesis con criterio superado o "
+                "interrumpido — VIGENCIA PERDIDA (falso verde: registro y rubro reales, "
+                "pero el criterio ya no rige)"
+            ),
+            "accion": "Sustituir por criterio vigente antes de cualquier uso procesal",
         }
 
     if tesis_no_encontradas > 0:
