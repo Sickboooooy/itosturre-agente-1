@@ -439,6 +439,17 @@ a la SCJN (regla post-2021). Reglas embebidas:
 - Plenos Regionales (5): contradicciones por circuito (Acuerdo General 5/2021 CJF)
 - 3er Circuito / Jalisco: TCC especializados Penal, Civil, Administrativo, Laboral
 
+**Motor determinista (usar SIEMPRE para no equivocar el órgano):**
+```bash
+python -c "import router_competencia as rc; print(rc.formato_menu8(rc.resolver('<tipo>', '<materia>', autoridad_federal=True, circuito=3)))"
+# <tipo>: amparo_indirecto | amparo_directo | revision | contradiccion | queja |
+#         reclamacion | extincion_dominio | incidente_suspension
+```
+`router_competencia.py` da el TIPO de órgano + vía + recurso + plazo + fundamento y marca
+🚨 Capa 2 lo discrecional. Evita el **error #1 de los LLM**: contradicción → **Pleno Regional**
+(no SCJN); amparo directo → **TCC** (no SCJN); la SCJN solo por **atracción** (no automática).
+NO fija la clave del tribunal ni sustituye la verificación del fundamento por el abogado.
+
 ---
 
 ## MENÚ 9 — HISTORIAL DE AUDITORÍAS
@@ -659,6 +670,9 @@ python OpenNotebook.py query "<consulta>" --n 5
 
 # Verificar integridad/cobertura del corpus (health check real)
 python scripts/check_corpus.py
+
+# Router de competencia orgánica (MENÚ 8) — evita mandar a la SCJN lo que no le toca
+python -c "import router_competencia as rc; print(rc.formato_menu8(rc.resolver('amparo_directo','penal')))"
 
 # Ingesta del corpus (SOLO cuando se solicite explícitamente)
 python OpenNotebook.py ingest --directory "<carpeta_pdfs>"

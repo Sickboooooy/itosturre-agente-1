@@ -34,6 +34,7 @@ sys.path.insert(0, str(REPO))
 
 import OpenNotebook as ON  # noqa: E402
 import scoring_vvca  # noqa: E402
+import router_competencia as rc  # noqa: E402
 
 fails: list[str] = []
 
@@ -132,6 +133,23 @@ def main() -> int:
              for c, esp in esperado.items()
              if ON.classify_fuerza_vinculante(c)["sello"] != esp}
     check("Clasificador de fuerza vinculante (7 claves)", not malos, str(malos))
+
+    # 8. Router de competencia — evitar el error #1 (mandar a la SCJN lo que no le toca).
+    cont = rc.resolver("contradiccion", "civil")
+    check("Router: contradicción → Pleno Regional (NO SCJN)",
+          "Pleno Regional" in cont.organo and "SCJN" not in cont.organo
+          and "Suprema Corte" not in cont.organo, cont.organo)
+    dir_ = rc.resolver("amparo_directo", "penal")
+    check("Router: amparo directo → TCC (NO SCJN como órgano)",
+          "Tribunal Colegiado" in dir_.organo and "SCJN" not in dir_.organo
+          and "Suprema Corte" not in dir_.organo, dir_.organo)
+    ind = rc.resolver("amparo_indirecto", "administrativa")
+    check("Router: amparo indirecto → Juzgado de Distrito",
+          "Juzgado de Distrito" in ind.organo, ind.organo)
+    check("Router: SCJN marcada como discrecional (Capa 2) en directo y contradicción",
+          dir_.requiere_capa2 and cont.requiere_capa2
+          and any("🚨" in a and "SCJN" in a for a in dir_.advertencias)
+          and any("🚨" in a and "SCJN" in a for a in cont.advertencias))
 
     return _final()
 
