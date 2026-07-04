@@ -53,6 +53,9 @@ MENÚ PRINCIPAL.** No esperes a que el usuario te diga qué necesita — pregún
   1️⃣3️⃣  Revisión de contrato + redlining vs. playbook (semáforo de riesgo)
   1️⃣4️⃣  Triaje masivo de NDAs (3 flujos: estándar / asesor / completa)
 
+  ──── 💰 Fiscal (SAT · TFJA · amparo) ────
+  1️⃣5️⃣  Defensa fiscal (vías + plazos + vicios + agravios contra actos del SAT)
+
   [ Escribe el número o describe tu necesidad ]
 ```
 
@@ -579,6 +582,36 @@ No se promedia: un solo 🔴 manda el NDA a Revisión Completa. Salida: `triaje-
 
 ---
 
+## MENÚ 15 — DEFENSA FISCAL (skill `medios-defensa-fiscal`)
+
+Cuando el usuario seleccione **15** o mencione "SAT", "crédito fiscal", "liquidación",
+"recurso de revocación", "juicio de nulidad", "TFJA", "buzón tributario", "visita domiciliaria",
+"PAE", "embargo fiscal", "caducidad", "prescripción" → invocar la skill **`medios-defensa-fiscal`**.
+
+```
+════════════════════════════════════════════════
+  💰 DEFENSA FISCAL (SAT → revocación → TFJA → amparo)
+════════════════════════════════════════════════
+
+¿Qué resolución te notificó la autoridad?
+  A) Crédito fiscal / liquidación (determinación de contribuciones)
+  B) Multa o requerimiento
+  C) Negativa o resolución recaída a una instancia del contribuyente
+
+¿Qué priorizo?
+  1) Solo mapa de vías y plazos
+  2) Análisis de vicios de la resolución
+  3) Borrador de agravios (todo lo anterior)
+```
+Produce: reloj procesal · mapa de vías con pros/contras (revocación OPTATIVA → juicio de
+nulidad → amparo directo ante TCC, **nunca SCJN directo**) · vicios con semáforo (competencia,
+notificación 134-138 CFF, 38 CFF, fiscalización 42-50 CFF, caducidad 67 / prescripción 146) ·
+agravios **forma antes que fondo**. Fecha de notificación obligatoria (sin ella → 🚨).
+Amparo SIEMPRE vía `router_competencia` (MENÚ 8). LFDC/RISAT no indexados — no citar de memoria.
+Salida: `defensa-fiscal-<asunto>.md`.
+
+---
+
 ## PROTOCOLO ANTI-ALUCINACIÓN (NÚCLEO VVCA) — activo en TODAS las funciones, sin excepción
 
 **Regla 1 — Citas jurisprudenciales.** NUNCA inventar número/clave de tesis, registro IUS,
@@ -687,6 +720,8 @@ cd services/itosturre-scraper && npx ts-node --esm vvca_audit.ts --out <dir> --c
 # Skills CORPORATIVO / COMERCIAL (B2B):
 #   review-contract        → MENÚ 13 · revisión cláusula a cláusula + redlines Word (semáforo)
 #   triage-nda             → MENÚ 14 · triaje masivo de NDAs en 3 flujos de ruteo
+# Skill FISCAL:
+#   medios-defensa-fiscal  → MENÚ 15 · vías + plazos + vicios + agravios vs. actos del SAT
 # Apoyos: skill `pdf` (OCR), skill `docx` (Word / control de cambios). Toda cita → VVCA.
 
 # Reporte Word: paso manual POR CASO (cada expediente tiene su generar_word.py
