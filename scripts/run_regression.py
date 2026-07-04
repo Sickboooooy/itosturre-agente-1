@@ -151,6 +151,24 @@ def main() -> int:
           and any("🚨" in a and "SCJN" in a for a in dir_.advertencias)
           and any("🚨" in a and "SCJN" in a for a in cont.advertencias))
 
+    # 9. Retrieval por metadata (P0): artículos bien etiquetados se recuperan por el par
+    #    exacto source+article (determinista), no por la similitud semántica más halagadora.
+    r_meta = ON.audit(
+        "El artículo 16 de la Constitución Política de los Estados Unidos Mexicanos exige "
+        "fundamentación y motivación. El artículo 121 del Código Fiscal de la Federación "
+        "regula el recurso de revocación.",
+        allow_incomplete_corpus=True,
+    )
+    normativa = [s for s in r_meta.get("retrieved_sources", []) if s.get("ref_type") == "normativa"]
+    mh = [s for s in normativa
+          if s.get("vvca", {}).get("explicabilidad", {}).get("match_metadata")]
+    check("Retrieval por metadata: art. 16 CPEUM y 121 CFF confirmados por source+article",
+          len(mh) >= 2, f"{len(mh)}/{len(normativa)} con match_metadata")
+    cff121 = [s for s in normativa
+              if s["article"] == "121" and "FISCAL DE LA FEDERACION" in s["source_file"]]
+    check("Retrieval por metadata: art. 121 → CÓDIGO FISCAL (no un artículo vecino parecido)",
+          bool(cff121), "" if cff121 else "cayó en otra fuente/artículo")
+
     return _final()
 
 

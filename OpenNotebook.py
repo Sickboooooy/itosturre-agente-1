@@ -893,29 +893,63 @@ def vvca_contextualizacion(source_file: str) -> str:
     return "Normativo · Verificar ámbito de aplicación específico"
 
 
+def _article_candidates(article: str) -> List[str]:
+    """Formas del número de artículo para el match EXACTO contra la metadata del corpus.
+
+    El chunker guarda el número base ('Art. 247 Bis' → '247' porque el label corta en el
+    espacio); la referencia puede traer el sufijo. Se generan ambas formas (y la variante sin
+    espacios internos) para no perder el match por espaciado — p. ej. '247 Bis' → ['247 Bis',
+    '247', '247Bis'], '1004-A' → ['1004-A'], '19' → ['19'].
+    """
+    a = (article or "").strip()
+    if not a:
+        return []
+    cands = {a}
+    m = re.match(r"\d+[\w\-]*", a)  # número base, sin ' Bis'/' Ter'
+    if m:
+        cands.add(m.group(0))
+    if " " in a:
+        cands.add(a.replace(" ", ""))
+    return list(cands)
+
+
 def build_vvca(
     ref: Dict,
     distance: float,
     source_match: bool,
     source_file: str,
     page: str,
+    metadata_verificado: bool = False,
 ) -> Dict:
     score = vvca_score(distance, source_match, has_source_file=bool(ref.get("source_file")))
     # Anti-falso-🟢: sin ley identificada en el contexto el match es solo por número de
     # artículo; no dar verde aunque la distancia sea baja — capar a 🟡 (84).
     if not ref.get("source_file"):
         score = min(score, 84)
+    # Confirmación por metadata (source+article exactos): la EXISTENCIA del artículo en la ley
+    # es ground truth, no similitud. Piso 🟡 (70): una distancia alta ya no es "posible
+    # alucinación" sino que el chunk recuperado puede ser otra porción de un artículo
+    # largo/troceado. El 🟢 (texto que coincide) sigue exigiendo distancia baja.
+    if metadata_verificado:
+        score = max(score, 70)
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
     art = ref.get("article", "?")
     frac = ref.get("fraction", "")
     art_label = f"Art. {art}" + (f" fr. {frac}" if frac else "")
 
-    v_verificacion = (
-        f"Encontrado en corpus oficial (dist={distance:.3f})"
-        if distance <= COSINE_THRESHOLD
-        else f"Coincidencia débil — posible alucinación (dist={distance:.3f}, umbral={COSINE_THRESHOLD})"
-    )
+    if metadata_verificado:
+        v_verificacion = (
+            f"Artículo confirmado por metadata (source+article) en corpus oficial "
+            f"(dist={distance:.3f})"
+        )
+    elif distance <= COSINE_THRESHOLD:
+        v_verificacion = f"Encontrado en corpus oficial (dist={distance:.3f})"
+    else:
+        v_verificacion = (
+            f"Coincidencia débil — posible alucinación (dist={distance:.3f}, "
+            f"umbral={COSINE_THRESHOLD})"
+        )
     v_validacion = (
         f"Fuente correcta: {source_file}"
         if source_match
@@ -936,6 +970,7 @@ def build_vvca(
             "coseno": round(distance, 4),
             "umbral": COSINE_THRESHOLD,
             "aprobado_umbral": distance <= COSINE_THRESHOLD,
+            "match_metadata": metadata_verificado,
             "coincide_fuente": source_match,
             "fuente_encontrada": source_file,
             "fuente_esperada": ref.get("source_file"),
@@ -1198,20 +1233,44 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                 )
                 continue
 
-            try:
-                # Usar query_embeddings con task=retrieval.query para encoding asimétrico
-                results = collection.query(
-                    query_embeddings=[encode_query(query)],
-                    n_results=3,
-                    where=where_filter
-                )
-            except Exception:
-                # where_filter puede fallar si la fuente no existe en el corpus
-                results = collection.query(
-                    query_embeddings=[encode_query(query)],
-                    n_results=3
-                )
-                expected_source = None
+            # P0 — Recuperación por metadata primero: si la ley está identificada, traer el
+            # chunk del ARTÍCULO EXACTO (match source+article), determinista; solo caer a
+            # similitud pura si no hay match de metadata. Evita recuperar un artículo distinto
+            # que resulte semánticamente parecido (el problema real de la búsqueda por coseno).
+            metadata_hit = False
+            results = None
+            if expected_source:
+                cands = _article_candidates(ref["article"])
+                if cands:
+                    try:
+                        results = collection.query(
+                            query_embeddings=[encode_query(query)],
+                            n_results=3,
+                            where={"$and": [{"source": expected_source},
+                                            {"article": {"$in": cands}}]},
+                        )
+                        if results and results["documents"] and results["documents"][0]:
+                            metadata_hit = True
+                        else:
+                            results = None
+                    except Exception:
+                        results = None  # sintaxis where no soportada → fallback semántico
+
+            if results is None:
+                try:
+                    # Encoding asimétrico (retrieval.query); filtro por fuente si se conoce.
+                    results = collection.query(
+                        query_embeddings=[encode_query(query)],
+                        n_results=3,
+                        where=where_filter,
+                    )
+                except Exception:
+                    # where_filter puede fallar si la fuente no existe en el corpus
+                    results = collection.query(
+                        query_embeddings=[encode_query(query)],
+                        n_results=3,
+                    )
+                    expected_source = None
 
             if results and results["documents"] and results["documents"][0]:
                 best_doc = results["documents"][0][0]
@@ -1226,9 +1285,37 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     source_match=source_match,
                     source_file=best_source,
                     page=best_meta.get("page", "?"),
+                    metadata_verificado=metadata_hit,
                 )
 
-                if not source_match and best_distance <= COSINE_THRESHOLD:
+                entry = {
+                    "reference": ref["raw"],
+                    "law": ref["law"],
+                    "article": ref["article"],
+                    "ref_type": "normativa",
+                    "source_file": best_source,
+                    "page": best_meta.get("page", "?"),
+                    "expected_source": expected_source,
+                    "law_inferred": ref.get("law_inferred", False),
+                    "relevance_score": round(1 - best_distance, 3),
+                    "retrieved_text": best_doc[:600],
+                    "vvca": vvca,
+                }
+
+                if metadata_hit:
+                    # Artículo confirmado por metadata (ley+artículo exactos) → verificado.
+                    # Distancia alta ya NO es "alucinación": es texto de otra porción del
+                    # artículo (largo/troceado). Se avisa para cotejar, no se tacha de falso.
+                    if best_distance > COSINE_THRESHOLD:
+                        alerts.append(
+                            f"🟡 COTEJAR: '{ref['raw']}' — artículo confirmado por metadata en "
+                            f"'{best_source}', pero el texto recuperado coincide poco "
+                            f"(dist={best_distance:.3f}): puede ser otra porción del artículo. "
+                            f"Cotejar el texto citado contra el precepto."
+                        )
+                    retrieved_sources.append(entry)
+                    verified_count += 1
+                elif not source_match and best_distance <= COSINE_THRESHOLD:
                     alerts.append(
                         f"{vvca['semaforo']} ALERTA (score {vvca['score']}): '{ref['raw']}' — "
                         f"encontrado en '{best_source}' pero se esperaba '{expected_source}'. "
@@ -1250,19 +1337,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                             f"de artículo contra '{best_source}'. El contexto no nombró el "
                             f"ordenamiento; verificar que sea la ley correcta antes de citar."
                         )
-                    retrieved_sources.append({
-                        "reference": ref["raw"],
-                        "law": ref["law"],
-                        "article": ref["article"],
-                        "ref_type": "normativa",
-                        "source_file": best_source,
-                        "page": best_meta.get("page", "?"),
-                        "expected_source": expected_source,
-                        "law_inferred": ref.get("law_inferred", False),
-                        "relevance_score": round(1 - best_distance, 3),
-                        "retrieved_text": best_doc[:600],
-                        "vvca": vvca,
-                    })
+                    retrieved_sources.append(entry)
                     verified_count += 1
             else:
                 alerts.append(
