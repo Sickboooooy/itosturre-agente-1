@@ -694,6 +694,55 @@ def resolve_law_source(context: str) -> Tuple[Optional[str], Optional[str]]:
     return (best_key, best_file)
 
 
+def resolve_law_alias(law: str) -> str:
+    """Resuelve el valor de --law (alias legible o nombre exacto del PDF) al
+    nombre de archivo indexado en metadata['source']. Antes, el filtro --law
+    exigía el nombre exacto del PDF (p. ej. 'CodigoProcedimientosCivilesEstadoJalisco.pdf')
+    y un alias del LAW_SOURCE_MAP como 'código de procedimientos civiles del estado
+    de jalisco' no producía resultados (0 chunks) en vez de un error explícito.
+    """
+    if not law:
+        return law
+    key = law.strip().lower()
+    if key in LAW_SOURCE_MAP:
+        return LAW_SOURCE_MAP[key]
+    if law in LAW_SOURCE_MAP.values():
+        return law  # ya es el nombre de archivo exacto
+    _, resolved = resolve_law_source(key)
+    return resolved or law
+
+
+_ARTICLE_NUM_RE = re.compile(r"art[íi]culo\s+(\d{1,4})|art\.\s*(\d{1,4})\b", re.IGNORECASE)
+
+
+def extract_article_numbers(text: str) -> List[str]:
+    """Extrae números de artículo mencionados explícitamente en `text` (p. ej.
+    'artículo 294' o 'art. 294')."""
+    nums = []
+    for m in _ARTICLE_NUM_RE.finditer(text):
+        n = m.group(1) or m.group(2)
+        if n not in nums:
+            nums.append(n)
+    return nums
+
+
+def exact_article_chunks(collection, source: str, article_num: str) -> List[Dict]:
+    """Escaneo literal (no semántico) de los chunks de `source` que contienen el
+    encabezado exacto 'Artículo {n}.'. Complementa la búsqueda semántica: un
+    artículo corto o temáticamente atípico dentro de su capítulo puede empatar en
+    score con vecinos y quedar fuera del top-N sin que exista ningún hueco de
+    indexación (caso real: art. 294 CPCJ, auditoría VVCA 07-jul-2026 — el chunk
+    existía en el corpus pero no rankeó dentro de n=4 resultados semánticos).
+    """
+    res = collection.get(where={"source": source}, include=["documents", "metadatas"])
+    pattern = re.compile(rf"art[íi]culo\s+{re.escape(article_num)}\s*\.", re.IGNORECASE)
+    hits = []
+    for doc, meta in zip(res.get("documents") or [], res.get("metadatas") or []):
+        if pattern.search(doc):
+            hits.append({"source": meta.get("source", "?"), "page": meta.get("page", "?"), "snippet": doc.strip()})
+    return hits
+
+
 def resolve_law_source_backward(context_before: str) -> Tuple[Optional[str], Optional[str]]:
     """Busca el alias de ley MÁS CERCANO al final del texto (el más próximo antes del
     artículo). Maneja el patrón legal de agrupar artículos bajo un encabezado de ley:
@@ -1531,7 +1580,8 @@ class OpenNotebook:
         embedder = get_embedder()
         col = get_collection(embedder)
         query_norm = normalize_legal_text(text)
-        where_filter = {"source": law} if law else None
+        resolved_law = resolve_law_alias(law) if law else None
+        where_filter = {"source": resolved_law} if resolved_law else None
         results = col.query(
             query_embeddings=[encode_query(query_norm)],
             n_results=n,
@@ -1551,6 +1601,23 @@ class OpenNotebook:
                 "page": page,
                 "snippet": doc.strip()
             })
+        # Fallback literal: si el texto nombra un artículo explícito, garantizar su
+        # chunk exacto aunque no haya rankeado en el top-N semántico (ver docstring
+        # de exact_article_chunks).
+        if resolved_law:
+            for art_num in extract_article_numbers(text):
+                already = any(f"artículo {art_num}." in r["snippet"].lower() for r in result_list)
+                if already:
+                    continue
+                for hit in exact_article_chunks(col, resolved_law, art_num):
+                    result_list.insert(0, {
+                        "score": 100,
+                        "semaforo": vvca_semaforo(100),
+                        "source": hit["source"],
+                        "page": hit["page"],
+                        "snippet": hit["snippet"],
+                        "match": "literal",
+                    })
         if json_output:
             print(json.dumps(result_list, ensure_ascii=False, indent=2))
         return result_list
@@ -1609,7 +1676,7 @@ Ejemplos:
     query_parser.add_argument("texto", help="Texto a buscar (entre comillas)")
     query_parser.add_argument("--n", type=int, default=5, help="Número de resultados (default: 5)")
     query_parser.add_argument("--verbose", action="store_true")
-    query_parser.add_argument("--law", help="Filtrar resultados por nombre de la ley (source file alias)")
+    query_parser.add_argument("--law", help="Filtrar por ley: acepta un alias del LAW_SOURCE_MAP (p. ej. 'cpeum', 'código civil de jalisco') o el nombre exacto del PDF indexado")
     query_parser.add_argument("--json", action="store_true", help="Emitir resultados también en formato JSON")
 
     # Comando: audit
@@ -1692,34 +1759,17 @@ Ejemplos:
 
     if args.command == "query":
         setup_logging(getattr(args, "verbose", False))
-        embedder = get_embedder()
-        col = get_collection(embedder)
-        query_norm = normalize_legal_text(args.texto)
-        # Optional law filter
-        where_filter = {"source": args.law} if getattr(args, "law", None) else None
-        results = col.query(
-            query_embeddings=[encode_query(query_norm)],
-            n_results=args.n,
-            where=where_filter,
-            include=["documents", "metadatas", "distances"]
-        )
-        result_list = []
-        print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {args.n} resultados")
-        for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
-            score = round((1 - dist) * 100)
-            sem = vvca_semaforo(score)
-            source = meta.get('source', '?')
-            page = meta.get('page', '?')
-            print(f"{sem} Score {score} | {source} pág.{page}")
-            print(f"   {doc[:200].strip()}")
+        # Delega en OpenNotebook.query() en vez de reimplementar la búsqueda: evita
+        # duplicar el filtro --law y el fallback literal por artículo (antes vivían
+        # por separado aquí y en el método de clase, y solo uno de los dos se corregía).
+        notebook = OpenNotebook()
+        result_list = notebook.query(args.texto, n=args.n, law=getattr(args, "law", None))
+        print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {len(result_list)} resultados")
+        for r in result_list:
+            etiqueta = " [coincidencia literal]" if r.get("match") == "literal" else ""
+            print(f"{r['semaforo']} Score {r['score']} | {r['source']} pág.{r['page']}{etiqueta}")
+            print(f"   {r['snippet'][:200]}")
             print()
-            result_list.append({
-                "score": score,
-                "semaforo": sem,
-                "source": source,
-                "page": page,
-                "snippet": doc.strip()
-            })
         # Output JSON if requested
         if getattr(args, "json", False):
             print(json.dumps(result_list, ensure_ascii=False, indent=2))

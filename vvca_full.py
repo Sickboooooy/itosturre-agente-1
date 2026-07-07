@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -99,13 +100,24 @@ def main() -> int:
     # ── 3. SJF tesis (opcional) ──────────────────────────────────────────────
     if args.registros and not args.no_sjf:
         scraper = REPO / "services" / "itosturre-scraper" / "vvca_audit.ts"
-        cmd = ["npx", "ts-node", "--esm", str(scraper), "--out", str(caso.resolve())]
-        if args.contexto:
-            cmd += ["--contexto", str(Path(args.contexto).resolve())]
-        cmd += args.registros
-        run(cmd, cwd=str(scraper.parent))
-        sjf = caso / "auditoria_vvca.json"
-        summary["pasos"]["sjf"] = {"json": str(sjf), "exists": sjf.exists()}
+        # En Windows, subprocess sin shell=True busca "npx.exe" (WinError 2): npx es
+        # en realidad npx.CMD. shutil.which() resuelve la extensión real vía PATHEXT.
+        npx = shutil.which("npx")
+        if not npx:
+            print("⚠️  'npx' no está en el PATH — se omite la verificación SJF en vivo.", file=sys.stderr)
+            summary["pasos"]["sjf"] = {"error": "npx no encontrado en PATH"}
+        else:
+            cmd = [npx, "ts-node", "--esm", str(scraper), "--out", str(caso.resolve())]
+            if args.contexto:
+                cmd += ["--contexto", str(Path(args.contexto).resolve())]
+            cmd += args.registros
+            try:
+                run(cmd, cwd=str(scraper.parent))
+                sjf = caso / "auditoria_vvca.json"
+                summary["pasos"]["sjf"] = {"json": str(sjf), "exists": sjf.exists()}
+            except (OSError, subprocess.SubprocessError) as e:
+                print(f"⚠️  Falló la verificación SJF en vivo: {e}", file=sys.stderr)
+                summary["pasos"]["sjf"] = {"error": str(e)}
 
     # ── 4. RAG capture (opcional) — derivar chunks del audit ─────────────────
     chunks = []
