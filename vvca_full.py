@@ -53,6 +53,10 @@ def main() -> int:
     ap.add_argument("--registros", nargs="*", default=[], help="Registros SJF a verificar en vivo")
     ap.add_argument("--force", action="store_true", help="Auditar aunque el corpus esté incompleto")
     ap.add_argument("--no-sjf", action="store_true", help="Saltar la verificación SJF (scraper)")
+    ap.add_argument("--no-popup-articulos", action="store_true",
+                     help="Saltar la generación de pop-ups por artículo 🟡/🔴 (snippet + página del PDF)")
+    ap.add_argument("--no-telegram", action="store_true",
+                     help="Generar los pop-ups de artículo pero no enviarlos a Telegram")
     ap.add_argument("--python", default=sys.executable, help="Intérprete Python a usar")
     args = ap.parse_args()
 
@@ -135,6 +139,58 @@ def main() -> int:
         run([args.python, str(REPO / "capturar_rag.py"), "--chunks", str(chunks_file),
              "--out", str(caso), "--nombre", "rag_chunks"])
         summary["pasos"]["rag_capture"] = str(caso / "rag_chunks.png")
+
+    # ── 5. Pop-ups por artículo 🟡/🔴 (opcional) — snippet literal + página del
+    #      PDF como prueba de ubicación, uno por artículo, deduplicado ─────────
+    if not args.no_popup_articulos:
+        vistos = {}
+        for s in (audit.get("retrieved_sources") or []):
+            if s.get("ref_type") != "normativa":
+                continue
+            vvca = s.get("vvca", {}) or {}
+            sem = vvca.get("semaforo")
+            if sem not in ("🟡", "🔴"):
+                continue
+            key = (s.get("expected_source") or s.get("source_file"), s.get("article"))
+            if key in vistos:
+                vistos[key]["veces_citado"] += 1
+                continue
+            explicabilidad = vvca.get("explicabilidad", {}) or {}
+            vistos[key] = {
+                "reference": s.get("reference", ""),
+                "law": s.get("law", ""),
+                "article": s.get("article", ""),
+                "source_file": s.get("source_file"),
+                "expected_source": s.get("expected_source"),
+                "page": s.get("page"),
+                "semaforo": sem,
+                # coincide_fuente es *vacíamente* True cuando expected_source es None
+                # (ninguna ley fue identificada cerca de la cita) — eso NO es lo mismo
+                # que "se confirmó que la ley es la correcta". Se distingue con
+                # ley_identificada para no mostrar como probada una página que en
+                # realidad viene de un match semántico sin ley de referencia.
+                "coincide_fuente": explicabilidad.get("coincide_fuente", True),
+                "ley_identificada": bool(s.get("expected_source")),
+                "retrieved_text_full": s.get("retrieved_text_full") or s.get("retrieved_text"),
+                "veces_citado": 1,
+            }
+        popup_items = list(vistos.values())
+        if not popup_items:
+            print("\n[INFO] 0 artículos 🟡/🔴 — nada que capturar en pop-ups.")
+            summary["pasos"]["rag_popup_articulos"] = {"items": 0}
+        else:
+            popup_file = caso / "articulos_popup.json"
+            popup_file.write_text(json.dumps(popup_items, ensure_ascii=False, indent=2), encoding="utf-8")
+            cmd = [args.python, str(REPO / "capturar_rag.py"), "--modo", "popup",
+                   "--items", str(popup_file), "--out", str(caso)]
+            if args.no_telegram:
+                cmd.append("--no-telegram")
+            try:
+                run(cmd)
+                summary["pasos"]["rag_popup_articulos"] = {"items": len(popup_items)}
+            except (OSError, subprocess.SubprocessError) as e:
+                print(f"⚠️  Falló la generación de pop-ups por artículo: {e}", file=sys.stderr)
+                summary["pasos"]["rag_popup_articulos"] = {"error": str(e)}
 
     (caso / "vvca_full.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
