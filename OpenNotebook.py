@@ -1348,6 +1348,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     "law_inferred": ref.get("law_inferred", False),
                     "relevance_score": round(1 - best_distance, 3),
                     "retrieved_text": best_doc[:600],
+                    "retrieved_text_full": best_doc,
                     "vvca": vvca,
                 }
 

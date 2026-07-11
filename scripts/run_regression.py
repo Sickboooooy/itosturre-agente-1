@@ -112,6 +112,15 @@ def main() -> int:
         check(f"{caso.name}: tesis con estado de vigencia", not sin_estado,
               f"{len(sin_estado)} sin estado")
 
+        # invariante nuevo — pop-up por artículo (snippet literal): retrieved_text_full
+        # debe existir y ser >= la versión truncada, para toda cita normativa.
+        norm_src = [s for s in res.get("retrieved_sources", [])
+                    if s.get("ref_type") == "normativa"]
+        sin_full = [s for s in norm_src
+                    if len(s.get("retrieved_text_full") or "") < len(s.get("retrieved_text") or "")]
+        check(f"{caso.name}: retrieved_text_full >= retrieved_text (normativa)", not sin_full,
+              f"{len(sin_full)} con texto completo más corto que el truncado")
+
     # 6-7. Reglas nuevas como self-test (no dependen de casos_de_prueba)
     v_sup = scoring_vvca.veredicto_global(90, 95, 0, 0, 3, tesis_superadas=1)
     check("Vigencia: tesis superada bloquea (🔴)",
