@@ -71,3 +71,14 @@ auditorias/
 # Casos con datos de cliente real — NO versionar (regla #8 CLAUDE.md)
 casos_de_prueba/*aaron*
 casos_de_prueba/*Aaron*
+
+# Mapa de conocimiento graphify (regenerable, pesado) — ver docs/plan-organizacion-repo.md
+graphify-out/
+
+# Repos embebidos ajenos al auditor legal (proyectos separados, cada uno con su
+# propio .git) — P0 del plan de organización. NO son producto; se gitignoran para
+# quitar el ruido de `git status` y evitar que `git add -A` los arrastre.
+# itosturre-scraper (submódulo) e itosturre-skills (producto) NO van aquí.
+services/cfdi-gen/
+services/itosturre-wa/
+services/bridge-whatsapp/
