@@ -218,6 +218,17 @@ LAW_ALIASES = {
     "CDN": "Convención sobre los Derechos del Niño",
     "Convención sobre los Derechos del Niño": "Convención sobre los Derechos del Niño",
     "Derechos del Niño": "Convención sobre los Derechos del Niño",
+    # Fiscal/contable (curso IA para contadores, 20-jul-2026)
+    "RMF": "Resolución Miscelánea Fiscal",
+    "Resolución Miscelánea Fiscal": "Resolución Miscelánea Fiscal",
+    "Miscelánea Fiscal": "Resolución Miscelánea Fiscal",
+    "PRODECON": "Ley Orgánica de la Procuraduría de la Defensa del Contribuyente",
+    "Ley Orgánica de PRODECON": "Ley Orgánica de la Procuraduría de la Defensa del Contribuyente",
+    "LOTFJA": "Ley Orgánica del Tribunal Federal de Justicia Administrativa",
+    "Ley Orgánica del TFJA": "Ley Orgánica del Tribunal Federal de Justicia Administrativa",
+    "LFDC": "Ley Federal de los Derechos del Contribuyente",
+    "Ley Federal de los Derechos del Contribuyente": "Ley Federal de los Derechos del Contribuyente",
+    "Derechos del Contribuyente": "Ley Federal de los Derechos del Contribuyente",
 }
 
 # Mapeo de palabras clave de ley (minúsculas) → nombre exacto del archivo en ChromaDB
@@ -340,6 +351,24 @@ LAW_SOURCE_MAP = {
     "ley nacional de ejecución penal": "LEY NACIONAL EJECUCION PENAL 2026.pdf",
     "ley nacional ejecucion penal": "LEY NACIONAL EJECUCION PENAL 2026.pdf",
     "lnep": "LEY NACIONAL EJECUCION PENAL 2026.pdf",
+    # Fiscal/contable (curso IA para contadores, 20-jul-2026)
+    "resolución miscelánea fiscal": "RESOLUCION MISCELANEA FISCAL 2026.pdf",
+    "resolucion miscelanea fiscal": "RESOLUCION MISCELANEA FISCAL 2026.pdf",
+    "rmf": "RESOLUCION MISCELANEA FISCAL 2026.pdf",
+    "miscelánea fiscal": "RESOLUCION MISCELANEA FISCAL 2026.pdf",
+    "miscelanea fiscal": "RESOLUCION MISCELANEA FISCAL 2026.pdf",
+    "ley orgánica de la procuraduría de la defensa del contribuyente": "LEY ORGANICA DE LA PRODECON 2026.pdf",
+    "ley organica de la procuraduria de la defensa del contribuyente": "LEY ORGANICA DE LA PRODECON 2026.pdf",
+    "ley orgánica de prodecon": "LEY ORGANICA DE LA PRODECON 2026.pdf",
+    "prodecon": "LEY ORGANICA DE LA PRODECON 2026.pdf",
+    "ley orgánica del tribunal federal de justicia administrativa": "LEY ORGANICA DEL TFJA 2026.pdf",
+    "ley organica del tribunal federal de justicia administrativa": "LEY ORGANICA DEL TFJA 2026.pdf",
+    "lotfja": "LEY ORGANICA DEL TFJA 2026.pdf",
+    "ley orgánica del tfja": "LEY ORGANICA DEL TFJA 2026.pdf",
+    "ley federal de los derechos del contribuyente": "LEY FEDERAL DE DERECHOS DEL CONTRIBUYENTE 2026.pdf",
+    "ley federal de derechos del contribuyente": "LEY FEDERAL DE DERECHOS DEL CONTRIBUYENTE 2026.pdf",
+    "lfdc": "LEY FEDERAL DE DERECHOS DEL CONTRIBUYENTE 2026.pdf",
+    "derechos del contribuyente": "LEY FEDERAL DE DERECHOS DEL CONTRIBUYENTE 2026.pdf",
 }
 
 
@@ -380,6 +409,11 @@ _LEGAL_NORMALIZER: List[Tuple[str, str]] = [
     (r'\bLFTSE\b',    'Ley Federal de Trabajadores al Servicio del Estado'),
     (r'\bLGDNNA\b',   'Ley General de Derechos de Niñas Niños y Adolescentes'),
     (r'\bCDN\b',      'Convención sobre los Derechos del Niño'),
+    # Fiscal/contable (curso IA para contadores, 20-jul-2026)
+    (r'\bRMF\b',      'Resolución Miscelánea Fiscal'),
+    (r'\bLOTFJA\b',   'Ley Orgánica del Tribunal Federal de Justicia Administrativa'),
+    (r'\bLFDC\b',     'Ley Federal de los Derechos del Contribuyente'),
+    (r'\bPRODECON\b', 'Procuraduría de la Defensa del Contribuyente'),
     # TJAJ expande a nombre de la LEY, no del órgano, para que matchee LAW_SOURCE_MAP
     (r'\bTJAJ\b',     'Ley de Justicia Administrativa del Estado de Jalisco'),
     (r'\bSCJN\b',     'Suprema Corte de Justicia de la Nación'),
