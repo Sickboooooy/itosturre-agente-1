@@ -44,6 +44,7 @@ def main() -> int:
     forbidden_files = set(policy["forbidden_tracked_files"])
     forbidden_prefixes = tuple(policy["forbidden_tracked_prefixes"])
     allowed_fixtures = set(policy["tracked_case_fixtures"])
+    allowed_validation_fixtures = set(policy.get("tracked_validation_fixtures", []))
 
     for path in sorted(candidates):
         if path in forbidden_files or path.startswith(forbidden_prefixes):
@@ -52,6 +53,14 @@ def main() -> int:
             errors.append(f"PDF del corpus candidato a Git: {path}")
         if path.startswith("casos_de_prueba/") and path not in allowed_fixtures:
             errors.append(f"fixture no autorizado en casos_de_prueba: {path}")
+        if path.startswith("tests/fixtures/") and path not in allowed_validation_fixtures:
+            errors.append(f"fixture de validación no autorizado: {path}")
+
+    missing_validation = [
+        path for path in sorted(allowed_validation_fixtures) if not (REPO / path).is_file()
+    ]
+    if missing_validation:
+        errors.append(f"faltan fixtures de validación autorizados: {missing_validation}")
 
     regression = set(policy["regression_case_fixtures"])
     allowed_names = {Path(path).name for path in allowed_fixtures}
@@ -70,4 +79,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

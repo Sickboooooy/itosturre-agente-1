@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "status": "seed_synthetic",
+  "purpose": "Regresión de políticas VVCA; no acredita todavía calibración empírica de umbrales.",
+  "cases": [
+    {
+      "id": "normativa_exacta_verde",
+      "category": "cita_verdadera",
+      "component": "score",
+      "input": {"distance": 0.1, "source_match": true, "has_source_file": true},
+      "expected": {"score": 90, "semaforo": "🟢"}
+    },
+    {
+      "id": "normativa_fuente_discrepante",
+      "category": "cita_ambigua",
+      "component": "score",
+      "input": {"distance": 0.1, "source_match": false, "has_source_file": true},
+      "expected": {"score": 75, "semaforo": "🟡"}
+    },
+    {
+      "id": "normativa_match_debil",
+      "category": "cita_no_sustentada",
+      "component": "score",
+      "input": {"distance": 0.6, "source_match": true, "has_source_file": true},
+      "expected": {"score": 40, "semaforo": "🔴"}
+    },
+    {
+      "id": "tesis_rubro_discrepante",
+      "category": "cita_refutada",
+      "component": "verdict",
+      "input": {"score_rag": 95, "score_sjf": 0, "tesis_discrepantes": 1, "tesis_no_encontradas": 0, "tesis_total": 1, "tesis_superadas": 0},
+      "expected": {"apto": false, "semaforo": "🔴"}
+    },
+    {
+      "id": "tesis_fuera_del_corpus",
+      "category": "cita_no_verificable",
+      "component": "verdict",
+      "input": {"score_rag": 95, "score_sjf": 0, "tesis_discrepantes": 0, "tesis_no_encontradas": 1, "tesis_total": 1, "tesis_superadas": 0},
+      "expected": {"apto": false, "semaforo": "🟡"}
+    },
+    {
+      "id": "tesis_superada",
+      "category": "vigencia_perdida",
+      "component": "verdict",
+      "input": {"score_rag": 95, "score_sjf": 95, "tesis_discrepantes": 0, "tesis_no_encontradas": 0, "tesis_total": 1, "tesis_superadas": 1},
+      "expected": {"apto": false, "semaforo": "🔴"}
+    },
+    {
+      "id": "normativa_verificacion_insuficiente",
+      "category": "cita_parcial",
+      "component": "verdict",
+      "input": {"score_rag": 69, "score_sjf": 0, "tesis_discrepantes": 0, "tesis_no_encontradas": 0, "tesis_total": 0, "tesis_superadas": 0},
+      "expected": {"apto": false, "semaforo": "🟡"}
+    },
+    {
+      "id": "documento_sin_discrepancias",
+      "category": "cita_verdadera",
+      "component": "verdict",
+      "input": {"score_rag": 90, "score_sjf": 95, "tesis_discrepantes": 0, "tesis_no_encontradas": 0, "tesis_total": 1, "tesis_superadas": 0},
+      "expected": {"apto": true, "semaforo": "🟢"}
+    }
+  ]
+}

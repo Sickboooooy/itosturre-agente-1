@@ -52,6 +52,7 @@ from itosturre.audit.jurisprudence import (
     rubro_keywords as _rubro_keywords,
 )
 from itosturre.audit.policy import disclaimer_graduado, vvca_score, vvca_semaforo
+from itosturre.audit.traceability import build_trace_record, traceability_bundle
 from scoring_vvca import veredicto_global
 
 import fitz  # PyMuPDF
@@ -1097,6 +1098,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     refs = extract_references(text)
     alerts = []
     retrieved_sources = []
+    verification_traces = []
     verified_count = 0
     corpus_warning = None
 
@@ -1107,6 +1109,19 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     missing_sources = check_corpus_coverage(refs, collection)
     if missing_sources:
         if not allow_incomplete_corpus:
+            for ref in refs:
+                expected_source = ref.get("source_file")
+                if expected_source in missing_sources:
+                    verification_traces.append(build_trace_record(
+                        reference=ref["raw"],
+                        ref_type=ref["type"],
+                        status="not_verifiable",
+                        method="corpus_coverage_gate",
+                        reason=f"Fuente no indexada en el corpus local: {expected_source}",
+                        semaforo="🟡",
+                        source_file=expected_source,
+                        metadata={"corpus_partial": True},
+                    ))
             return {
                 "status": "corpus_incomplete",
                 "missing_sources": missing_sources,
@@ -1119,6 +1134,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                 ),
                 "alerts": [],
                 "retrieved_sources": [],
+                "traceability": traceability_bundle(verification_traces),
             }
         corpus_warning = (
             f"⚠️  Auditoría ejecutada con corpus parcial. "
@@ -1150,6 +1166,20 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     f"indexada en el corpus. NO es alucinación: el corpus no la contiene. "
                     f"Indexar la ley o verificar en fuente oficial antes de citar."
                 )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="normativa",
+                    status="not_verifiable",
+                    method="corpus_local",
+                    reason=f"Ley no indexada en el corpus local: {expected_source}",
+                    semaforo="🟡",
+                    source_file=expected_source,
+                    locator=f"artículo {ref['article']}",
+                    metadata={
+                        "corpus_partial": True,
+                        "law_inferred": ref.get("law_inferred", False),
+                    },
+                ))
                 continue
 
             # P0 — Recuperación por metadata primero: si la ley está identificada, traer el
@@ -1222,6 +1252,30 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     "vvca": vvca,
                 }
 
+                if not source_match:
+                    trace_status = "refuted"
+                elif metadata_hit:
+                    trace_status = "verified" if vvca["score"] >= 85 else "partial"
+                elif best_distance > COSINE_THRESHOLD:
+                    trace_status = "refuted"
+                else:
+                    trace_status = "verified" if vvca["score"] >= 85 else "partial"
+                trace = build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="normativa",
+                    status=trace_status,
+                    method="corpus_metadata" if metadata_hit else "corpus_semantic",
+                    reason=f"{vvca['V_verificacion']}; {vvca['V_validacion']}",
+                    score=vvca["score"],
+                    semaforo=vvca["semaforo"],
+                    source_file=best_source,
+                    locator=f"página {best_meta.get('page', '?')} · artículo {ref['article']}",
+                    evidence_text=best_doc,
+                    metadata=vvca.get("explicabilidad", {}),
+                )
+                verification_traces.append(trace)
+                entry["trace_id"] = trace["trace_id"]
+
                 if metadata_hit:
                     # Artículo confirmado por metadata (ley+artículo exactos) → verificado.
                     # Distancia alta ya NO es "alucinación": es texto de otra porción del
@@ -1264,6 +1318,17 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     f"🔴 ALERTA CRÍTICA: '{ref['raw']}' — no encontrado en el corpus. "
                     f"Alucinación detectada. Verificar en fuente oficial ANTES de usar."
                 )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="normativa",
+                    status="refuted",
+                    method="corpus_local",
+                    reason="No se encontró coincidencia en una fuente que sí está indexada",
+                    score=0,
+                    semaforo="🔴",
+                    source_file=expected_source,
+                    locator=f"artículo {ref['article']}",
+                ))
 
         elif ref["type"] == "jurisprudencia":
             tesis_path = Path(JURISPRUDENCIA_PATH)
@@ -1285,6 +1350,22 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                                     or "Tesis verificada en corpus SJF."
                                 )
                                 vvca = build_vvca_tesis(ref, item, json_file.name)
+                                trace = build_trace_record(
+                                    reference=ref["raw"],
+                                    ref_type="jurisprudencia",
+                                    status="refuted" if vvca.get("rubro_mismatch") else (
+                                        "verified" if vvca.get("score", 0) >= 85 else "partial"
+                                    ),
+                                    method="corpus_jurisprudencia",
+                                    reason=vvca["V_verificacion"],
+                                    score=vvca["score"],
+                                    semaforo=vvca["semaforo"],
+                                    source_file=json_file.name,
+                                    locator=f"Registro digital {ref['registro']}",
+                                    evidence_text=texto,
+                                    metadata=vvca.get("explicabilidad", {}),
+                                )
+                                verification_traces.append(trace)
                                 retrieved_sources.append({
                                     "reference": ref["raw"],
                                     "registro": ref["registro"],
@@ -1293,6 +1374,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                                     "relevance_score": 1.0,
                                     "retrieved_text": texto[:600],
                                     "vvca": vvca,
+                                    "trace_id": trace["trace_id"],
                                 })
                                 verified_count += 1
                                 break
@@ -1309,6 +1391,16 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     f"no encontrado en el corpus de jurisprudencia local (no confirmado como falso). "
                     f"Verificar en sjf2.scjn.gob.mx antes de citar."
                 )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="jurisprudencia",
+                    status="not_verifiable",
+                    method="corpus_jurisprudencia",
+                    reason="Registro ausente del corpus local; no se confirma como falso",
+                    semaforo="🟡",
+                    locator=f"Registro digital {ref['registro']}",
+                    metadata={"corpus_partial": True},
+                ))
 
     # ── Score RAG (artículos) — validación estática
     art_scores = [
@@ -1389,6 +1481,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
         },
         "alerts": alerts,
         "retrieved_sources": retrieved_sources,
+        "traceability": traceability_bundle(verification_traces),
         "summary": (
             f"RAG {score_rag} {vvca_semaforo(score_rag)} "
             f"({len(art_scores)} arts) · "

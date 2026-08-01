@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compila y ejecuta la prueba offline de vigencia del scraper SJF.
+"""Compila y ejecuta las pruebas offline de vigencia y resiliencia del scraper SJF.
 
 Se compila a un directorio temporal dentro del submódulo para que Node pueda resolver
 sus dependencias. Esto evita la incompatibilidad de resolución ESM de `ts-node` observada
@@ -40,12 +40,16 @@ def main() -> int:
                 "NodeNext",
                 "--moduleResolution",
                 "NodeNext",
+                "--allowImportingTsExtensions",
+                "--rewriteRelativeImportExtensions",
                 "--target",
                 "ES2022",
                 "--esModuleInterop",
                 "--skipLibCheck",
                 "vigencia.test.ts",
+                "resilience.test.ts",
                 "vvca_audit.ts",
+                "sjf_resilience.ts",
             ],
             cwd=SCRAPER,
             check=False,
@@ -53,13 +57,16 @@ def main() -> int:
         if compile_result.returncode:
             return compile_result.returncode
 
-        return subprocess.run(
-            [node, str(out_dir / "vigencia.test.js")],
-            cwd=SCRAPER,
-            check=False,
-        ).returncode
+        for test_file in ("vigencia.test.js", "resilience.test.js"):
+            result = subprocess.run(
+                [node, str(out_dir / test_file)],
+                cwd=SCRAPER,
+                check=False,
+            )
+            if result.returncode:
+                return result.returncode
+        return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

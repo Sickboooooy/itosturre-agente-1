@@ -44,7 +44,7 @@ del producto.
 | `router_competencia.py` | Enrutamiento determinista de competencia orgánica | Código padre |
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
-| `itosturre/audit/` | Políticas VVCA puras, comprobables y sin dependencias RAG | Código padre |
+| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
 | `services/itosturre-skills/` | Skills jurídicas distribuibles | Submódulo |
 | `.claude/skills/` | Fuente versionada de skills vendorizadas | Código padre |
@@ -77,7 +77,8 @@ del producto.
 |---|---|---|
 | Estático | `python -m compileall -q ...` | Cada push/PR |
 | Superficies de agente | `python scripts/check_agent_surfaces.py` | Cada push/PR |
-| Parser SJF offline | `python scripts/test_scraper_offline.py` | Cada push/PR |
+| Parser y resiliencia SJF offline | `python scripts/test_scraper_offline.py` | Cada push/PR |
+| Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 

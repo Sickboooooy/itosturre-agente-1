@@ -32,6 +32,9 @@ jobs:
       - name: Probar políticas VVCA puras
         run: python -m unittest discover -s tests -p "test_*.py"
 
+      - name: Evaluar Gold Set VVCA
+        run: python scripts/evaluate_gold_set.py
+
       - name: Verificar superficies Claude/Codex
         run: python scripts/check_agent_surfaces.py
 
@@ -45,7 +48,7 @@ jobs:
           assert 'Tribunal Colegiado' in c.organo and 'SCJN' not in c.organo"
 
   scraper-offline:
-    name: Parser de vigencia SJF
+    name: Parser y resiliencia SJF
     runs-on: ubuntu-latest
     steps:
       - name: Checkout con submódulos

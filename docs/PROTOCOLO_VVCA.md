@@ -9,7 +9,7 @@ Anti-Alucinación del prompt Itosturre. Es la referencia de implementación, no 
 | Score | Qué mide | Fuente |
 |---|---|---|
 | `score_rag` | Artículos citados vs. corpus indexado | ChromaDB (estático) |
-| `score_sjf` | Tesis citadas vs. SJF | scraper / corpus local de jurisprudencia (dinámico) |
+| `score_sjf` | Tesis citadas vs. corpus local de jurisprudencia | corpus local (estático) |
 
 No existe un "score global" compuesto. El **veredicto** es una decisión binaria con razón.
 
@@ -104,3 +104,21 @@ y se usa como gate (sale != 0 si hay ausentes).
 `OpenNotebook.py correct` registra discrepancias observadas; `OpenNotebook.py calibrate`
 analiza falsos positivos/negativos y sugiere ajustar `COSINE_THRESHOLD`. Toda recalibración del
 umbral debe validarse contra `casos_de_prueba/` antes de fijarse.
+
+La semilla reproducible vive en `tests/fixtures/vvca_gold_set_v1.json` y se ejecuta con
+`python scripts/evaluate_gold_set.py`. Su estado `seed_synthetic` significa que funciona como
+gate de regresión, no como validación empírica definitiva de los umbrales.
+
+## 8. Trazabilidad
+
+`OpenNotebook.audit()` genera `traceability.records` para todas las referencias, incluso las
+no verificables o refutadas. El esquema, los estados y el hash de evidencia se describen en
+`docs/CONFIABILIDAD_VVCA.md`. `vvca_full.py` persiste la traza en
+`<caso>/vvca_traceability.json`.
+
+## 9. SJF en vivo
+
+El scraper es una herramienta estratégica separada y no alimenta `score_sjf`. Consulta los
+dos portales públicos con fallback, conserva cada intento y distingue ausencia confirmada de
+fallo técnico. No consume endpoints internos no documentados. Véase
+`docs/CONFIABILIDAD_VVCA.md`.

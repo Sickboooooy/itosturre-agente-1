@@ -9,6 +9,8 @@ un corpus legal mexicano indexado localmente.
 - 📚 Verifica las tesis/jurisprudencia **citadas** en el documento contra el corpus de jurisprudencia (anti-alucinación)
 - 🚦 Asigna un semáforo VVCA (🟢/🟡/🔴) por referencia, con razón explícita
 - 🔭 Scraper SJF en vivo (aparte): consulta el SJF en tiempo real para **comparar y proponer** tesis que refuercen la estrategia
+- 🧭 Conserva una traza estructurada por cita, incluidas las no verificables o refutadas
+- 🧪 Ejecuta un Gold Set sintético como gate de regresión de las políticas VVCA
 - 🧾 Deja el material listo para un reporte (Word con capturas SJF + RAG)
 
 Hecha por [**Itosturre LegalTech**](https://itosturre.com) para el curso
@@ -175,6 +177,10 @@ Con `--contexto caso.json` evalúa la relevancia de cada tesis al caso, descarta
 inaplicables y busca alternativas de oficio. Resultado en `<dir_expediente>/auditoria_vvca.json`
 + capturas `sjf_<registro>.png`.
 
+El scraper intenta `sjf2` y después `sjfsemanal`, y registra si cada fallo fue de red,
+bloqueo, timeout, cambio de layout o ausencia confirmada. No consume endpoints internos no
+documentados del microservicio de la SCJN.
+
 ### C) 🧩 Pipeline completo (recomendado)
 
 `vvca_full.py` orquesta todo con rutas parametrizadas (sin editar scripts por caso):
@@ -264,12 +270,18 @@ python scripts/check_sensitive_paths.py
 # Políticas VVCA puras
 python -m unittest discover -s tests -p "test_*.py"
 
-# Parser de vigencia del scraper (offline)
+# Gold Set sintético de políticas VVCA
+python scripts/evaluate_gold_set.py
+
+# Parser de vigencia + resiliencia del scraper (offline)
 python scripts/test_scraper_offline.py
 ```
 
 La arquitectura completa y la política de datos están en
 [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
+El diseño de fallback, Gold Set y trazabilidad está en
+[`docs/CONFIABILIDAD_VVCA.md`](docs/CONFIABILIDAD_VVCA.md).
 
 La política de confidencialidad está en [`docs/POLITICA_DATOS.md`](docs/POLITICA_DATOS.md).
 Los consumidores de `fetch_tesis_detalle.py` deben seguir la

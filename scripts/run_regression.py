@@ -133,6 +133,24 @@ def main() -> int:
         check(f"{caso.name}: retrieved_text_full >= retrieved_text (normativa)", not sin_full,
               f"{len(sin_full)} con texto completo más corto que el truncado")
 
+        # Toda referencia procesada debe conservar método, razón y revisión humana.
+        traceability = res.get("traceability", {})
+        traces = traceability.get("records", [])
+        malformed = [
+            t for t in traces
+            if not t.get("trace_id")
+            or not t.get("retrieval", {}).get("method")
+            or not t.get("verification", {}).get("reason")
+            or t.get("human_review_required") is not True
+        ]
+        check(
+            f"{caso.name}: una traza completa por referencia",
+            traceability.get("schema_version") == "1.0"
+            and len(traces) == res.get("total_references_found")
+            and not malformed,
+            f"trazas={len(traces)} refs={res.get('total_references_found')} incompletas={len(malformed)}",
+        )
+
     # 6-7. Reglas nuevas como self-test (no dependen de casos_de_prueba)
     v_sup = scoring_vvca.veredicto_global(90, 95, 0, 0, 3, tesis_superadas=1)
     check("Vigencia: tesis superada bloquea (🔴)",

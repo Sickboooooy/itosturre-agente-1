@@ -100,6 +100,16 @@ def main() -> int:
     except json.JSONDecodeError:
         audit = {"status": "parse_error", "stderr": (ra.stderr or "")[-2000:]}
     summary["pasos"]["rag_audit"] = audit.get("vvca_summary", audit.get("status"))
+    traceability = audit.get("traceability")
+    if traceability:
+        trace_path = caso / "vvca_traceability.json"
+        trace_path.write_text(
+            json.dumps(traceability, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        summary["pasos"]["rag_traceability"] = {
+            "json": str(trace_path),
+            "summary": traceability.get("summary", {}),
+        }
 
     # ── 3. SJF tesis (opcional) ──────────────────────────────────────────────
     if args.registros and not args.no_sjf:
