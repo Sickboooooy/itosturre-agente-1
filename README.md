@@ -224,15 +224,56 @@ itosturre-agente/
 ├── scoring_vvca.py            # Veredicto binario VVCA (dos scores independientes)
 ├── vvca_full.py              # Pipeline unificado parametrizado
 ├── capturar_rag.py           # Screenshots de chunks RAG para el reporte
+├── router_competencia.py     # Competencia orgánica determinista
+├── agentes/                  # Vigilancia y automatizaciones auxiliares
+├── itosturre/audit/          # Políticas VVCA puras extraídas del monolito
+├── config/data-policy.json   # Reglas ejecutables de confidencialidad
+├── tests/                    # Pruebas unitarias offline
 ├── scripts/
 │   ├── bootstrap_corpus.sh   # Descarga el corpus del Drive + ingest + verifica (onboarding)
 │   ├── check_corpus.py       # Verificador de cobertura del corpus
 │   ├── run_regression.py     # Suite de regresión VVCA (gate pre-merge)
+│   ├── check_agent_surfaces.py # Evita divergencia CLAUDE/AGENTS y skills
+│   ├── check_sensitive_paths.py # Evita versionar datos y artefactos locales
 │   └── git_strategy.sh       # Disciplina de ramas (0=rama 1=commit 2=push 3=merge)
 ├── services/itosturre-scraper/  # Scraper SJF en vivo — búsqueda estratégica (TS/Playwright)
+├── services/itosturre-skills/   # Skills jurídicas distribuibles (submódulo)
+├── corpus/ y jurisprudencia/    # Fuentes locales; no se versionan
 ├── chroma_db/                # Base vectorial (generada por ingest — no se versiona)
-└── docs/PROTOCOLO_VVCA.md    # Especificación del scoring y los guards
+├── auditorias/               # Producto confidencial por caso; no se versiona
+└── docs/
+    ├── ARQUITECTURA.md       # Mapa, límites y fuentes canónicas
+    └── PROTOCOLO_VVCA.md     # Especificación del scoring y los guards
 ```
+
+El repositorio padre es Python. Las dependencias Node pertenecen exclusivamente al
+submódulo `services/itosturre-scraper`; por eso no hay `package.json` en la raíz.
+
+### Pruebas
+
+```bash
+# Gate completo local (requiere corpus + ChromaDB)
+python scripts/run_regression.py
+
+# Consistencia de instrucciones Claude/Codex
+python scripts/check_agent_surfaces.py
+
+# Política de rutas sensibles y fixtures
+python scripts/check_sensitive_paths.py
+
+# Políticas VVCA puras
+python -m unittest discover -s tests -p "test_*.py"
+
+# Parser de vigencia del scraper (offline)
+python scripts/test_scraper_offline.py
+```
+
+La arquitectura completa y la política de datos están en
+[`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
+La política de confidencialidad está en [`docs/POLITICA_DATOS.md`](docs/POLITICA_DATOS.md).
+Los consumidores de `fetch_tesis_detalle.py` deben seguir la
+[`guía de migración`](docs/MIGRACION_FETCH_TESIS.md).
 
 ---
 

@@ -46,6 +46,12 @@ import logging
 from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 
+from itosturre.audit.context import vvca_contextualizacion
+from itosturre.audit.jurisprudence import (
+    classify_fuerza_vinculante,
+    rubro_keywords as _rubro_keywords,
+)
+from itosturre.audit.policy import disclaimer_graduado, vvca_score, vvca_semaforo
 from scoring_vvca import veredicto_global
 
 import fitz  # PyMuPDF
@@ -876,106 +882,6 @@ def extract_references(text: str) -> List[Dict]:
     return refs
 
 
-def vvca_score(distance: float, source_match: bool, has_source_file: bool) -> int:
-    """Score 0-100 basado en distancia coseno + coincidencia de fuente."""
-    base = round((1 - min(distance, 1.0)) * 100)
-    if not source_match:
-        base -= 15
-    if not has_source_file:
-        base -= 10
-    return max(0, min(100, base))
-
-
-def vvca_semaforo(score: int) -> str:
-    if score >= 85:
-        return "🟢"
-    if score >= 60:
-        return "🟡"
-    return "🔴"
-
-
-def disclaimer_graduado(veredicto: dict) -> dict:
-    """Disclaimer proporcional al riesgo del veredicto (para el pie del escrito/Word).
-
-    🟢 estándar · 🟡 con advertencias (requiere acuse) · 🔴 bloqueado (no presentar).
-    El pie fijo de siempre se vuelve invisible; este escala el tono y, en 🟡/🔴,
-    marca `requiere_acuse=True` para que el abogado deje constancia (Capa 2).
-    """
-    base = (
-        "Borrador generado por Itosturre (IA). La verificación de citas (Capa 1) es "
-        "automatizada y NO garantiza la pertinencia procesal ni la vigencia definitiva; "
-        "la Capa 2 es criterio del abogado firmante, responsable de la versión final."
-    )
-    nivel = veredicto.get("semaforo", "🟡")
-    razon = veredicto.get("razon", "")
-    accion = veredicto.get("accion", "")
-    if nivel == "🔴":
-        return {
-            "nivel": "🔴",
-            "encabezado": "🚨 DOCUMENTO BLOQUEADO — NO PRESENTAR SIN CORREGIR",
-            "texto": f"{razon}. {accion}. {base}",
-            "requiere_acuse": True,
-        }
-    if nivel == "🟡":
-        return {
-            "nivel": "🟡",
-            "encabezado": "⚠️ BORRADOR CON ADVERTENCIAS — REVISAR ANTES DE PRESENTAR",
-            "texto": f"{razon}. {accion}. {base}",
-            "requiere_acuse": True,
-        }
-    return {
-        "nivel": "🟢",
-        "encabezado": "✅ CITAS VERIFICADAS (Capa 1) — PENDIENTE PERTINENCIA (Capa 2)",
-        "texto": f"Verificación automatizada sin discrepancias. {base}",
-        "requiere_acuse": False,
-    }
-
-
-def vvca_contextualizacion(source_file: str) -> str:
-    s = source_file.lower()
-    if "cpeum" in s or "estados unidos mexicanos" in s:
-        return "Constitucional · Federal · Aplicable a todo el sistema jurídico"
-    if "cnpp" in s or "procedpenales" in s or "procedimientos penales" in s:
-        return "Procesal Penal · Nacional · PJF y juzgados locales acreditados CNPP"
-    if "penal federal" in s:
-        return "Penal sustantivo · Federal · PJF"
-    if "delincuencia organizada" in s:
-        return "Penal especial · Federal · LFDO — delitos del catálogo art. 2"
-    if "extincion de dominio" in s or "extinción" in s:
-        return "Extinción de dominio · Federal · Proceso civil especial autónomo"
-    if "general de victimas" in s or "víctimas" in s:
-        return "Penal/DDHH · Federal · Derechos de víctimas en toda causa penal"
-    if "ejecucion penal" in s or "ejecución penal" in s:
-        return "Ejecución de sanciones · Federal · Post-sentencia"
-    if "convencion americana" in s or "cadh" in s:
-        return "DDHH · Internacional · Control de convencionalidad obligatorio (art. 1° CPEUM)"
-    if "pacto internacional" in s or "pidcp" in s:
-        return "DDHH · ONU · Control de convencionalidad — aplica en amparo"
-    if "amparo" in s:
-        return "Amparo · Federal · Juzgados de Distrito y TCC"
-    if "lopjf" in s or "orgánica del poder judicial" in s or "organica del poder judicial" in s or "organicopoder" in s or "reglamentoorgan" in s:
-        return "Orgánica · Federal · Competencia PJF"
-    if "fiscal de la federacion" in s or "c.f.f" in s:
-        return "Fiscal · Federal · SAT / contribuciones federales"
-    if "fiscal del estado de jalisco" in s:
-        return "Fiscal · Local · Jalisco"
-    if "impuesto sobre la renta" in s:
-        return "Fiscal · Federal · ISR"
-    if "impuesto al valor agregado" in s:
-        return "Fiscal · Federal · IVA"
-    if "trabajo" in s or "lft" in s:
-        return "Laboral · Federal · JFCA / Tribunales Laborales"
-    if "seguro social" in s:
-        return "Seguridad Social · Federal · IMSS"
-    if "civil federal" in s:
-        return "Civil · Federal"
-    if "jalisco" in s:
-        return "Local · Estado de Jalisco"
-    if "nuevo leon" in s or "nuevo león" in s:
-        return "Local · Estado de Nuevo León"
-    return "Normativo · Verificar ámbito de aplicación específico"
-
-
 def _article_candidates(article: str) -> List[str]:
     """Formas del número de artículo para el match EXACTO contra la metadata del corpus.
 
@@ -1060,76 +966,6 @@ def build_vvca(
             "ley_inferida": bool(ref.get("law_inferred")),
         },
     }
-
-
-def _rubro_keywords(text: str) -> set:
-    """Extrae palabras clave significativas (>4 chars) de un rubro para comparación."""
-    stop = {"para", "como", "ante", "debe", "este", "esta", "dicho", "dicha",
-            "donde", "cuando", "aunque", "entre", "sino", "cuyo", "cuya",
-            "desde", "hasta", "sobre", "bajo", "cuales", "mismo", "misma"}
-    return {
-        w.lower() for w in re.findall(r'[A-Za-záéíóúÁÉÍÓÚüÜñÑ]{5,}', text)
-        if w.lower() not in stop
-    }
-
-
-def _fuerza(sello: str, organo: str, obligatoria: bool, ambito: str, fundamento: str) -> Dict:
-    return {
-        "sello": sello,
-        "organo": organo,
-        "obligatoria": obligatoria,
-        "ambito": ambito,
-        "fundamento": fundamento,
-    }
-
-
-_ROMANO = r"[IVXLCDM]+"
-
-
-def classify_fuerza_vinculante(numero_tesis: str, tipo_tesis: str = "") -> Dict:
-    """Clasifica la fuerza vinculante de una tesis a partir de su clave (numero_tesis).
-
-    El corpus local trae `numero_tesis` (la clave) pero no `sala`/`epoca`, así que la
-    clave es la señal primaria. Sellos:
-      [J-PLENO]/[J-SALA] jurisprudencia de la SCJN (obligatoria, nacional · art. 217 LA)
-      [PR]  Pleno Regional      (obligatoria en la región · Acuerdo General 5/2021)
-      [PC]  Pleno de Circuito   (obligatoria en el circuito · art. 217 LA)
-      [J-TCC] jurisprudencia de TCC (obligatoria en su circuito · art. 217 LA)
-      [SCJN-P] tesis aislada/precedente de la SCJN (orientadora; puede ser precedente
-               obligatorio por mayoría calificada — reforma art. 94 CPEUM 2021, VERIFICAR)
-      [TA]  tesis aislada       (orientadora, no obligatoria)
-
-    NOTA: [PR] y [SCJN-P] antes se distinguían a mano (Regla 6 del protocolo VVCA); este
-    clasificador los automatiza desde la clave. La condición de precedente OBLIGATORIO de
-    la SCJN requiere confirmar la votación — se marca como orientadora y a verificar.
-    """
-    up = (numero_tesis or "").strip().upper()
-    # Dos convenciones de clave para jurisprudencia:
-    #   "/J."   → Pleno/Salas de la SCJN (ej. P./J. 89/2026 · 1a./J. 68/2022)
-    #   "J/N"   → TCC, Plenos de Circuito y Plenos Regionales (ej. I.1o.P. J/7 · PR.A.CS. J/1)
-    es_jur = bool(re.search(r"/J\.|J/\d", up)) or bool(re.search(r"jurisprudencia", tipo_tesis or "", re.I))
-
-    if re.match(r"P\./J\.", up):
-        return _fuerza("[J-PLENO]", "Pleno de la SCJN", True, "nacional",
-                       "art. 217 LA — jurisprudencia obligatoria (Pleno de la SCJN)")
-    if re.match(r"[1-4]A\./J\.", up):
-        return _fuerza("[J-SALA]", "Sala de la SCJN", True, "nacional",
-                       "art. 217 LA — jurisprudencia obligatoria (Sala de la SCJN)")
-    if re.match(r"PR\.", up):
-        return _fuerza("[PR]", "Pleno Regional", True, "regional",
-                       "Acuerdo General 5/2021 — obligatoria en la región (Pleno Regional)")
-    if re.match(r"PC\.", up):
-        return _fuerza("[PC]", "Pleno de Circuito", True, "circuito",
-                       "art. 217 LA — obligatoria en el circuito (Pleno de Circuito)")
-    if es_jur:
-        return _fuerza("[J-TCC]", "Tribunal Colegiado de Circuito", True, "circuito",
-                       "art. 217 LA — jurisprudencia de TCC (obligatoria en su circuito)")
-    if re.match(r"(?:[1-4]A|P)\.\s*" + _ROMANO + r"\b", up):
-        return _fuerza("[SCJN-P]", "SCJN — tesis aislada / posible precedente", False, "orientadora",
-                       "Tesis aislada de la SCJN — orientadora; verificar si es precedente "
-                       "obligatorio por mayoría calificada (reforma art. 94 CPEUM 2021)")
-    return _fuerza("[TA]", "Tesis aislada", False, "orientadora",
-                   "Tesis aislada — orientadora, no obligatoria (art. 217 LA a contrario)")
 
 
 def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:

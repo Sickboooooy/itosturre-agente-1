@@ -135,8 +135,9 @@ al output del scraper o reclasificar en Python al promover).
 **P2 — Screenshot `fullPage: false`** puede dejar fuera la sección NOTAS — justo la evidencia
 de una vigencia perdida. Para tesis con `estado_vigencia != vigente`, capturar también NOTAS.
 
-**P2 — `fetch_tesis_detalle.py` (raíz)** duplica scraping en Python sin parseo estructurado.
-Candidato a deprecar cuando exista el fallback JSON.
+**P2 — `fetch_tesis_detalle.py` (raíz) · RESUELTO 31-jul-2026.** La implementación
+Playwright duplicada fue retirada. El archivo es una fachada de compatibilidad que delega
+en `vvca_audit.ts`; la migración está documentada en `docs/MIGRACION_FETCH_TESIS.md`.
 
 ---
 

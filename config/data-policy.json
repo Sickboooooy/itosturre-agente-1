@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "required_gitignore_rules": [
+    ".env",
+    ".env.local",
+    ".claude/settings.local.json",
+    "auditorias/",
+    "chroma_db/",
+    "jurisprudencia/",
+    "corpus/*.pdf",
+    "graphify-out/"
+  ],
+  "forbidden_tracked_prefixes": [
+    "auditorias/",
+    "chroma_db/",
+    "jurisprudencia/",
+    "graphify-out/"
+  ],
+  "forbidden_tracked_files": [
+    ".env",
+    ".env.local",
+    ".claude/settings.local.json"
+  ],
+  "tracked_case_fixtures": [
+    "casos_de_prueba/borrador_caso_001.md",
+    "casos_de_prueba/caso_001_prision_preventiva.md",
+    "casos_de_prueba/caso_001_prision_preventiva_audit_v4.pdf"
+  ],
+  "regression_case_fixtures": [
+    "borrador_caso_001.md",
+    "caso_001_prision_preventiva.md"
+  ]
+}
+

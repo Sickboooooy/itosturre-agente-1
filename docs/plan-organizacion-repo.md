@@ -1,5 +1,9 @@
 # Plan de organización del repo `itosturre-agente`
 
+> **Estado actualizado: 31-jul-2026.** El mapa operativo vigente está en
+> [`docs/ARQUITECTURA.md`](ARQUITECTURA.md). Este documento conserva el diagnóstico de
+> Graphify y el historial de decisiones. Las acciones ya ejecutadas se señalan abajo.
+
 **Fecha:** 17-jul-2026 · **Base:** mapa de conocimiento generado con [graphify](https://github.com/Graphify-Labs/graphify) (AST local, sin LLM) sobre 149 archivos de código → 1,166 nodos, 1,847 aristas, 125 comunidades. Mapa en `graphify-out/` (gitignorado; `graph.html` es interactivo, ábrelo en el navegador).
 
 ## Diagnóstico (qué reveló el grafo)
@@ -16,7 +20,7 @@ El auditor legal —el producto real— son **~200 KB** de Python en la raíz (`
 | Subproyecto | Tamaño | ¿Repo propio? | Estado git padre | ¿Es producto? | Acción |
 |---|---|---|---|---|---|
 | `itosturre-scraper` | 51M | sí | **submódulo oficial** (`.gitmodules`) | **SÍ** (SJF, en CLAUDE.md) | **dejar** |
-| `itosturre-skills` | 283K | sí (embebido) | `??` sin trackear | **SÍ** (skills, en CLAUDE.md) | → **convertir a submódulo** (P1) |
+| `itosturre-skills` | 283K | sí | **submódulo oficial** (`.gitmodules`) | **SÍ** (skills jurídicas) | **hecho: dejar** |
 | `cfdi-gen` | 16M | sí (embebido) | `??` sin trackear | no — SaaS Avanzza (duplica `Desktop\CFDI-GEN demo`) | **gitignorar** (P0) → luego relocalizar |
 | `itosturre-wa` | 397K | sí (embebido) | `??` sin trackear | no (bridge WhatsApp/Telegram) | **gitignorar** (P0) |
 | `bridge-whatsapp` | 210K | sí (embebido) | `??` sin trackear | no | **gitignorar** (P0) |
@@ -38,21 +42,20 @@ services/bridge-whatsapp/
 `itosturre-skills` NO se gitignora aquí: es producto y debe volverse submódulo (P1).
 
 ### P1 — Dar límites explícitos
-1. **`itosturre-skills` → submódulo** (como ya lo es `itosturre-scraper`). Es producto, tiene su propio repo, pero hoy está embebido y sin trackear:
-   ```bash
-   # 1. Confirmar la URL de su remoto:
-   cd services/itosturre-skills && git remote -v && cd ../..
-   # 2. Registrarlo como submódulo (sustituir <URL> por la real):
-   git submodule add <URL> services/itosturre-skills
-   ```
-   Si no tiene remoto aún, primero publícalo y luego regístralo.
-2. **(Opcional, mayor esfuerzo) Empaquetar el core** en `itosturre/` o `src/` para separar el producto del resto. Cambia rutas de import en todo el repo (y en `CLAUDE.md`) → hacerlo con calma y correr `scripts/run_regression.py` después. Diferible.
+1. ✅ **`itosturre-skills` como submódulo.** Ejecutado; comparte el mismo límite explícito
+   que `itosturre-scraper` y figura en `.gitmodules`.
+2. ✅ **Mapa arquitectónico y fuentes canónicas.** Documentados en
+   `docs/ARQUITECTURA.md`; las superficies Claude/Codex se validan con
+   `scripts/check_agent_surfaces.py`.
+3. ⏳ **Empaquetar el core** en `itosturre/` o `src/`. Sigue diferido: cambia rutas de
+   importación y exige ejecutar `scripts/run_regression.py` después de cada extracción.
 
 ### P2 — Relocalizar negocios ajenos y limpiar disco
 - **`cfdi-gen`**: una vez gitignorado, se puede **borrar de aquí** — pero SOLO tras confirmar que `Desktop\CFDI-GEN demo` está actualizado (es su hogar real). No auto-borrar.
 - **`linkedin-prospector/.venv`** (416M): basura local regenerable. Si el disco importa: `rm -rf services/linkedin-prospector/.venv` (se recrea con `python -m venv`). Los 6 archivos fuente trackeados están bien.
 - **`bridge-whatsapp`, `itosturre-wa`, `notion`, `linkedin-prospector`**: decidir si cada uno se va a su propio repo (recomendado para los que son negocio aparte) o se documenta como externo.
-- **Sueltos en la raíz** (`fetch_tesis_detalle.py`, `implementation_plan.md`, sin trackear): decidir keep/discard uno por uno.
+- ✅ **`fetch_tesis_detalle.py`:** deprecado como implementación independiente; permanece
+  temporalmente como fachada hacia `services/itosturre-scraper/vvca_audit.ts`.
 
 ### No tocar
 - Triplicación de validadores Office bajo `.claude/skills/{docx,pptx,xlsx}`: es cómo se empaquetan las skills (cada una trae su copia). Intencional.

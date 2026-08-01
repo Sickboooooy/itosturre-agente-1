@@ -17,11 +17,14 @@ Invariantes:
   6. Fase 1 — regla de vigencia (falso verde): una tesis superada bloquea (🔴), y es
      default-safe (0 superadas no altera el veredicto).
   7. Fase 1 — el clasificador de fuerza vinculante asigna el sello correcto por clave.
+  8. Solo usa casos sintéticos expresamente permitidos; nunca barre archivos locales de
+     cliente aunque estén dentro de `casos_de_prueba/` e ignorados por git.
 
 Uso: python scripts/run_regression.py
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -37,6 +40,11 @@ import scoring_vvca  # noqa: E402
 import router_competencia as rc  # noqa: E402
 
 fails: list[str] = []
+
+# Lista cerrada por privacidad y reproducibilidad. No sustituir por glob("*.md"): la carpeta
+# puede contener work product local deliberadamente ignorado por git.
+_DATA_POLICY = json.loads((REPO / "config" / "data-policy.json").read_text(encoding="utf-8"))
+REGRESSION_CASES = tuple(_DATA_POLICY["regression_case_fixtures"])
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -69,9 +77,13 @@ def main() -> int:
           f"faltan: {missing}" if missing else "")
 
     # 2-4. Auditar cada caso de prueba
-    casos = sorted((REPO / "casos_de_prueba").glob("*.md"))
+    casos = [
+        REPO / "casos_de_prueba" / name
+        for name in REGRESSION_CASES
+        if (REPO / "casos_de_prueba" / name).is_file()
+    ]
     if not casos:
-        check("Hay casos de prueba", False, "casos_de_prueba/*.md vacío")
+        check("Hay casos sintéticos de prueba", False, str(REGRESSION_CASES))
         return _final()
 
     for caso in casos:

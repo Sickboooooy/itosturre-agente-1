@@ -2,6 +2,29 @@
 
 Guía corta para trabajar en el repo sin romper las garantías legales del sistema.
 
+## Verificaciones antes de proponer cambios
+
+```bash
+# Consistencia de instrucciones y skills para Claude/Codex
+python scripts/check_agent_surfaces.py
+
+# Regresión completa del núcleo (requiere corpus local)
+python scripts/run_regression.py
+
+# Parser de vigencia del scraper (offline)
+python scripts/test_scraper_offline.py
+```
+
+`CLAUDE.md` y `.claude/skills/` son las fuentes canónicas. No edites manualmente
+`AGENTS.md` o `.agents/skills/`; después de cambiar una fuente ejecuta:
+
+```bash
+python scripts/check_agent_surfaces.py --write
+```
+
+La descripción de componentes, límites y clases de datos está en
+[`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md).
+
 ## 1. Invariante innegociable: Protocolo Anti-Alucinación
 
 El núcleo del producto es **no inventar fuentes**. Cualquier cambio debe preservar estas

@@ -49,6 +49,7 @@ yarn-error.log*
 # Local
 .env
 .env.local
+.claude/settings.local.json
 *.log
 temp/
 debug/
