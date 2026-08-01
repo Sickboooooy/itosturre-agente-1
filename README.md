@@ -284,6 +284,9 @@ El diseño de fallback, Gold Set y trazabilidad está en
 [`docs/CONFIABILIDAD_VVCA.md`](docs/CONFIABILIDAD_VVCA.md).
 
 La política de confidencialidad está en [`docs/POLITICA_DATOS.md`](docs/POLITICA_DATOS.md).
+La preparación local de prospectos B2B está documentada en
+[`docs/PROSPECCION_RESPONSABLE.md`](docs/PROSPECCION_RESPONSABLE.md). Este módulo normaliza,
+deduplica y aplica exclusiones; no recolecta datos ni envía comunicaciones.
 Los consumidores de `fetch_tesis_detalle.py` deben seguir la
 [`guía de migración`](docs/MIGRACION_FETCH_TESIS.md).
 

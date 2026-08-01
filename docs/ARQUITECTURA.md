@@ -45,6 +45,7 @@ del producto.
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
 | `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG | Código padre |
+| `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
 | `services/itosturre-skills/` | Skills jurídicas distribuibles | Submódulo |
 | `.claude/skills/` | Fuente versionada de skills vendorizadas | Código padre |
@@ -57,6 +58,7 @@ del producto.
 | Fuente jurídica | `corpus/`, `jurisprudencia/` | Local; no versionar documentos pesados |
 | Índice regenerable | `chroma_db/`, `graphify-out/` | Local; reconstruible |
 | Producto de cliente | `auditorias/` | Local, confidencial, nunca versionar |
+| Prospectos B2B | `leads_data/` | Local; incluye consentimientos y exclusiones; nunca versionar |
 | Casos sintéticos | `casos_de_prueba/` | Versionados; la regresión usa una lista cerrada |
 | Dependencias | `venv/`, `node_modules/` | Local; regenerables |
 

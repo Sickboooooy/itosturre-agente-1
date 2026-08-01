@@ -28,12 +28,14 @@ profesional, privilegio, protección de datos o instrucciones particulares del c
 | Pública | Código, documentación, leyes oficiales redistribuibles | Árbol versionado | Permitido |
 | Interna | Configuración no secreta, playbooks genéricos | Árbol versionado con revisión | Permitido |
 | Confidencial | Escritos, cronologías, datos de partes, estrategia | `auditorias/` o carpeta local del asunto | Prohibido |
+| Confidencial | Prospectos, teléfonos, consentimiento y listas de exclusión | `leads_data/` | Prohibido |
 | Restringida | Credenciales, tokens, secretos, datos sensibles | `.env` o almacén seguro local | Prohibido |
 | Regenerable | ChromaDB, cachés, capturas temporales, mapa Graphify | Rutas ignoradas | Prohibido |
 
 ## Rutas y controles
 
 - `auditorias/`: producto de trabajo confidencial por asunto.
+- `leads_data/`: prospectos B2B, procedencia, consentimiento y supresiones; nunca se versiona.
 - `corpus/*.pdf`: fuente jurídica local; se distribuye fuera de Git.
 - `chroma_db/` y `jurisprudencia/`: índices y datos promovidos, reconstruibles.
 - `graphify-out/`: mapa regenerable que puede revelar estructura o nombres locales.
@@ -73,4 +75,3 @@ Si un archivo confidencial entra al índice Git, a CI o a un conector no autoriz
 
 No se debe “corregir” silenciosamente un incidente borrando archivos sin preservar la
 trazabilidad necesaria.
-
