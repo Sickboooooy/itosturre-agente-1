@@ -70,6 +70,16 @@ auditorias/
 # Prospectos B2B reales, consentimientos y listas de exclusión — sólo local
 leads_data/
 
+# Memoria contextual: por defecto vive FUERA del repo (~/.itosturre/memoria/).
+# Estas reglas son red de seguridad por si ITOSTURRE_MEMORIA_DIR se reapunta
+# hacia dentro del árbol: contiene decisiones y notas del despacho.
+# Anclada con '/' inicial: sin ella la regla también ignoraría el paquete de
+# código itosturre/memoria/, que sí debe versionarse.
+/memoria/
+*.db
+*.db-wal
+*.db-shm
+
 # Backups locales
 *.bak
 

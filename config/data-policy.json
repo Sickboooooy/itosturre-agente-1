@@ -9,14 +9,17 @@
     "chroma_db/",
     "jurisprudencia/",
     "corpus/*.pdf",
-    "graphify-out/"
+    "graphify-out/",
+    "/memoria/",
+    "*.db"
   ],
   "forbidden_tracked_prefixes": [
     "auditorias/",
     "leads_data/",
     "chroma_db/",
     "jurisprudencia/",
-    "graphify-out/"
+    "graphify-out/",
+    "memoria/"
   ],
   "forbidden_tracked_files": [
     ".env",

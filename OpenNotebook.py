@@ -1684,6 +1684,26 @@ Ejemplos:
         })
         corrections_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2))
         print(f"✅ Corrección registrada ({len(existing)} total). Usa 'calibrate' para analizar.")
+
+        # Además del archivo de calibración (que solo mueve un umbral), la
+        # corrección se guarda como evento buscable: el criterio de un operador
+        # con años de foro es el activo que hoy se pierde entre sesiones.
+        # vvca_corrections.json queda intacto — 'calibrate' sigue leyéndolo igual.
+        try:
+            from itosturre.memoria import registrar_seguro
+
+            registrar_seguro(
+                "correccion_criterio_pjf",
+                f"{args.ref}: el semáforo correcto es {args.semaforo} "
+                f"(el sistema auditó {args.score_auditado})",
+                details={"nota": args.nota, "referencia": args.ref,
+                         "semaforo_correcto": args.semaforo,
+                         "score_auditado": args.score_auditado},
+                raiz=str(_BASE_DIR),
+                importance=1,
+            )
+        except Exception:  # noqa: BLE001 — la memoria nunca bloquea la calibración
+            pass
         return
 
     if args.command == "calibrate":
