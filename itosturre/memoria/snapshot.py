@@ -97,6 +97,9 @@ def construir_snapshot(
 
     abiertas = _tareas_abiertas(por_tipo)
 
+    errores = _errores_abiertos(por_tipo)
+    completadas = de("task_completed")
+
     secciones = [
         _seccion("🚨 Alertas procesales", de("alerta_procesal"), "alerta procesal plazo"),
         _seccion("⚖️ Correcciones de criterio", de("correccion_criterio_pjf", "user_correction"),
@@ -105,9 +108,12 @@ def construir_snapshot(
         _seccion("🔴 Citas bloqueadas", de("cita_bloqueada"), "cita bloqueada rubro"),
         _seccion("🏛️ Decisiones", de("architecture_decision", "user_decision"), "decisión"),
         _seccion("⏳ Tareas abiertas", abiertas, "tarea pendiente"),
-        _seccion("❌ Errores sin resolver", _errores_abiertos(por_tipo), "error"),
+        _seccion("✅ Tareas completadas", completadas, "tarea completada", maximo=3),
+        _seccion("❌ Errores sin resolver", errores, "error"),
+        _seccion("🧪 Pruebas", de("test_failed", "error_resolved"), "pruebas", maximo=3),
         _seccion("📚 Huecos de corpus", de("corpus_gap"), "corpus ley no indexada"),
         _seccion_archivos(lista),
+        _siguiente_accion(de("alerta_procesal"), errores, abiertas),
     ]
 
     cabecera = (
@@ -125,23 +131,55 @@ def construir_snapshot(
     partes = [cabecera, aviso]
     usados = len("\n".join(partes).encode("utf-8")) + len(cierre.encode("utf-8")) + 2
     omitidas = 0
-    for seccion in secciones:
+    # La sugerencia de siguiente acción se emite siempre (incluso sin eventos),
+    # así que no cuenta como contenido: si contara, el aviso de memoria vacía
+    # sería inalcanzable y el lector no sabría distinguir "no hay nada" de
+    # "no cupo nada".
+    con_contenido = False
+    for indice, seccion in enumerate(secciones):
         if not seccion:
             continue
         coste = len(seccion.encode("utf-8")) + 1
         if usados + coste > max_bytes:
             omitidas += 1
             continue
+        if not lista and indice == len(secciones) - 1 and not con_contenido:
+            continue  # la sugerencia se añade abajo, tras el aviso de vacío
         partes.append(seccion)
         usados += coste
+        con_contenido = True
 
     if omitidas:
         partes.append(f"  [{omitidas} sección(es) omitida(s) por presupuesto — "
                       + _COMANDO.format(consulta="<tu consulta>") + "]")
-    if len(partes) == 2:
+    if not con_contenido:
         partes.append("  (Sin eventos previos registrados para este proyecto.)")
+        partes.append(secciones[-1])
     partes.append(cierre)
     return "\n".join(partes)
+
+
+def _siguiente_accion(
+    alertas: Sequence[Mapping[str, Any]],
+    errores: Sequence[Mapping[str, Any]],
+    abiertas: Sequence[Mapping[str, Any]],
+) -> str:
+    """Deriva la siguiente acción del estado, sin inventarla.
+
+    Es una regla de precedencia explícita, no una conjetura: lo que puede costar
+    una instancia va antes que lo que puede costar una tarde. Si no hay nada
+    pendiente lo dice, en lugar de fabricar una sugerencia.
+    """
+    if alertas:
+        return ("  ➡️ Siguiente acción sugerida:\n"
+                f"    Atender la alerta procesal pendiente — {_resumen(alertas[0], 70)}")
+    if errores:
+        return ("  ➡️ Siguiente acción sugerida:\n"
+                f"    Resolver el error abierto — {_resumen(errores[0], 70)}")
+    if abiertas:
+        return ("  ➡️ Siguiente acción sugerida:\n"
+                f"    Continuar la tarea en curso — {_resumen(abiertas[0], 70)}")
+    return "  ➡️ Siguiente acción sugerida: nada pendiente registrado; preguntar al operador."
 
 
 def _tareas_abiertas(por_tipo: Mapping[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:

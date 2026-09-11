@@ -17,6 +17,7 @@ Uso:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -164,6 +165,50 @@ def medir_escala(n: int, max_bytes: int) -> dict:
             }
 
 
+def medir_hooks(n: int = 200) -> dict:
+    """Coste de los hooks de captura automática (etapa 7J).
+
+    Se mide el trabajo propio en proceso. El arranque del intérprete —el grueso
+    del coste de pared— se mide aparte desde el shell y se documenta como
+    constante: es el mismo para cualquier hook de tipo `command` y no depende de
+    lo que haga este código.
+    """
+    import tempfile
+
+    from itosturre.memoria.hooks import clasificar, procesar
+
+    ruido = [
+        {"tool_name": "Read", "tool_input": {"file_path": "x.py"}},
+        {"tool_name": "Bash", "tool_input": {"command": "ls -la"}},
+        {"tool_name": "Bash", "tool_input": {"command": "git status"}},
+        {"tool_name": "Grep", "tool_input": {"pattern": "foo"}},
+    ]
+    inicio = time.perf_counter()
+    for i in range(n):
+        clasificar(ruido[i % len(ruido)], "PostToolUse")
+    ms_descarte = (time.perf_counter() - inicio) * 1000 / n
+
+    with tempfile.TemporaryDirectory() as tmp:
+        previo = os.environ.get("ITOSTURRE_MEMORIA_DB")
+        os.environ["ITOSTURRE_MEMORIA_DB"] = str(Path(tmp) / "hooks.db")
+        try:
+            inicio = time.perf_counter()
+            for i in range(n // 4):
+                procesar(
+                    {"session_id": "bench", "tool_name": "Edit",
+                     "tool_input": {"file_path": f"src/archivo_{i}.py"}},
+                    "PostToolUse", raiz=tmp,
+                )
+            ms_captura = (time.perf_counter() - inicio) * 1000 / (n // 4)
+        finally:
+            if previo is None:
+                os.environ.pop("ITOSTURRE_MEMORIA_DB", None)
+            else:
+                os.environ["ITOSTURRE_MEMORIA_DB"] = previo
+
+    return {"ms_descarte": ms_descarte, "ms_captura": ms_captura, "n": n}
+
+
 def medir_snapshot(store: MemoriaStore) -> dict:
     eventos = store.recall("", limite=200, max_bytes=10 ** 7)["eventos"]
     inicio = time.perf_counter()
@@ -178,7 +223,8 @@ def medir_snapshot(store: MemoriaStore) -> dict:
 # Informe
 # ─────────────────────────────────────────
 
-def informe(antes: dict, despues: dict, escala: dict, snap: dict, stats: dict) -> str:
+def informe(antes: dict, despues: dict, escala: dict, snap: dict, stats: dict,
+            hooks: dict) -> str:
     L: list[str] = []
     ap = L.append
     ap("# Benchmark de memoria contextual — Itosturre")
@@ -270,7 +316,30 @@ def informe(antes: dict, despues: dict, escala: dict, snap: dict, stats: dict) -
        "recupera el detalle. Por eso no crece con la base.")
     ap("")
 
-    ap("## 6. El otro frente: el prompt permanente")
+    ap("## 6. Coste de los hooks de captura automática")
+    ap("")
+    ap("| Camino | Trabajo propio | Bloquea el turno |")
+    ap("|---|---:|---|")
+    ap(f"| Descarte (lectura, comando trivial) | {hooks['ms_descarte']:.3f} ms | no (`async`) |")
+    ap(f"| Captura (edición → escribe en SQLite) | {hooks['ms_captura']:.2f} ms | no (`async`) |")
+    ap("| Snapshot (`PreCompact`) | ~23 ms | sí, una vez por compactación |")
+    ap("| Restauración (`SessionStart`) | ~20 ms | sí, una vez por sesión |")
+    ap("")
+    ap("**El arranque del proceso domina y no es nuestro.** Medido en el shell: "
+       "~140 ms de pared por hook, de los que ~45 ms son arrancar el intérprete a "
+       "secas. El trabajo propio es tres órdenes de magnitud menor en el camino de "
+       "descarte, que es el habitual.")
+    ap("")
+    ap("Por eso el diseño evita pagarlo en vez de intentar reducirlo:")
+    ap("")
+    ap("1. **El `matcher` filtra antes de lanzar nada.** `Read`, `Grep` y `Glob` no "
+       "están en él: para una lectura el hook no llega a existir.")
+    ap("2. **La captura es `async`.** No bloquea el turno; el coste de pared sale "
+       "del camino crítico.")
+    ap("3. Solo `SessionStart` y `PreCompact` son síncronos, y ocurren una vez por "
+       "sesión y por compactación respectivamente.")
+    ap("")
+    ap("## 7. El otro frente: el prompt permanente")
     ap("")
     ap("La memoria no reduce el prompt base — son problemas distintos y se atacaron por "
        "separado. `CLAUDE.md` pasó de ~10 523 a ~4 372 tokens por turno al mover el detalle "
@@ -301,9 +370,11 @@ def main() -> int:
             antes = medir_antes()
             despues = medir_acierto(store, args.max_bytes)
             snap = medir_snapshot(store)
+            print("Midiendo el coste de los hooks…")
+            hooks = medir_hooks()
             print(f"Prueba de escala con {args.escala:,} eventos sintéticos…")
             escala = medir_escala(args.escala, args.max_bytes)
-            texto = informe(antes, despues, escala, snap, stats)
+            texto = informe(antes, despues, escala, snap, stats, hooks)
     except MemoriaNoDisponible as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 3

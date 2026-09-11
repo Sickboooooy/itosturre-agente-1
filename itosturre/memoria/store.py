@@ -112,6 +112,7 @@ class MemoriaStore:
         metadata: Mapping[str, Any] | None = None,
         session_id: str | None = None,
         timestamp: str | None = None,
+        dedupe_key: str | None = None,
     ) -> dict[str, Any]:
         """Persiste un evento y devuelve la fila escrita (o la ya existente).
 
@@ -119,6 +120,15 @@ class MemoriaStore:
         duplica. Reutiliza el criterio de ``traceability.build_trace_record`` —
         el identificador no depende de cuándo se registró, sino de qué se
         registró.
+
+        ``dedupe_key`` cambia esa identidad para los eventos que llegan de un
+        hook. Sin ella, la marca de tiempo entra en el hash y veinte ediciones
+        del mismo archivo en una sesión producirían veinte eventos idénticos
+        salvo el segundo — justo el ruido que enterraría lo que importa. Con
+        ella, la identidad es ``(proyecto, sesión, tipo, clave)``: el hecho se
+        registra una vez por sesión, se le actualiza la fecha y se lleva la
+        cuenta de repeticiones. Se acota a la sesión a propósito — trabajar hoy
+        sobre un archivo es un hecho distinto de haberlo hecho el mes pasado.
         """
         tipo = ranking.canonizar(event_type)
         if not summary or not summary.strip():
@@ -138,19 +148,19 @@ class MemoriaStore:
         detalles_txt = _serializar(detalles_limpios)
         meta_txt = _serializar(meta_limpia) if meta_limpia else None
 
+        if dedupe_key:
+            identidad = {"p": self.project_id, "sid": sesion, "t": tipo, "k": dedupe_key}
+        else:
+            identidad = {
+                "p": self.project_id,
+                "t": tipo,
+                "s": resumen_limpio,
+                "d": detalles_txt,
+                "f": ruta,
+                "ts": marca,
+            }
         uid = hashlib.sha256(
-            json.dumps(
-                {
-                    "p": self.project_id,
-                    "t": tipo,
-                    "s": resumen_limpio,
-                    "d": detalles_txt,
-                    "f": ruta,
-                    "ts": marca,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            ).encode("utf-8")
+            json.dumps(identidad, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()[:24]
 
         cur = self.con.execute(
@@ -166,6 +176,17 @@ class MemoriaStore:
                 "UPDATE sesiones SET n_eventos = n_eventos + 1, ultima_en = ?"
                 " WHERE session_id = ?",
                 (marca, sesion),
+            )
+        elif dedupe_key:
+            # Repetición de un hecho ya conocido: no se duplica la fila, se
+            # refresca su fecha (la recencia debe reflejar la última vez) y se
+            # lleva la cuenta, que informa de cuánto se ha tocado algo.
+            self.con.execute(
+                "UPDATE eventos SET timestamp = ?,"
+                " metadata = json_set(COALESCE(metadata, '{}'), '$.veces',"
+                "   COALESCE(json_extract(metadata, '$.veces'), 1) + 1)"
+                " WHERE event_uid = ?",
+                (marca, uid),
             )
         fila = self.con.execute(
             "SELECT * FROM eventos WHERE event_uid = ?", (uid,)

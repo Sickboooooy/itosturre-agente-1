@@ -159,14 +159,100 @@ python scripts/benchmark_memoria.py --salida docs/BENCHMARK_MEMORIA.md
 **95.3 %** menos contexto por consulta; **0.77 ms** con 10 000 eventos en base;
 snapshot de continuidad en **798 bytes**. Detalle en `docs/BENCHMARK_MEMORIA.md`.
 
+## Captura y restauración automáticas (hooks)
+
+Configurados en `.claude/settings.json`. Entrada única:
+`scripts/memoria_hook.sh` → `scripts/memoria_hook.py`.
+
+| Evento | Matcher | Qué hace | `async` |
+|---|---|---|:--:|
+| `SessionStart` | — | Inyecta el contexto de reanudación | no¹ |
+| `PreCompact` | todos | Guarda el snapshot antes de compactar | no² |
+| `SessionEnd` | — | Snapshot al cerrar | sí |
+| `PostToolUse` | `Write\|Edit\|NotebookEdit\|Bash` | Captura cambios y comandos | sí |
+| `PostToolUseFailure` | `Write\|Edit\|Bash` | Captura errores | sí |
+| `UserPromptSubmit` | — | Captura decisiones y correcciones | sí |
+
+¹ Necesita devolver `additionalContext`. ² Debe terminar antes de la compactación.
+
+**`Read`, `Grep` y `Glob` no están en ningún matcher**: para una lectura el hook
+no llega a existir. Filtrar ahí es lo que evita pagar el arranque de proceso en
+el caso más frecuente.
+
+### Qué se captura y qué no
+
+| Se registra | Se descarta |
+|---|---|
+| Edición de archivo (una vez por archivo y sesión) | Lecturas, búsquedas, listados |
+| `git commit` (asunto), rama, merge | `git status`, `diff`, `log` |
+| Pruebas en rojo; en verde solo si cierra un fallo | Pruebas verdes sueltas |
+| Instalación de dependencias | `ls`, `cd`, `cat`, `echo`, `pwd`… |
+| Cambios de configuración | Artefactos: `__pycache__`, `node_modules`, `chroma_db`, `temp/`, `*.log` |
+| Prompts con marcador de decisión o corrección | El resto de prompts |
+
+**Se guarda el hecho, no la salida.** "Modificó `store.py`" es un hecho; el diff
+es ruido que ya está en git. Ninguna salida de herramienta se persiste completa.
+
+### Sobre los prompts
+
+Un prompt de este proyecto puede contener un expediente con datos de cliente.
+Por eso solo se capturan los que llevan un marcador explícito de decisión o
+corrección, recortados a 200 caracteres y pasados por el redactor. El
+reconocimiento es insensible a acentos: se escribe "la via correcta" tanto como
+"la vía correcta".
+
+Desactivable por separado con `ITOSTURRE_MEMORIA_PROMPTS=off`, sin tocar el resto.
+
+### Interruptores
+
+| Variable | Efecto |
+|---|---|
+| `ITOSTURRE_MEMORIA_HOOKS=off` | Apaga captura y restauración |
+| `ITOSTURRE_MEMORIA_PROMPTS=off` | Apaga solo la captura de prompts |
+| `ITOSTURRE_MEMORIA_LOG` | Ruta de la bitácora de diagnóstico |
+
+### Coste medido
+
+| Camino | Trabajo propio | Bloquea |
+|---|---:|---|
+| Descarte | 0.001 ms | no (`async`) |
+| Captura | 5.7 ms | no (`async`) |
+| Snapshot | ~23 ms | sí, una vez por compactación |
+| Restauración | ~20 ms | sí, una vez por sesión |
+
+El coste de pared por hook es de ~140 ms, de los que ~45 ms son arrancar el
+intérprete a secas: **domina el arranque del proceso, no este código**. El diseño
+lo evita —filtro en el matcher, `async` en la captura— en vez de intentar
+reducirlo.
+
+### Diagnóstico
+
+Bitácora JSONL en `~/.itosturre/memoria/hooks.log` (fuera del repositorio, rotada
+a 512 KB, redactada). Cada línea dice qué evento ocurrió, qué hook lo procesó, si
+se almacenó o descartó, el motivo del descarte, la duración y el error si lo hubo.
+
+```bash
+tail -20 ~/.itosturre/memoria/hooks.log
+```
+
+### Fallo seguro
+
+El hook **siempre sale con código 0** y **stdout lleva JSON válido o nada**. Un
+código distinto puede cortar el turno; salida mal formada contaminaría el
+contexto. SQLite inaccesible, payload malformado o disco lleno degradan la
+funcionalidad —ese evento no se recuerda— y el agente continúa.
+
+---
+
 ## Límites conocidos
 
-- **No reduce el prompt base.** `CLAUDE.md` son ~41.5 KB (≈11-12k tokens) en cada
-  turno; esto mueve cientos de bytes. Es la mayor fuga de contexto del sistema y
-  sigue abierta (§3.5 del informe).
-- **Sin hooks.** No hay captura automática ni restauración al compactar: los
-  eventos se registran desde los pipelines y a mano. Decisión pendiente del
-  operador con el benchmark sobre la mesa.
+- **No reduce el prompt base.** Ese frente se atacó por separado: `CLAUDE.md` pasó
+  de ~10 523 a ~4 372 tokens (`docs/propuesta-adelgazar-claude-md.md`).
+- **El arranque de proceso por hook (~140 ms) no se puede eliminar**, solo sacar
+  del camino crítico. Es inherente a los hooks de tipo `command`.
+- **Un hook `async` puede perderse** si la sesión termina antes de que complete.
+  Es la contrapartida aceptada de no bloquear el turno: se pierde un evento, no
+  el trabajo.
 - **Clasificación de prosa importada, heurística.** Convertir Markdown libre en
   tipos de evento produce falsos positivos; el patrón de criterio jurídico se
   mantiene deliberadamente estrecho porque un falso positivo aquí no añade ruido,
