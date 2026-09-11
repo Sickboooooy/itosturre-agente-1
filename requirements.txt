@@ -27,6 +27,9 @@ pillow>=12.1.0
 playwright>=1.58.0
 selenium>=4.27.0
 requests>=2.32.3
+# Parser HTML de agentes/vigilancia_dof.py (`from bs4 import BeautifulSoup`) — faltaba
+# aquí pese a ser un import de nivel de módulo sin el cual el script no arranca.
+beautifulsoup4>=4.12.3
 
 # Data Processing
 pandas>=2.2.0

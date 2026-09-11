@@ -23,6 +23,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Instalar dependencias mínimas de agentes/ (sin RAG/ML pesado)
+        # Este job es la vía rápida "sin dependencias RAG" (ver docs/ARQUITECTURA.md,
+        # Contratos de prueba). agentes/vigilancia_dof.py y vigilancia_jurisprudencial.py
+        # importan requests/bs4 a nivel de módulo, y tests/test_vigilancia_*.py los
+        # ejercita — sin esto, "python -m unittest discover" falla con
+        # ModuleNotFoundError antes de correr un solo caso.
+        run: pip install requests beautifulsoup4
+
       - name: Compilar módulos Python
         run: >-
           python -m compileall -q
