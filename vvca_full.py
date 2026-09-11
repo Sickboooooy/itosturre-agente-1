@@ -111,6 +111,27 @@ def main() -> int:
             "summary": traceability.get("summary", {}),
         }
 
+    # ── 2b. Memoria contextual ───────────────────────────────────────────────
+    # Hasta ahora el veredicto y las citas bloqueadas morían en el JSON del caso:
+    # ningún expediente auditado era consultable después. Se registran como
+    # eventos para que la próxima sesión pueda recuperarlos sin releer la carpeta.
+    # Accesorio por definición — si la memoria falla, la auditoría continúa.
+    try:
+        from itosturre.memoria.puente import registrar_auditoria
+
+        n_eventos = registrar_auditoria(
+            audit,
+            raiz=str(REPO),
+            caso=caso.name,
+            borrador=str(borrador),
+            faltantes=cobertura.get("missing") or [],
+        )
+        summary["pasos"]["memoria"] = {"eventos": n_eventos}
+        if n_eventos:
+            print(f"🧠 {n_eventos} evento(s) registrados en la memoria contextual.")
+    except Exception as e:  # noqa: BLE001 — la memoria nunca tumba el pipeline
+        summary["pasos"]["memoria"] = {"error": str(e)}
+
     # ── 3. SJF tesis (opcional) ──────────────────────────────────────────────
     if args.registros and not args.no_sjf:
         scraper = REPO / "services" / "itosturre-scraper" / "vvca_audit.ts"

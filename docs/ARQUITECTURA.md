@@ -46,6 +46,8 @@ del producto.
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
 | `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG | Código padre |
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
+| `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
+| `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
 | `services/itosturre-skills/` | Skills jurídicas distribuibles | Submódulo |
 | `.claude/skills/` | Fuente versionada de skills vendorizadas | Código padre |
@@ -55,6 +57,7 @@ del producto.
 
 | Clase | Rutas | Política |
 |---|---|---|
+| Memoria contextual | `~/.itosturre/memoria/*.db` | **Fuera del repositorio**; local, reconstruible; contiene decisiones del despacho |
 | Fuente jurídica | `corpus/`, `jurisprudencia/` | Local; no versionar documentos pesados |
 | Índice regenerable | `chroma_db/`, `graphify-out/` | Local; reconstruible |
 | Producto de cliente | `auditorias/` | Local, confidencial, nunca versionar |

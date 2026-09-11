@@ -27,7 +27,7 @@ jobs:
         run: >-
           python -m compileall -q
           OpenNotebook.py scoring_vvca.py vvca_full.py capturar_rag.py
-          router_competencia.py scripts agentes itosturre tests
+          router_competencia.py memoria_cli.py scripts agentes itosturre tests
 
       - name: Probar políticas VVCA puras
         run: python -m unittest discover -s tests -p "test_*.py"
