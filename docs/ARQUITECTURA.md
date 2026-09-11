@@ -44,6 +44,7 @@ del producto.
 | `router_competencia.py` | Enrutamiento determinista de competencia orgánica | Código padre |
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
+| `itosturre/vigilancia/` | Contrato de datos (SUCCESS/SOURCE_UNAVAILABLE/...) y observabilidad para los watchers DOF/SAT/SJF — ver `docs/VIGILANCIA_LEGAL.md` | Código padre |
 | `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto y definición única del encabezado auténtico; `inexistencia.py` (D10): prueba positiva de inexistencia de un artículo en el cuerpo de la ley indexada (se abstiene ante cualquier ambigüedad); `fragmentacion.py` (4-oct-2026): corte y etiqueta de los fragmentos de la ingesta con esa misma definición, y métricas de cobertura para `ingest --simular` | Código padre |
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
@@ -724,6 +725,7 @@ variantes con sufijo, la prueba de inexistencia y la ingesta:
 | Corte de la ingesta y re-ingesta por fuente | `python -m unittest -v tests.test_ingesta_fragmentacion` | Cada push/PR (dentro de la suite); encabezados que cortan y que no (MAYÚSCULAS, tratados, remisiones, citas, apartados), etiquetas compatibles con las anteriores y con `_article_candidates`, misma definición que la auditoría, `fragmentar`/`medir`, y `reingestar_fuentes` con `ColeccionEscribible`: se niega sin fuente, borra solo la pedida, IDs y metadatos coherentes, nunca mezcla, `--simular` sin escrituras, restauración ante fallo, CLI |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
+| Watchers DOF/SAT/SJF (offline, red simulada) | `python -m unittest tests.test_vigilancia_contrato tests.test_vigilancia_watch` | Cada push/PR |
 
 La regresión VVCA no se ejecuta en CI compartido porque requiere el corpus local y el modelo
 de embeddings. Un resultado verde de CI no reemplaza ese gate local: desde R4a el CI ejerce
@@ -746,3 +748,9 @@ la lógica del núcleo con dobles, pero no la recuperación real.
 - `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
   permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.
+- Los watchers de `agentes/` (`vigilancia_dof.py`, `vigilancia_jurisprudencial.py`) requieren
+  que SU PROPIO proceso corra en un entorno con egress autorizado hacia dof.gob.mx, sat.gob.mx
+  y sjf2.scjn.gob.mx — no asumen que el orquestador que los invoca lo tiene. Si una fuente no
+  puede consultarse, el resultado queda en `SOURCE_UNAVAILABLE` (nunca en un "sin novedades"
+  fabricado) y `contenido_linkedin.py` bloquea la generación cuando no hay ningún hallazgo
+  validado. Ver `docs/VIGILANCIA_LEGAL.md`.
