@@ -84,6 +84,7 @@ del producto.
 | Superficies de agente | `python scripts/check_agent_surfaces.py` | Cada push/PR |
 | Parser y resiliencia SJF offline | `python scripts/test_scraper_offline.py` | Cada push/PR |
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
+| Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 
@@ -99,4 +100,6 @@ de embeddings. Un resultado verde de CI no reemplaza ese gate local.
 - Los dos submódulos oficiales son `itosturre-scraper` e `itosturre-skills`.
 - La modularización de `OpenNotebook.py` comenzó por funciones puras bajo `itosturre/audit/`.
   Las siguientes extracciones serán incrementales, conservarán la CLI y pasarán la regresión.
+- `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
+  permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.

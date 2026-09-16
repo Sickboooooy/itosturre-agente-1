@@ -122,3 +122,21 @@ El scraper es una herramienta estratégica separada y no alimenta `score_sjf`. C
 dos portales públicos con fallback, conserva cada intento y distingue ausencia confirmada de
 fallo técnico. No consume endpoints internos no documentados. Véase
 `docs/CONFIABILIDAD_VVCA.md`.
+
+## 10. Estados y fallo cerrado del pipeline
+
+`vvca_full.py` persiste un estado global en `vvca_full.json`:
+
+- `ok`: todos los pasos esenciales solicitados terminaron y sus salidas cumplen contrato;
+- `partial`: el operador autorizó expresamente continuar con `--force` o
+  `--allow-partial-sjf`;
+- `failed`: un paso esencial falló, produjo JSON inválido o no generó el artefacto esperado.
+
+Son fallos bloqueantes: código no cero de OpenNotebook; salida RAG no JSON o con
+`status != "ok"`; fallo del scraper solicitado; ausencia, falta de frescura o schema distinto
+de 2.0 en `auditoria_vvca.json`; y fallo de una captura solicitada. En esos casos el pipeline
+guarda diagnóstico, devuelve código 1 y no imprime el mensaje de conclusión exitosa.
+
+`--no-sjf` y `--no-rag-capture` son omisiones explícitas y quedan registradas como `skipped`.
+La memoria contextual es accesoria: un fallo suyo se registra como `warning` y no cambia una
+auditoría válida.

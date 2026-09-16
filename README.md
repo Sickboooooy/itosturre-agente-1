@@ -192,6 +192,19 @@ python vvca_full.py --caso auditorias/2026-06-18-MI-CASO \
 Hace: gate de cobertura → audit RAG → scraper SJF → capturas RAG → `vvca_full.json`
 consolidado. (El `.docx` final sigue siendo un paso manual por caso.)
 
+El pipeline **falla cerrado**: si OpenNotebook termina con error, devuelve JSON inválido, el
+scraper solicitado falla o no produce un `auditoria_vvca.json` esquema 2.0 nuevo, guarda el
+diagnóstico con `status: "failed"` y sale con código 1. No imprime un mensaje de éxito.
+Solo continúa degradado por una decisión explícita del operador:
+
+- `--force`: permite corpus incompleto y produce `status: "partial"`;
+- `--no-sjf`: omite conscientemente el SJF aunque se hayan proporcionado registros;
+- `--no-rag-capture`: omite conscientemente la captura PNG de los chunks recuperados;
+- `--allow-partial-sjf`: permite continuar con `status: "partial"` si falla el SJF solicitado.
+
+La memoria contextual es accesoria: su fallo queda como advertencia, pero no invalida una
+auditoría RAG/SJF correcta.
+
 ---
 
 ## 🧠 Búsqueda semántica directa
