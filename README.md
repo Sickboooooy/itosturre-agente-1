@@ -320,4 +320,6 @@ sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx.
 🏛️ **Lic. Jorge Fabián Martínez Sánchez** — Director Legal & IA · 25 años en el Poder Judicial Federal
 💻 **Ing. Aldo Guillermo Madrigal** — CTO & Lead Developer
 
+*En memoria de Alejandro “Itosturre” (QEPD), cuyo nombre y recuerdo inspiran este proyecto.*
+
 **Itosturre LegalTech © 2026.** Hecho con ⚖️ y ❤️.
