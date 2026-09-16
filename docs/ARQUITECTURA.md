@@ -84,6 +84,7 @@ del producto.
 | Superficies de agente | `python scripts/check_agent_surfaces.py` | Cada push/PR |
 | Parser y resiliencia SJF offline | `python scripts/test_scraper_offline.py` | Cada push/PR |
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
+| Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |

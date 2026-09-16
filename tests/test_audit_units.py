@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from itosturre.audit import (
     vvca_score,
     vvca_semaforo,
 )
-from scripts.evaluate_gold_set import evaluate_gold_set
+from scripts.evaluate_gold_set import GoldSetValidationError, evaluate_gold_set
 
 
 class PolicyTests(unittest.TestCase):
@@ -88,6 +90,158 @@ class GoldSetTests(unittest.TestCase):
         report = evaluate_gold_set(fixture)
         self.assertEqual(report["failed"], 0)
         self.assertEqual(report["dataset_status"], "seed_synthetic")
+        self.assertTrue(report["regression_gate_passed"])
+        self.assertFalse(report["release_ready"])
+
+    def test_v2_green_candidates_are_valid_but_not_calibration_ready(self) -> None:
+        fixture = Path(__file__).parent / "fixtures" / "vvca_gold_set_v2.json"
+        report = evaluate_gold_set(fixture)
+        self.assertEqual(report["total"], 10)
+        self.assertEqual(report["passed"], 10)
+        self.assertEqual(report["review"]["pending"], 10)
+        self.assertEqual(report["review"]["approved"], 0)
+        self.assertEqual(report["dataset_status"], "curation_draft")
+        self.assertTrue(report["regression_gate_passed"])
+        self.assertFalse(report["review"]["dataset_ready_for_calibration"])
+        self.assertFalse(report["release_ready"])
+
+    def test_v2_reports_false_green_and_false_red(self) -> None:
+        data = {
+            "schema_version": "2.0",
+            "status": "curation_draft",
+            "curation": {
+                "minimum_cases": 2,
+                "target_distribution": {"🟢": 1, "🟡": 0, "🔴": 1},
+            },
+            "cases": [
+                {
+                    "id": "falso_verde",
+                    "category": "riesgo_subestimado",
+                    "component": "score",
+                    "input": {
+                        "distance": 0.1,
+                        "source_match": True,
+                        "has_source_file": True,
+                    },
+                    "expected": {"semaforo": "🔴"},
+                    "ground_truth": {"review_status": "pending"},
+                },
+                {
+                    "id": "falso_rojo",
+                    "category": "riesgo_sobreestimado",
+                    "component": "score",
+                    "input": {
+                        "distance": 0.6,
+                        "source_match": True,
+                        "has_source_file": True,
+                    },
+                    "expected": {"semaforo": "🟢"},
+                    "ground_truth": {"review_status": "pending"},
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = Path(temp) / "gold.json"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+            report = evaluate_gold_set(fixture)
+        self.assertEqual(report["classification"]["false_green"], 1)
+        self.assertEqual(report["classification"]["false_red"], 1)
+        self.assertEqual(report["classification"]["underclassified"], 1)
+        self.assertEqual(report["classification"]["overclassified"], 1)
+
+    def test_v2_approved_case_requires_provenance(self) -> None:
+        data = {
+            "schema_version": "2.0",
+            "status": "operator_curated",
+            "curation": {
+                "minimum_cases": 1,
+                "target_distribution": {"🟢": 1, "🟡": 0, "🔴": 0},
+            },
+            "cases": [
+                {
+                    "id": "sin_procedencia",
+                    "category": "cita_verdadera",
+                    "component": "score",
+                    "input": {
+                        "distance": 0.1,
+                        "source_match": True,
+                        "has_source_file": True,
+                    },
+                    "expected": {"semaforo": "🟢"},
+                    "ground_truth": {"review_status": "approved"},
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = Path(temp) / "gold.json"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(GoldSetValidationError):
+                evaluate_gold_set(fixture)
+
+    def test_v2_operator_curated_case_can_be_release_ready(self) -> None:
+        data = {
+            "schema_version": "2.0",
+            "status": "operator_curated",
+            "curation": {
+                "minimum_cases": 1,
+                "target_distribution": {"🟢": 1, "🟡": 0, "🔴": 0},
+            },
+            "cases": [
+                {
+                    "id": "cita_confirmada",
+                    "category": "cita_verdadera",
+                    "component": "score",
+                    "input": {
+                        "distance": 0.1,
+                        "source_match": True,
+                        "has_source_file": True,
+                    },
+                    "expected": {"semaforo": "🟢"},
+                    "ground_truth": {
+                        "source_type": "corpus_oficial",
+                        "source_locator": "fixture público sintético",
+                        "verified_at": "2026-09-16",
+                        "reviewed_by": "operador_prueba",
+                        "review_status": "approved",
+                    },
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = Path(temp) / "gold.json"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+            report = evaluate_gold_set(fixture)
+        self.assertTrue(report["review"]["dataset_ready_for_calibration"])
+        self.assertTrue(report["release_ready"])
+
+    def test_v2_rejects_invalid_score_input(self) -> None:
+        data = {
+            "schema_version": "2.0",
+            "status": "curation_draft",
+            "curation": {
+                "minimum_cases": 1,
+                "target_distribution": {"🟢": 0, "🟡": 0, "🔴": 1},
+            },
+            "cases": [
+                {
+                    "id": "distancia_invalida",
+                    "category": "contrato_invalido",
+                    "component": "score",
+                    "input": {
+                        "distance": 4,
+                        "source_match": True,
+                        "has_source_file": True,
+                    },
+                    "expected": {"semaforo": "🔴"},
+                    "ground_truth": {"review_status": "pending"},
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = Path(temp) / "gold.json"
+            fixture.write_text(json.dumps(data), encoding="utf-8")
+            with self.assertRaises(GoldSetValidationError):
+                evaluate_gold_set(fixture)
 
 
 class LegacyFetchTests(unittest.TestCase):

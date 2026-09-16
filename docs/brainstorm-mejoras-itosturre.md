@@ -135,7 +135,7 @@
 
 **Fase 1 — semanas 1-4 · "Blindar la tubería y medir"**
 *Por qué primero:* Sin cimientos de confiabilidad, cada feature nueva multiplica el riesgo de falso verde y de scraper caído. Antes de vender garantías hay que poder medirlas.
-- **Golden set de evaluación** (~30 citas + ~30 cómputos de plazo con respuesta conocida, por Fabián) — sin harness no se puede prometer "anti-prescripción".
+- **Golden set de evaluación** (~30 citas + ~30 cómputos de plazo con respuesta conocida, por Fabián) — arnés VVCA v2 implementado; 10 candidatos verdes reproducibles preparados, 0/30 aprobados todavía. El conjunto de plazos permanece separado hasta contar con calendario CJF versionado.
 - **Caché resiliente + detección de cambio de layout del SJF** — el punto único de falla del foso VVCA (crítico antes de escalar usuarios).
 - **Clasificador [J]/[TA]/[PR]/[SCJN-I]** — infraestructura prerrequisito de 5-6 ideas.
 - **Vigencia de tesis (superada/interrumpida)** — el falso verde más grave; semilla `fetch_tesis_detalle.py` ya existe.

@@ -1,0 +1,308 @@
+{
+  "schema_version": "2.0",
+  "status": "curation_draft",
+  "purpose": "Calibración empírica de semáforos VVCA con fuentes públicas y revisión expresa del operador.",
+  "curation": {
+    "minimum_cases": 30,
+    "target_distribution": {
+      "🟢": 10,
+      "🟡": 10,
+      "🔴": 10
+    },
+    "required_reviewer_role": "operador jurídico",
+    "client_data_allowed": false,
+    "instructions": "Copiar casos públicos confirmados contra DOF, SJF o corpus oficial. Ningún caso cuenta como verdad de referencia hasta review_status=approved."
+  },
+  "cases": [
+    {
+      "id": "green_amparo_art_17",
+      "category": "normativa_amparo_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1355,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "LEY DE AMPARO.pdf · artículo 17 · página PDF 8 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "Ley de Amparo Art. 17.",
+        "observed_at": "2026-09-16",
+        "observed_score": 86,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "b2ec8890e32f2d8588bc"
+      }
+    },
+    {
+      "id": "green_amparo_art_61",
+      "category": "normativa_amparo_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1178,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "LEY DE AMPARO.pdf · artículo 61 · página PDF 23 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "Ley de Amparo Art. 61.",
+        "observed_at": "2026-09-16",
+        "observed_score": 88,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "e242070712c188873494"
+      }
+    },
+    {
+      "id": "green_amparo_art_108",
+      "category": "normativa_amparo_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1292,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "LEY DE AMPARO.pdf · artículo 108 · página PDF 40 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "Ley de Amparo Art. 108.",
+        "observed_at": "2026-09-16",
+        "observed_score": 87,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "125e6e6b50cc7bce6a24"
+      }
+    },
+    {
+      "id": "green_amparo_art_124",
+      "category": "normativa_amparo_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1374,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "LEY DE AMPARO.pdf · artículo 124 · página PDF 45 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "Ley de Amparo Art. 124.",
+        "observed_at": "2026-09-16",
+        "observed_score": 86,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "cdae5870a81ec404397d"
+      }
+    },
+    {
+      "id": "green_cnpp_art_109",
+      "category": "normativa_penal_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1386,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "CodigoNacionalProcedPenales.pdf · artículo 109 · página PDF 29 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "CNPP Art. 109.",
+        "observed_at": "2026-09-16",
+        "observed_score": 86,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "5d9737496332016cc750"
+      }
+    },
+    {
+      "id": "green_cnpp_art_113",
+      "category": "normativa_penal_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1347,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "CodigoNacionalProcedPenales.pdf · artículo 113 · página PDF 32 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "CNPP Art. 113.",
+        "observed_at": "2026-09-16",
+        "observed_score": 87,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "8732d29f4331e9354e4d"
+      }
+    },
+    {
+      "id": "green_cnpp_art_131",
+      "category": "normativa_penal_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1328,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "CodigoNacionalProcedPenales.pdf · artículo 131 · página PDF 37 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "CNPP Art. 131.",
+        "observed_at": "2026-09-16",
+        "observed_score": 87,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "6590957c3683ca67332b"
+      }
+    },
+    {
+      "id": "green_cff_art_38",
+      "category": "normativa_fiscal_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1528,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "CODIGO FISCAL DE LA FEDERACION 2026.pdf · artículo 38 · página PDF 83 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "CFF Art. 38.",
+        "observed_at": "2026-09-16",
+        "observed_score": 85,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "5c6c68b86fe0c726f082"
+      }
+    },
+    {
+      "id": "green_cff_art_42",
+      "category": "normativa_fiscal_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1389,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "CODIGO FISCAL DE LA FEDERACION 2026.pdf · artículo 42 · página PDF 105 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "CFF Art. 42.",
+        "observed_at": "2026-09-16",
+        "observed_score": 86,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "ec3eb910cb2d2955fab5"
+      }
+    },
+    {
+      "id": "green_cff_art_137",
+      "category": "normativa_fiscal_exacta",
+      "component": "score",
+      "input": {
+        "distance": 0.1541,
+        "source_match": true,
+        "has_source_file": true
+      },
+      "expected": {
+        "semaforo": "🟢"
+      },
+      "ground_truth": {
+        "source_type": "corpus_oficial",
+        "source_locator": "CODIGO FISCAL DE LA FEDERACION 2026.pdf · artículo 137 · página PDF 205 (metadata del corpus)",
+        "verified_at": "",
+        "reviewed_by": "",
+        "review_status": "pending"
+      },
+      "candidate_evidence": {
+        "audit_input": "CFF Art. 137.",
+        "observed_at": "2026-09-16",
+        "observed_score": 85,
+        "observed_semaforo": "🟢",
+        "retrieval_method": "corpus_metadata",
+        "metadata_match": true,
+        "trace_id": "bbf68926603f44bb59e2"
+      }
+    }
+  ]
+}
