@@ -286,7 +286,7 @@ python -m unittest discover -s tests -p "test_*.py"
 # Gold Set sintético de políticas VVCA
 python scripts/evaluate_gold_set.py
 
-# Gold Set v2 en curaduría: 10 candidatos verdes pendientes (código 2 hasta aprobar 30/30)
+# Gold Set v2: lote inicial revisado, 9 verdes aprobados y 1 falso verde detectado
 python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json
 
 # Parser de vigencia + resiliencia del scraper (offline)

@@ -57,10 +57,15 @@ de falsos positivos y falsos negativos.
 El arnés de esa segunda versión vive en `tests/fixtures/vvca_gold_set_v2.json` y documenta su
 proceso en `docs/GOLD_SET_V2.md`. Mientras sea `curation_template` o `curation_draft`, el
 evaluador devuelve código 2 para impedir que un borrador incompleto se confunda con evidencia
-de calibración. El borrador contiene ya 10 candidatos verdes reproducibles, pero siguen en
-`pending` hasta el cotejo expreso del operador. El reporte v2 separa `false_green`, `false_red`,
+de calibración. El primer lote contenía 10 candidatos verdes reproducibles: la revisión humana
+aprobó 9 y rechazó 1 como falso verde por evidencia insuficiente. El reporte v2 separa `false_green`, `false_red`,
 subclasificación, sobreclasificación y matriz de confusión; un falso verde nunca se diluye en
 la exactitud global.
+
+El falso verde del artículo 42 CFF originó un guard adicional: el match de metadata ya no basta;
+la evidencia debe contener el encabezado exacto del precepto. La ejecución corregida selecciona
+la página 91 en lugar de la remisión interna de la página 105. El caso rechazado permanece en el
+Gold Set como antecedente histórico y la salida remediada requiere revisión expresa independiente.
 
 ## Trazabilidad por referencia
 

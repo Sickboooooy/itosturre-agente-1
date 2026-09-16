@@ -30,6 +30,8 @@ def veredicto_global(
     tesis_no_encontradas: int,
     tesis_total: int,
     tesis_superadas: int = 0,
+    normativa_refutada: int = 0,
+    normativa_no_verificable: int = 0,
 ) -> dict:
     """
     Veredicto binario con razón explícita. No promedia los dos scores.
@@ -37,9 +39,11 @@ def veredicto_global(
     Reglas de precedencia (se evalúan en orden):
       1. tesis_discrepantes > 0  → ROJO bloqueante (rubro falsificado o equivocado)
       2. tesis_superadas > 0     → ROJO bloqueante (falso verde: cita real, criterio muerto)
-      3. tesis_no_encontradas > 0 → AMARILLO (corpus incompleto, no necesariamente error)
-      4. RAG < 70                → AMARILLO (artículos con verificación insuficiente)
-      5. Sin problemas           → VERDE
+      3. normativa_refutada > 0  → ROJO bloqueante (fuente incorrecta o cita sin sustento)
+      4. tesis_no_encontradas > 0 → AMARILLO (corpus incompleto, no necesariamente error)
+      5. normativa_no_verificable > 0 → AMARILLO (evidencia parcial o insuficiente)
+      6. RAG < 70                → AMARILLO (artículos con verificación insuficiente)
+      7. Sin problemas           → VERDE
 
     Args:
         score_rag:              promedio VVCA de artículos verificados (0-100)
@@ -50,6 +54,8 @@ def veredicto_global(
         tesis_superadas:        tesis cuyo criterio fue superado/interrumpido/sustituido
                                 (rubro correcto pero criterio ya no vigente — "falso verde").
                                 Default 0: sin dato de vigencia el veredicto no cambia.
+        normativa_refutada:     artículos cuya traza quedó refutada. Un solo caso bloquea.
+        normativa_no_verificable: artículos parciales o no verificables. Exigen revisión.
 
     Returns:
         dict con apto, semaforo, razon, accion
@@ -77,6 +83,17 @@ def veredicto_global(
             "accion": "Sustituir por criterio vigente antes de cualquier uso procesal",
         }
 
+    if normativa_refutada > 0:
+        return {
+            "apto": False,
+            "semaforo": "🔴",
+            "razon": (
+                f"{normativa_refutada} cita(s) normativa(s) refutada(s) — "
+                "USO PROCESAL PROHIBIDO"
+            ),
+            "accion": "Corregir o sustituir las citas normativas antes de cualquier uso procesal",
+        }
+
     if tesis_no_encontradas > 0:
         return {
             "apto": False,
@@ -86,6 +103,17 @@ def veredicto_global(
                 "(ausentes del corpus local — no confirmadas como falsas)"
             ),
             "accion": "Verificar manualmente en SJF o ampliar el corpus antes de uso procesal",
+        }
+
+    if normativa_no_verificable > 0:
+        return {
+            "apto": False,
+            "semaforo": "🟡",
+            "razon": (
+                f"{normativa_no_verificable} cita(s) normativa(s) con evidencia "
+                "parcial o no verificable"
+            ),
+            "accion": "Cotejar el precepto en la fuente oficial antes de uso procesal",
         }
 
     if score_rag < 70:

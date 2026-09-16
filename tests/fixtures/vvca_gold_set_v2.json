@@ -27,11 +27,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "LEY DE AMPARO.pdf · artículo 17 · página PDF 8 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf · artículo 17 · página impresa 8 · última reforma DOF 16-10-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador para Capa 1; no implica aplicabilidad a un caso concreto."
       },
       "candidate_evidence": {
         "audit_input": "Ley de Amparo Art. 17.",
@@ -56,11 +57,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "LEY DE AMPARO.pdf · artículo 61 · página PDF 23 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf · artículo 61 · página impresa 23 · última reforma DOF 16-10-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado tras revisión personal del enlace oficial por el operador para Capa 1; no implica actualizar una causal de improcedencia en un caso concreto."
       },
       "candidate_evidence": {
         "audit_input": "Ley de Amparo Art. 61.",
@@ -85,11 +87,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "LEY DE AMPARO.pdf · artículo 108 · página PDF 40 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf · artículo 108 · página impresa 40 · última reforma DOF 16-10-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador para Capa 1; no acredita la suficiencia de una demanda concreta."
       },
       "candidate_evidence": {
         "audit_input": "Ley de Amparo Art. 108.",
@@ -114,11 +117,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "LEY DE AMPARO.pdf · artículo 124 · página PDF 45 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf · artículo 124 · página impresa 45 · última reforma DOF 16-10-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado tras revisión personal del operador para Capa 1; no determina la regularidad de una audiencia concreta."
       },
       "candidate_evidence": {
         "audit_input": "Ley de Amparo Art. 124.",
@@ -143,11 +147,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "CodigoNacionalProcedPenales.pdf · artículo 109 · página PDF 29 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf · artículo 109 · página impresa 29 · última reforma DOF 28-11-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador bajo criterio reforzado penal para Capa 1; no determina la vulneración de un derecho en un procedimiento concreto."
       },
       "candidate_evidence": {
         "audit_input": "CNPP Art. 109.",
@@ -172,11 +177,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "CodigoNacionalProcedPenales.pdf · artículo 113 · página PDF 32 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf · artículo 113 · página impresa 32 · última reforma DOF 28-11-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador bajo criterio reforzado penal para Capa 1; no determina la vulneración de un derecho en un procedimiento concreto."
       },
       "candidate_evidence": {
         "audit_input": "CNPP Art. 113.",
@@ -201,11 +207,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "CodigoNacionalProcedPenales.pdf · artículo 131 · página PDF 37 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf · artículo 131 · página impresa 37 · última reforma DOF 28-11-2025",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador bajo criterio reforzado penal para Capa 1; no determina el incumplimiento del Ministerio Público en un asunto concreto."
       },
       "candidate_evidence": {
         "audit_input": "CNPP Art. 131.",
@@ -230,11 +237,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "CODIGO FISCAL DE LA FEDERACION 2026.pdf · artículo 38 · página PDF 83 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf · artículo 38 · páginas impresas 83-84 · última reforma DOF 09-04-2026",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador para Capa 1. La compilación oficial vigente es posterior a la instantánea local, pero la reforma DOF 09-04-2026 no modificó el artículo 38; no determina la validez de un acto administrativo concreto."
       },
       "candidate_evidence": {
         "audit_input": "CFF Art. 38.",
@@ -248,7 +256,7 @@
     },
     {
       "id": "green_cff_art_42",
-      "category": "normativa_fiscal_exacta",
+      "category": "normativa_fiscal_evidencia_insuficiente",
       "component": "score",
       "input": {
         "distance": 0.1389,
@@ -256,14 +264,15 @@
         "has_source_file": true
       },
       "expected": {
-        "semaforo": "🟢"
+        "semaforo": "🟡"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "CODIGO FISCAL DE LA FEDERACION 2026.pdf · artículo 42 · página PDF 105 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf · artículo 42 · páginas impresas 91-95 · última reforma DOF 09-04-2026",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "rejected",
+        "review_note": "Rechazado expresamente como candidato verde tras cotejo visual del operador. El artículo 42 auténtico se localiza en las páginas impresas 91-95 y regula las facultades de comprobación en trece fracciones; el sistema recuperó la página local 105, correspondiente al artículo 48-A, que sólo remite al artículo 42. Se reclasifica 🟡 por evidencia insuficiente, no como cita inexistente."
       },
       "candidate_evidence": {
         "audit_input": "CFF Art. 42.",
@@ -273,6 +282,17 @@
         "retrieval_method": "corpus_metadata",
         "metadata_match": true,
         "trace_id": "ec3eb910cb2d2955fab5"
+      },
+      "remediation_evidence": {
+        "status": "implemented_pending_operator_review",
+        "observed_at": "2026-09-16",
+        "audit_input": "CFF Art. 42.",
+        "selected_page": "91",
+        "rejected_page": "105",
+        "exact_heading_verified": true,
+        "observed_score": 85,
+        "observed_semaforo": "🟢",
+        "note": "El selector corregido prefiere el fragmento que comienza con Artículo 42 y mantiene el falso verde original como antecedente histórico. Esta observación técnica no cambia por sí sola la decisión humana registrada."
       }
     },
     {
@@ -288,11 +308,12 @@
         "semaforo": "🟢"
       },
       "ground_truth": {
-        "source_type": "corpus_oficial",
-        "source_locator": "CODIGO FISCAL DE LA FEDERACION 2026.pdf · artículo 137 · página PDF 205 (metadata del corpus)",
-        "verified_at": "",
-        "reviewed_by": "",
-        "review_status": "pending"
+        "source_type": "Cámara de Diputados",
+        "source_locator": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf · artículo 137 · página impresa 205 · última reforma DOF 09-04-2026",
+        "verified_at": "2026-09-16",
+        "reviewed_by": "operador_juridico_JFMS",
+        "review_status": "approved",
+        "review_note": "Aprobado por decisión expresa del operador para Capa 1: artículo, encabezado, contenido y página coinciden con la fuente oficial vigente. No determina la legalidad de una notificación concreta."
       },
       "candidate_evidence": {
         "audit_input": "CFF Art. 137.",

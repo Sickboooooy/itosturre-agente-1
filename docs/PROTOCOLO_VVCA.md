@@ -42,13 +42,23 @@ Reglas en orden de precedencia:
    *Criterio:* se marca discrepante cuando el solapamiento de palabras clave (>4 chars) entre
    el rubro real y el invocado es **< 40%** (`OpenNotebook.py`, `build_vvca_tesis`). Es el
    umbral del 🔴 bloqueante — el más fuerte del sistema; ajustarlo con cuidado.
-2. `tesis_no_encontradas > 0` → **🟡** — ausentes del corpus local; *no confirmadas como falsas*
+2. `tesis_superadas > 0` → **🔴 bloqueante** — la cita existe, pero el criterio ya no
+   está vigente.
+3. `normativa_refutada > 0` → **🔴 bloqueante** — al menos una cita normativa quedó
+   refutada. El promedio no puede ocultarla.
+4. `tesis_no_encontradas > 0` → **🟡** — ausentes del corpus local; *no confirmadas como falsas*
    (el corpus puede estar incompleto).
-3. `score_rag < 70` → **🟡** — artículos con verificación insuficiente.
-4. en otro caso → **🟢**.
+5. `normativa_no_verificable > 0` → **🟡** — al menos una cita normativa tiene evidencia
+   parcial o insuficiente.
+6. `score_rag < 70` → **🟡** — artículos con verificación insuficiente.
+7. en otro caso → **🟢**.
 
-La distinción del punto 1 vs. 2 es crítica: "rubro discrepante" (peligroso) ≠ "no encontrada"
+La distinción entre una cita refutada y una no verificable es crítica: "rubro discrepante"
+o "fuente incorrecta" (peligroso) ≠ "no encontrada"
 (corpus incompleto). Nunca se tratan igual.
+
+El `score_rag` es descriptivo. El veredicto global sigue la peor traza: una sola cita roja
+bloquea y una sola cita amarilla impide declarar el documento apto, aunque el promedio sea alto.
 
 ## 4. Guards de resolución de artículos (anti-falso-veredicto)
 
@@ -70,6 +80,10 @@ El parser resuelve la ley de cada artículo en cascada de prioridad:
 
 Comportamiento al auditar (`audit()`):
 
+- **Coincidencia de metadata `source+article`** → no basta por sí sola. Entre todos los
+  fragmentos candidatos se prefiere el que contiene el encabezado exacto (`Artículo N.-`).
+  Una mención interna como "conforme al artículo 42" se conserva como evidencia auditable,
+  pero queda en 🟡 y nunca acredita por sí sola el precepto citado.
 - **Ley identificada pero ausente del corpus** → `🟡 NO VERIFICABLE`. *No* se reporta como
   "alucinación": el corpus simplemente no la contiene. (Guard P0 — antes producía un falso 🔴
   que tachaba de falsa una cita válida, p. ej. LGV/PIDCP.)
