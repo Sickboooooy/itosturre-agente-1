@@ -286,6 +286,9 @@ python -m unittest discover -s tests -p "test_*.py"
 # Gold Set sintético de políticas VVCA
 python scripts/evaluate_gold_set.py
 
+# Gold Set v2 en curaduría: 10 candidatos verdes pendientes (código 2 hasta aprobar 30/30)
+python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json
+
 # Parser de vigencia + resiliencia del scraper (offline)
 python scripts/test_scraper_offline.py
 ```
@@ -295,6 +298,8 @@ La arquitectura completa y la política de datos están en
 
 El diseño de fallback, Gold Set y trazabilidad está en
 [`docs/CONFIABILIDAD_VVCA.md`](docs/CONFIABILIDAD_VVCA.md).
+La curaduría del Gold Set jurídico v2 está especificada en
+[`docs/GOLD_SET_V2.md`](docs/GOLD_SET_V2.md).
 
 La política de confidencialidad está en [`docs/POLITICA_DATOS.md`](docs/POLITICA_DATOS.md).
 La preparación local de prospectos B2B está documentada en

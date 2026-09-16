@@ -54,6 +54,14 @@ El resultado actual sirve como gate de regresión. **No demuestra todavía que l
 el operador con citas reales confirmadas contra fuentes oficiales, revisión doble y métricas
 de falsos positivos y falsos negativos.
 
+El arnés de esa segunda versión vive en `tests/fixtures/vvca_gold_set_v2.json` y documenta su
+proceso en `docs/GOLD_SET_V2.md`. Mientras sea `curation_template` o `curation_draft`, el
+evaluador devuelve código 2 para impedir que un borrador incompleto se confunda con evidencia
+de calibración. El borrador contiene ya 10 candidatos verdes reproducibles, pero siguen en
+`pending` hasta el cotejo expreso del operador. El reporte v2 separa `false_green`, `false_red`,
+subclasificación, sobreclasificación y matriz de confusión; un falso verde nunca se diluye en
+la exactitud global.
+
 ## Trazabilidad por referencia
 
 `OpenNotebook.audit()` devuelve `traceability`, con una traza por cada referencia procesada,
