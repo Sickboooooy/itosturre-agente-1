@@ -8,7 +8,8 @@ Sale != 0 si alguno falla — úsalo como gate antes de `git_strategy.sh 3` (mer
 
 Invariantes:
   1. Cobertura del corpus completa (0 fuentes mapeadas ausentes).
-  2. caso_001_prision_preventiva: status ok, veredicto apto, sin alertas 🔴.
+  2. caso_001_prision_preventiva: status ok, veredicto conservador 🟡 mientras existan
+     citas parciales y sin alertas 🔴.
   3. Ningún caso lanza excepción al auditar.
   4. Sin alertas "LEY NO IDENTIFICADA" residuales (sticky-law resuelve
      constitucionales/tratados agrupados bajo encabezado de ley).
@@ -19,6 +20,8 @@ Invariantes:
   7. Fase 1 — el clasificador de fuerza vinculante asigna el sello correcto por clave.
   8. Solo usa casos sintéticos expresamente permitidos; nunca barre archivos locales de
      cliente aunque estén dentro de `casos_de_prueba/` e ignorados por git.
+  9. Una cita normativa refutada o parcial domina el promedio global; el artículo 42 CFF
+     se recupera por su encabezado auténtico y no por una remisión interna de la página 105.
 
 Uso: python scripts/run_regression.py
 """
@@ -101,11 +104,18 @@ def main() -> int:
         check(f"{caso.name}: sin 'LEY NO IDENTIFICADA' residual", not leyni,
               f"{len(leyni)} sin resolver")
 
-        # invariante 2 — específico del caso oficial de prisión preventiva
+        # Invariante 2 — el caso sintético contiene citas auténticas cuyo cotejo semántico
+        # queda parcial. El veredicto correcto es conservador: 🟡, no un falso apto.
         if "prision_preventiva" in caso.name:
-            vered = res.get("vvca_summary", {}).get("veredicto", {})
-            check("caso_001: veredicto apto", vered.get("apto") is True,
-                  vered.get("razon", ""))
+            summary = res.get("vvca_summary", {})
+            vered = summary.get("veredicto", {})
+            check(
+                "caso_001: citas parciales conservan veredicto 🟡 no apto",
+                vered.get("apto") is False
+                and vered.get("semaforo") == "🟡"
+                and summary.get("normativa_no_verificable", 0) > 0,
+                vered.get("razon", ""),
+            )
             check("caso_001: sin alertas 🔴", not rojas, f"{len(rojas)} rojas")
 
         # invariante 5 — Fase 1: disclaimer graduado + sellos por tesis
@@ -159,6 +169,23 @@ def main() -> int:
     v_safe = scoring_vvca.veredicto_global(90, 95, 0, 0, 3)
     check("Vigencia: default-safe (0 superadas no bloquea)", v_safe.get("apto") is True)
 
+    v_norm_red = scoring_vvca.veredicto_global(
+        95, 95, 0, 0, 0, normativa_refutada=1
+    )
+    check(
+        "Normativa: una cita refutada bloquea aunque el promedio sea alto",
+        v_norm_red.get("apto") is False and v_norm_red.get("semaforo") == "🔴",
+        v_norm_red.get("razon", ""),
+    )
+    v_norm_partial = scoring_vvca.veredicto_global(
+        95, 95, 0, 0, 0, normativa_no_verificable=1
+    )
+    check(
+        "Normativa: evidencia parcial impide un veredicto verde",
+        v_norm_partial.get("apto") is False and v_norm_partial.get("semaforo") == "🟡",
+        v_norm_partial.get("razon", ""),
+    )
+
     esperado = {
         "P./J. 89/2026 (12a.)": "[J-PLENO]",
         "1a./J. 68/2022 (11a.)": "[J-SALA]",
@@ -207,6 +234,32 @@ def main() -> int:
               if s["article"] == "121" and "FISCAL DE LA FEDERACION" in s["source_file"]]
     check("Retrieval por metadata: art. 121 → CÓDIGO FISCAL (no un artículo vecino parecido)",
           bool(cff121), "" if cff121 else "cayó en otra fuente/artículo")
+
+    # Caso de regresión aportado y revisado por el operador: la coincidencia semántica
+    # más cercana estaba en el art. 48-A (p. 105), que sólo remitía al art. 42. Debe
+    # seleccionarse el fragmento cuyo encabezado es "Artículo 42" (p. 91 del PDF actual).
+    r_art42 = ON.audit(
+        "CFF Art. 42.",
+        allow_incomplete_corpus=True,
+    )
+    art42 = [
+        s for s in r_art42.get("retrieved_sources", [])
+        if s.get("ref_type") == "normativa"
+        and s.get("article") == "42"
+        and "FISCAL DE LA FEDERACION" in s.get("source_file", "")
+    ]
+    art42_source = art42[0] if art42 else {}
+    art42_explain = art42_source.get("vvca", {}).get("explicabilidad", {})
+    check(
+        "Art. 42 CFF: selecciona encabezado auténtico, no remisión interna",
+        bool(art42_source) and art42_explain.get("encabezado_articulo") is True,
+        art42_source.get("source_file", "sin evidencia"),
+    )
+    check(
+        "Art. 42 CFF: evidencia localizada en página 91 (no 105)",
+        str(art42_source.get("page")) == "91",
+        f"página={art42_source.get('page')}",
+    )
 
     return _final()
 

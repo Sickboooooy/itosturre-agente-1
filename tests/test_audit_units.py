@@ -10,12 +10,15 @@ from itosturre.audit import (
     build_trace_record,
     classify_fuerza_vinculante,
     disclaimer_graduado,
+    has_exact_article_heading,
     rubro_keywords,
+    select_article_evidence,
     traceability_bundle,
     vvca_contextualizacion,
     vvca_score,
     vvca_semaforo,
 )
+from scoring_vvca import veredicto_global
 from scripts.evaluate_gold_set import GoldSetValidationError, evaluate_gold_set
 
 
@@ -33,6 +36,20 @@ class PolicyTests(unittest.TestCase):
         result = disclaimer_graduado({"semaforo": "🔴", "razon": "cita falsa"})
         self.assertTrue(result["requiere_acuse"])
         self.assertIn("NO PRESENTAR", result["encabezado"])
+
+    def test_refuted_normative_citation_blocks_even_with_high_average(self) -> None:
+        result = veredicto_global(
+            95, 95, 0, 0, 0, normativa_refutada=1
+        )
+        self.assertFalse(result["apto"])
+        self.assertEqual(result["semaforo"], "🔴")
+
+    def test_partial_normative_citation_prevents_green_verdict(self) -> None:
+        result = veredicto_global(
+            95, 95, 0, 0, 0, normativa_no_verificable=1
+        )
+        self.assertFalse(result["apto"])
+        self.assertEqual(result["semaforo"], "🟡")
 
 
 class JurisprudenceTests(unittest.TestCase):
@@ -60,6 +77,44 @@ class ContextTests(unittest.TestCase):
     def test_known_and_unknown_sources(self) -> None:
         self.assertIn("Constitucional", vvca_contextualizacion("CPEUM_2026.pdf"))
         self.assertIn("Verificar", vvca_contextualizacion("fuente_desconocida.pdf"))
+
+
+class EvidenceTests(unittest.TestCase):
+    def test_heading_is_not_confused_with_internal_reference(self) -> None:
+        self.assertTrue(
+            has_exact_article_heading("Artículo 42.- Las autoridades fiscales...", "42")
+        )
+        self.assertFalse(
+            has_exact_article_heading(
+                "Lo previsto en el artículo 42, fracción XIII, será aplicable.", "42"
+            )
+        )
+
+    def test_selector_prefers_exact_heading_over_better_ranked_reference(self) -> None:
+        results = {
+            "documents": [[
+                "Artículo 48-A.- Conforme al artículo 42, fracción XIII...",
+                "Artículo 42.- Las autoridades fiscales, a fin de comprobar...",
+            ]],
+            "metadatas": [[{"page": "105"}, {"page": "91"}]],
+            "distances": [[0.10, 0.16]],
+        }
+        selected = select_article_evidence(results, "42")
+        self.assertIsNotNone(selected)
+        self.assertTrue(selected["heading_verified"])
+        self.assertEqual(selected["metadata"]["page"], "91")
+        self.assertEqual(selected["rank"], 2)
+
+    def test_selector_keeps_best_candidate_but_marks_missing_heading(self) -> None:
+        results = {
+            "documents": [["Remisión al artículo 42, fracción XIII."]],
+            "metadatas": [[{"page": "105"}]],
+            "distances": [[0.10]],
+        }
+        selected = select_article_evidence(results, "42")
+        self.assertIsNotNone(selected)
+        self.assertFalse(selected["heading_verified"])
+        self.assertEqual(selected["rank"], 1)
 
 
 class TraceabilityTests(unittest.TestCase):
@@ -93,15 +148,18 @@ class GoldSetTests(unittest.TestCase):
         self.assertTrue(report["regression_gate_passed"])
         self.assertFalse(report["release_ready"])
 
-    def test_v2_green_candidates_are_valid_but_not_calibration_ready(self) -> None:
+    def test_v2_curated_green_batch_exposes_false_green(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "vvca_gold_set_v2.json"
         report = evaluate_gold_set(fixture)
         self.assertEqual(report["total"], 10)
-        self.assertEqual(report["passed"], 10)
-        self.assertEqual(report["review"]["pending"], 10)
-        self.assertEqual(report["review"]["approved"], 0)
+        self.assertEqual(report["passed"], 9)
+        self.assertEqual(report["review"]["pending"], 0)
+        self.assertEqual(report["review"]["approved"], 9)
+        self.assertEqual(report["review"]["rejected"], 1)
+        self.assertEqual(report["classification"]["false_green"], 1)
+        self.assertEqual(report["classification"]["underclassified"], 1)
         self.assertEqual(report["dataset_status"], "curation_draft")
-        self.assertTrue(report["regression_gate_passed"])
+        self.assertFalse(report["regression_gate_passed"])
         self.assertFalse(report["review"]["dataset_ready_for_calibration"])
         self.assertFalse(report["release_ready"])
 

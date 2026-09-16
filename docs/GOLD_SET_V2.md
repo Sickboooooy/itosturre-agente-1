@@ -1,6 +1,7 @@
 # Gold Set VVCA v2 — curaduría jurídica
 
-**Estado:** arnés implementado; 10 candidatos verdes reproducibles y pendientes de revisión del operador.
+**Estado:** arnés implementado; lote originalmente verde revisado por el operador: 9 aprobados
+y 1 falso verde rechazado y reclasificado 🟡.
 **Archivo:** `tests/fixtures/vvca_gold_set_v2.json`.
 
 ## Propósito
@@ -17,7 +18,7 @@ Mezclar ambos problemas produciría una apariencia de cobertura que hoy no exist
 
 Un caso solo cuenta como aprobado cuando un abogado revisa la fuente pública y completa:
 
-- `source_type`: `DOF`, `SJF` o `corpus_oficial`;
+- `source_type`: `DOF`, `SJF`, `Cámara de Diputados` o `corpus_oficial`;
 - `source_locator`: URL, registro, artículo, página o combinación suficiente para repetir el cotejo;
 - `verified_at`: fecha ISO `AAAA-MM-DD`;
 - `reviewed_by`: identificador del revisor, sin datos de cliente;
@@ -36,33 +37,54 @@ vigencia en la fuente oficial.
 ## Avance de curaduría
 
 - 10/10 candidatos 🟢 preparados: 4 de Ley de Amparo, 3 de CNPP y 3 de CFF;
-- 0/10 candidatos 🟢 aprobados por el operador;
-- 0/10 candidatos 🟡 preparados;
+- 9/10 candidatos originalmente 🟢 aprobados, 1/10 rechazado como verde y reclasificado 🟡;
+- 0/10 candidatos pendientes en el lote original;
+- 1 candidato 🟡 identificado por reclasificación, todavía sin contar para la cuota de aprobados;
 - 0/10 candidatos 🔴 preparados.
 
 Cada candidato verde conserva `audit_input`, fecha de observación, score observado, método de
 recuperación y `trace_id` en `candidate_evidence`. Esos datos permiten repetir el hallazgo sin
 convertir automáticamente la observación técnica en aprobación jurídica.
 
-### Lote verde listo para revisión
+### Lote originalmente verde revisado
 
-| Caso | Referencia candidata | Instantánea local | Score observado |
-|---|---|---|---:|
-| `green_amparo_art_17` | Ley de Amparo, art. 17 | pág. PDF 8 | 86 |
-| `green_amparo_art_61` | Ley de Amparo, art. 61 | pág. PDF 23 | 88 |
-| `green_amparo_art_108` | Ley de Amparo, art. 108 | pág. PDF 40 | 87 |
-| `green_amparo_art_124` | Ley de Amparo, art. 124 | pág. PDF 45 | 86 |
-| `green_cnpp_art_109` | CNPP, art. 109 | pág. PDF 29 | 86 |
-| `green_cnpp_art_113` | CNPP, art. 113 | pág. PDF 32 | 87 |
-| `green_cnpp_art_131` | CNPP, art. 131 | pág. PDF 37 | 87 |
-| `green_cff_art_38` | CFF, art. 38 | pág. PDF 83 | 85 |
-| `green_cff_art_42` | CFF, art. 42 | pág. PDF 105 | 86 |
-| `green_cff_art_137` | CFF, art. 137 | pág. PDF 205 | 85 |
+| Caso | Referencia candidata | Instantánea local | Score | Estado |
+|---|---|---|---:|---|
+| `green_amparo_art_17` | Ley de Amparo, art. 17 | pág. PDF 8 | 86 | Aprobado |
+| `green_amparo_art_61` | Ley de Amparo, art. 61 | pág. PDF 23 | 88 | Aprobado |
+| `green_amparo_art_108` | Ley de Amparo, art. 108 | pág. PDF 40 | 87 | Aprobado |
+| `green_amparo_art_124` | Ley de Amparo, art. 124 | pág. PDF 45 | 86 | Aprobado |
+| `green_cnpp_art_109` | CNPP, art. 109 | pág. PDF 29 | 86 | Aprobado |
+| `green_cnpp_art_113` | CNPP, art. 113 | pág. PDF 32 | 87 | Aprobado |
+| `green_cnpp_art_131` | CNPP, art. 131 | pág. PDF 37 | 87 | Aprobado |
+| `green_cff_art_38` | CFF, art. 38 | pág. PDF 83 | 85 | Aprobado |
+| `green_cff_art_42` | CFF, art. 42 | pág. PDF 105 | 86 | Rechazado como 🟢 → 🟡 |
+| `green_cff_art_137` | CFF, art. 137 | pág. PDF 205 | 85 | Aprobado |
 
 Para aprobar un renglón, el operador debe cotejar el artículo contra la versión oficial vigente,
 confirmar que el localizador y la etiqueta verde son correctos, y llenar `verified_at` y
 `reviewed_by`. Si existe reforma, error de página o ambigüedad, se corrige o se marca `rejected`;
 nunca se aprueba por el solo hecho de que el score sea verde.
+
+### Hallazgo de falso verde
+
+`green_cff_art_42` conserva su identificador para mantener la trazabilidad del candidato original.
+El sistema produjo 🟢 86 porque los metadatos señalaron el CFF y el artículo 42, pero el fragmento
+recuperado en la página local 105 pertenece al artículo 48-A y únicamente contiene remisiones al
+artículo 42. El operador cotejó el precepto auténtico en las páginas impresas 91-95 del PDF oficial.
+La verdad de referencia se corrigió a 🟡: la cita existe, pero la evidencia automática fue insuficiente.
+
+### Remediación técnica del artículo 42
+
+El selector ahora exige que la evidencia contenga el encabezado exacto del precepto. Al repetir
+`CFF Art. 42.` selecciona la página 91, cuyo fragmento comienza con `Artículo 42`, y ya no la
+página 105, que sólo contiene una remisión desde el artículo 48-A. Una prueba de integración en
+`scripts/run_regression.py` fija ambas condiciones.
+
+El caso original permanece rechazado y conserva su expectativa 🟡 porque documenta el falso
+verde observado y la decisión humana que lo detectó. La nueva salida técnica se registra aparte
+como `remediation_evidence.status = implemented_pending_operator_review`; no se convierte en una
+nueva aprobación jurídica sin revisión expresa del operador.
 
 ## Caso mínimo
 

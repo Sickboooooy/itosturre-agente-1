@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Optional, Tuple, Dict, List
 
 from itosturre.audit.context import vvca_contextualizacion
+from itosturre.audit.evidence import select_article_evidence
 from itosturre.audit.jurisprudence import (
     classify_fuerza_vinculante,
     rubro_keywords as _rubro_keywords,
@@ -910,16 +911,19 @@ def build_vvca(
     source_file: str,
     page: str,
     metadata_verificado: bool = False,
+    article_heading_verified: Optional[bool] = None,
 ) -> Dict:
     score = vvca_score(distance, source_match, has_source_file=bool(ref.get("source_file")))
     # Anti-falso-🟢: sin ley identificada en el contexto el match es solo por número de
     # artículo; no dar verde aunque la distancia sea baja — capar a 🟡 (84).
     if not ref.get("source_file"):
         score = min(score, 84)
-    # Confirmación por metadata (source+article exactos): la EXISTENCIA del artículo en la ley
-    # es ground truth, no similitud. Piso 🟡 (70): una distancia alta ya no es "posible
-    # alucinación" sino que el chunk recuperado puede ser otra porción de un artículo
-    # largo/troceado. El 🟢 (texto que coincide) sigue exigiendo distancia baja.
+    # Anti-falso-🟢: source+article en metadata no basta. El fragmento debe mostrar el
+    # encabezado exacto; una remisión interna al precepto sólo permite 🟡.
+    if article_heading_verified is False:
+        score = min(score, 84)
+    # La metadata corroborada por encabezado confirma la existencia del artículo, pero una
+    # distancia alta conserva el piso 🟡: la pertinencia del texto aún requiere cotejo.
     if metadata_verificado:
         score = max(score, 70)
     semaforo = vvca_semaforo(score)
@@ -930,8 +934,13 @@ def build_vvca(
 
     if metadata_verificado:
         v_verificacion = (
-            f"Artículo confirmado por metadata (source+article) en corpus oficial "
+            f"Artículo confirmado por metadata y encabezado exacto en corpus oficial "
             f"(dist={distance:.3f})"
+        )
+    elif article_heading_verified is False:
+        v_verificacion = (
+            f"Evidencia insuficiente: el fragmento no contiene el encabezado exacto "
+            f"del artículo (dist={distance:.3f})"
         )
     elif distance <= COSINE_THRESHOLD:
         v_verificacion = f"Encontrado en corpus oficial (dist={distance:.3f})"
@@ -961,6 +970,7 @@ def build_vvca(
             "umbral": COSINE_THRESHOLD,
             "aprobado_umbral": distance <= COSINE_THRESHOLD,
             "match_metadata": metadata_verificado,
+            "encabezado_articulo": article_heading_verified,
             "coincide_fuente": source_match,
             "fuente_encontrada": source_file,
             "fuente_esperada": ref.get("source_file"),
@@ -1187,20 +1197,32 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
             # similitud pura si no hay match de metadata. Evita recuperar un artículo distinto
             # que resulte semánticamente parecido (el problema real de la búsqueda por coseno).
             metadata_hit = False
+            metadata_candidate_found = False
             results = None
             if expected_source:
                 cands = _article_candidates(ref["article"])
                 if cands:
                     try:
+                        exact_where = {
+                            "$and": [
+                                {"source": expected_source},
+                                {"article": {"$in": cands}},
+                            ]
+                        }
+                        exact_candidates = collection.get(
+                            where=exact_where,
+                            include=["documents"],
+                        )
+                        candidate_count = len(exact_candidates.get("documents") or [])
+                        metadata_candidate_found = candidate_count > 0
+                        if not metadata_candidate_found:
+                            raise LookupError("sin candidatos exactos de metadata")
                         results = collection.query(
                             query_embeddings=[encode_query(query)],
-                            n_results=3,
-                            where={"$and": [{"source": expected_source},
-                                            {"article": {"$in": cands}}]},
+                            n_results=max(3, candidate_count),
+                            where=exact_where,
                         )
-                        if results and results["documents"] and results["documents"][0]:
-                            metadata_hit = True
-                        else:
+                        if not (results and results["documents"] and results["documents"][0]):
                             results = None
                     except Exception:
                         results = None  # sintaxis where no soportada → fallback semántico
@@ -1221,11 +1243,14 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     )
                     expected_source = None
 
-            if results and results["documents"] and results["documents"][0]:
-                best_doc = results["documents"][0][0]
-                best_meta = results["metadatas"][0][0] if results["metadatas"] else {}
+            selected = select_article_evidence(results, ref["article"])
+            if selected:
+                best_doc = selected["document"]
+                best_meta = selected["metadata"]
                 best_source = best_meta.get("source", "desconocido")
-                best_distance = results["distances"][0][0] if results.get("distances") else 1.0
+                best_distance = selected["distance"]
+                article_heading_verified = selected["heading_verified"]
+                metadata_hit = metadata_candidate_found and article_heading_verified
                 source_match = (not expected_source) or (best_source == expected_source)
 
                 vvca = build_vvca(
@@ -1235,6 +1260,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                     source_file=best_source,
                     page=best_meta.get("page", "?"),
                     metadata_verificado=metadata_hit,
+                    article_heading_verified=article_heading_verified,
                 )
 
                 entry = {
@@ -1276,6 +1302,13 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                 verification_traces.append(trace)
                 entry["trace_id"] = trace["trace_id"]
 
+                # Conservar también la evidencia parcial o refutada. Excluirla de
+                # ``retrieved_sources`` ocultaba el fragmento que originó la alerta y,
+                # además, permitía que el promedio global ignorara la peor cita.
+                retrieved_sources.append(entry)
+                if trace_status == "verified":
+                    verified_count += 1
+
                 if metadata_hit:
                     # Artículo confirmado por metadata (ley+artículo exactos) → verificado.
                     # Distancia alta ya NO es "alucinación": es texto de otra porción del
@@ -1287,8 +1320,6 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                             f"(dist={best_distance:.3f}): puede ser otra porción del artículo. "
                             f"Cotejar el texto citado contra el precepto."
                         )
-                    retrieved_sources.append(entry)
-                    verified_count += 1
                 elif not source_match and best_distance <= COSINE_THRESHOLD:
                     alerts.append(
                         f"{vvca['semaforo']} ALERTA (score {vvca['score']}): '{ref['raw']}' — "
@@ -1301,6 +1332,13 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                         f"sin coincidencia confiable (dist={best_distance:.3f}, umbral={COSINE_THRESHOLD}). "
                         f"Posible alucinación. Verificar en fuente oficial."
                     )
+                elif article_heading_verified is False:
+                    alerts.append(
+                        f"🟡 EVIDENCIA INSUFICIENTE (score {vvca['score']}): "
+                        f"'{ref['raw']}' — el fragmento recuperado en '{best_source}' "
+                        f"no contiene el encabezado exacto del artículo {ref['article']}. "
+                        f"Puede ser una remisión interna; cotejar el precepto auténtico."
+                    )
                 else:
                     # Guard P0 (anti-falso-🟢): si el contexto no nombró la ley, el match
                     # es solo por número de artículo y pudo caer en otro ordenamiento.
@@ -1311,8 +1349,6 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                             f"de artículo contra '{best_source}'. El contexto no nombró el "
                             f"ordenamiento; verificar que sea la ley correcta antes de citar."
                         )
-                    retrieved_sources.append(entry)
-                    verified_count += 1
             else:
                 alerts.append(
                     f"🔴 ALERTA CRÍTICA: '{ref['raw']}' — no encontrado en el corpus. "
@@ -1376,7 +1412,8 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                                     "vvca": vvca,
                                     "trace_id": trace["trace_id"],
                                 })
-                                verified_count += 1
+                                if trace["verification"]["status"] == "verified":
+                                    verified_count += 1
                                 break
                     except Exception as e:
                         if verbose:
@@ -1433,6 +1470,22 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
         and s.get("vvca", {}).get("estado_vigencia") in ("superada", "interrumpida", "sustituida")
     )
 
+    # El veredicto global respeta la peor traza normativa. El score promedio se
+    # conserva como métrica descriptiva, pero nunca puede diluir una cita refutada
+    # ni convertir evidencia parcial en un documento apto.
+    trazas_normativas = [
+        t for t in verification_traces
+        if t.get("claim", {}).get("type") == "normativa"
+    ]
+    normativa_refutada = sum(
+        1 for t in trazas_normativas
+        if t.get("verification", {}).get("status") == "refuted"
+    )
+    normativa_no_verificable = sum(
+        1 for t in trazas_normativas
+        if t.get("verification", {}).get("status") in ("partial", "not_verifiable")
+    )
+
     # Conteo por fuerza vinculante ([J-PLENO]/[J-SALA]/[PR]/[PC]/[J-TCC]/[SCJN-P]/[TA])
     tesis_por_fuerza: Dict[str, int] = {}
     for s in retrieved_sources:
@@ -1445,14 +1498,23 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     veredicto = veredicto_global(
         score_rag, score_sjf, tesis_mismatch, tesis_no_encontradas,
         tesis_total_invocadas, tesis_superadas,
+        normativa_refutada, normativa_no_verificable,
     )
 
-    all_scores = art_scores + jur_scores
-    verdes    = sum(1 for sc in all_scores if sc >= 85)
-    # Tesis no encontrada = 🟡 (corpus incompleto, no confirmada falsa) — coherente con
-    # veredicto_global; NO va al bucket rojo.
-    amarillos = sum(1 for sc in all_scores if 60 <= sc < 85) + tesis_no_encontradas
-    rojos     = sum(1 for sc in all_scores if sc < 60)
+    # Conteo por estado de verificación, no por el promedio ni sólo por las citas
+    # recuperadas. Así cada referencia procesada aparece exactamente en un bucket.
+    verdes = sum(
+        1 for t in verification_traces
+        if t.get("verification", {}).get("status") == "verified"
+    )
+    amarillos = sum(
+        1 for t in verification_traces
+        if t.get("verification", {}).get("status") in ("partial", "not_verifiable")
+    )
+    rojos = sum(
+        1 for t in verification_traces
+        if t.get("verification", {}).get("status") == "refuted"
+    )
 
     result = {
         "status": "ok",
@@ -1463,7 +1525,13 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
         "vvca_summary": {
             "score_rag":           score_rag,
             "semaforo_rag":        vvca_semaforo(score_rag),
-            "articulos_ok":        len(art_scores),
+            "articulos_ok":        sum(
+                1 for t in trazas_normativas
+                if t.get("verification", {}).get("status") == "verified"
+            ),
+            "articulos_total":     len(trazas_normativas),
+            "normativa_refutada":  normativa_refutada,
+            "normativa_no_verificable": normativa_no_verificable,
             "score_sjf":           score_sjf,
             "semaforo_sjf":        vvca_semaforo(score_sjf),
             "tesis_total":         tesis_total_invocadas,
