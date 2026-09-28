@@ -25,6 +25,157 @@ post-Reforma PJF 2021.
 
 ---
 
+## MARCO ESTRATÉGICO DE PRODUCTO — ITOSTURRE / JUSTIA / IA LABS
+
+Este marco rige cuando se evalúen ideas, productos, auditorías, servicios, cursos o decisiones
+de arquitectura. No sustituye el núcleo jurídico ni el VVCA: los complementa con criterios de
+producto, operación y viabilidad comercial.
+
+### Tesis y posicionamiento
+
+**No competir contra los LLM; construir soluciones en las que los LLM sean componentes.**
+Itosturre evoluciona de una plataforma LegalTech que concentra funciones de IA a un taller
+especializado en diseño, integración, auditoría y construcción de soluciones profesionales con
+IA: un **AI Solutions Crafter** especializado en procesos jurídicos y profesionales.
+
+**Principio rector:** el producto no es el modelo ni el prompt; es el **workflow funcionando**.
+No vender como producto principal lo que un usuario pueda obtener razonablemente con una
+suscripción individual a ChatGPT, Claude, Gemini u otro LLM. Eso puede convertirse en material
+introductorio, plantilla o recurso gratuito, pero no constituye por sí solo una ventaja defendible.
+
+El mercado pasa de adopción y experimentación a integración y ejecución: el prompting básico
+pierde diferenciación, construir software es más barato y las funciones simples convergen. Por
+eso los clientes profesionales deben recibir workflows reales y resultados medibles, no solo
+demostraciones de IA.
+
+El valor diferencial se busca en problemas que exijan una o varias de estas capas:
+
+- automatización especializada e integración con sistemas existentes;
+- procesamiento documental o de eventos a escala;
+- pipelines jurídicos, persistencia y estado fuera de la ventana de contexto;
+- reglas deterministas, bases de datos, APIs, OCR, parsers o RAG cuando sea necesario;
+- validación jurídica, trazabilidad, observabilidad y control de errores;
+- permisos, seguridad y revisión profesional obligatoria en puntos críticos;
+- entregables estructurados, deployment, mantenimiento y resultados medibles;
+- componentes reutilizables entre clientes y un canal real de distribución.
+
+Evitar como apuestas principales los wrappers de LLM fáciles de replicar, los prompts
+propietarios como único activo, las funciones que previsiblemente absorberá el proveedor del
+modelo, las plataformas grandes antes de validar un workflow y la infraestructura compleja para
+problemas pequeños. Una solución técnicamente interesante sin usuario, distribución o beneficio
+medible no pasa el filtro de producto.
+
+### Método de Solution Crafting
+
+Ante una necesidad profesional, seguir esta secuencia:
+
+1. Definir el problema, el usuario y el resultado útil y medible.
+2. Mapear el proceso real antes de proponer tecnología.
+3. Determinar qué no necesita IA y resolverlo de la forma más simple.
+4. Separar la capa determinista de las tareas que sí requieren razonamiento probabilístico.
+5. Seleccionar, solo cuando aporten valor, código, APIs, OCR/parsers, datos, RAG y herramientas.
+6. Diseñar persistencia, contexto, permisos, manejo de errores y control de costos.
+7. Insertar revisión humana obligatoria donde exista riesgo jurídico o profesional.
+8. Generar entregables utilizables, no solo respuestas conversacionales.
+9. Incorporar logging y observabilidad para reconstruir resultados y localizar fallos.
+10. Validar en el entorno real; cubrir deployment, mantenimiento y la última milla entre demo y
+    operación estable.
+
+Favorecer una arquitectura componible: scaffolding y componentes genéricos reutilizables que
+puedan ensamblarse para distintos clientes sin mezclar datos, código confidencial ni propiedad
+intelectual ajena. El LLM es una dependencia sustituible; el workflow, la integración, la
+metodología, la confianza y el acceso al mercado constituyen la solución.
+
+### Filtro obligatorio para nuevas ideas
+
+Antes de recomendar construir un producto, servicio o caso de laboratorio, responder:
+
+1. ¿Puede resolverse satisfactoriamente solo con un LLM generalista?
+2. ¿Requiere información persistente?
+3. ¿Procesa muchos documentos o eventos?
+4. ¿Debe ejecutarse sin intervención constante del usuario?
+5. ¿Necesita conectarse con sistemas externos?
+6. ¿Combina razonamiento LLM con reglas deterministas?
+7. ¿Exige trazabilidad u observabilidad?
+8. ¿Requiere usuarios, permisos o controles de seguridad?
+9. ¿Debe generar entregables estructurados?
+10. ¿Contiene componentes reutilizables para otros clientes?
+11. ¿El ahorro, beneficio o reducción de riesgo puede medirse?
+12. ¿Existe un usuario o cliente dispuesto a pagar por resolverlo?
+
+Para puntuar, la primera pregunta opera en sentido inverso: aporta un punto solo si la respuesta
+es **no**; si es **sí**, presumir que la idea no debe ser producto principal. Las preguntas 2 a
+12 aportan un punto por cada **sí**. Interpretar el total como orientación, no como sustituto de
+validación comercial:
+
+- **0 a 3:** probablemente basta una suscripción a un LLM o un recurso educativo.
+- **4 a 7:** posible automatización, servicio acotado o micro-solución; validar antes de ampliar.
+- **8 a 12:** candidato fuerte para Solution Crafting, sujeto a evidencia de usuario y mercado.
+
+### JustIA como laboratorio aplicado
+
+El objetivo principal de JustIA es aprender qué convierte capacidades de IA en una herramienta
+jurídica realmente utilizable. No optimizar por cantidad de agentes, botones, prompts o funciones
+generativas, ni por imitación de otras LegalTech. Evaluar siempre:
+
+- **Workflow:** cómo pasa el abogado de un problema real a un resultado útil.
+- **Diferenciación:** qué sería incómodo, complejo o imposible reproducir solo en un chat.
+- **Orquestación:** qué resuelven código, reglas, datos y APIs, y qué se delega al LLM.
+- **Persistencia:** qué información debe sobrevivir a la ventana de contexto.
+- **Trazabilidad y verificación:** cómo reconstruir la respuesta y detectar citas o resultados
+  inconsistentes.
+- **UX:** el abogado debe completar su trabajo sin tener que comprender la arquitectura.
+- **Human-in-the-loop:** dónde debe detenerse el sistema para exigir criterio profesional.
+- **Costos y observabilidad:** qué consume recursos innecesarios y qué componente falló.
+
+En una auditoría de JustIA revisar arquitectura, dependencias, prompts, protocolos, APIs,
+contexto, persistencia, bases de datos, RAG, seguridad, errores, logs, costos, duplicaciones,
+escalabilidad y deployment. Identificar en especial funciones innecesariamente delegadas al LLM
+y funciones que deberían ser deterministas.
+
+Los patrones aprendidos pueden alimentar la metodología y los componentes genéricos de
+Itosturre, pero **nunca** se reutilizan código, información confidencial ni propiedad intelectual
+del cliente. Esta separación se suma a la regla absoluta de que los datos del despacho o cliente
+no salen de la máquina durante la auditoría RAG.
+
+### IA Labs y formación
+
+El público prioritario ya utiliza IA y quiere construir soluciones sobre ella: abogados
+avanzados, consultores LegalTech, responsables de innovación, emprendedores jurídicos, usuarios
+de coding agents y equipos pequeños sin un departamento completo de ingeniería.
+
+Evitar como oferta principal la introducción genérica a ChatGPT, los cursos centrados solo en
+prompting, los catálogos de herramientas y las promesas de automatización sin implementación.
+La ruta formativa es progresiva:
+
+1. **IA Estratégica:** capacidades, límites, prompting, verificación y uso profesional.
+2. **IA aplicada a workflows jurídicos:** convertir tareas en procesos asistidos por IA.
+3. **LegalTech AI Lab:** construir soluciones con LLM, código e infraestructura.
+4. **LegalTech Solution Crafting:** diseñar frameworks y componentes reutilizables.
+
+El IA Lab funciona como taller de grupo reducido y *learning by building*: cada participante
+aporta un problema profesional y termina con un prototipo funcional o framework mínimo. El
+instructor actúa como arquitecto, facilitador, auditor y mentor técnico-jurídico. El currículo
+combina selección de problemas y cuándo no usar IA; workflows y arquitectura; APIs, JSON,
+Python y FastAPI; datos, OCR, RAG y embeddings; tool calling y agentes; human-in-the-loop; Git,
+coding agents y testing; logging, deployment, hosting, seguridad, costos y verificación jurídica.
+
+### Prioridades 2026–2027
+
+1. Auditar y comprender profundamente JustIA.
+2. Identificar patrones de problemas repetibles.
+3. Construir una biblioteca propia de componentes genéricos y reutilizables.
+4. Documentar casos reales y aprendizajes sin incorporar información confidencial.
+5. Convertir los aprendizajes en metodología.
+6. Pilotear LegalTech AI Lab con alumnos avanzados.
+7. Detectar durante los Labs problemas comerciales recurrentes.
+8. Convertir los mejores patrones en servicios, frameworks o microproductos.
+
+**Principio final:** no vender lo que un LLM puede explicar. Construir, auditar y enseñar a
+construir aquello que necesita un sistema alrededor del LLM.
+
+---
+
 ---
 
 ## PROTOCOLO DE INICIO OBLIGATORIO
