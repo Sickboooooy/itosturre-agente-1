@@ -428,9 +428,11 @@ python memoria_cli.py registrar <tipo> "<resumen>"   # tipos: memoria_cli.py tip
 # Historial de auditorías
 ls -la auditorias/
 
-# Git — NUNCA commitear directo a main; usar el helper de ramas
-bash scripts/git_strategy.sh 0   # rama de trabajo (fix/* o feat/*)
-bash scripts/git_strategy.sh 1   # commit   ·   2 push   ·   3 merge (con confirmación)
+# Git — NUNCA commitear directo a main; usar el helper de ramas (en Windows, desde Git Bash)
+bash scripts/git_strategy.sh 0 feat/<slug>                  # rama de trabajo (fix/* o feat/*)
+bash scripts/git_strategy.sh 1 -m "<mensaje>" -- <rutas…>   # commit SOLO de las rutas declaradas
+bash scripts/git_strategy.sh 2                              # push de la rama
+bash scripts/git_strategy.sh 3 --confirmar <rama>           # gates + merge --no-ff (solo si el operador lo ordena)
 ```
 
 ---

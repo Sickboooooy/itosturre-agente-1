@@ -45,11 +45,21 @@ Si un cambio relaja cualquiera de estas reglas, **no se mergea** sin justificaci
 Nunca trabajes directo en `main`. Usa el helper:
 
 ```bash
-bash scripts/git_strategy.sh 0   # crea/cambia a la rama de trabajo (arrastra tu WIP)
-bash scripts/git_strategy.sh 1   # commit
-bash scripts/git_strategy.sh 2   # push
-bash scripts/git_strategy.sh 3   # merge a main (pide confirmación)
+bash scripts/git_strategy.sh 0 feat/<slug>                  # crea/cambia a la rama (arrastra tu WIP)
+bash scripts/git_strategy.sh 1 -m "<mensaje>" -- <rutas…>   # commit solo de las rutas declaradas
+bash scripts/git_strategy.sh 2                              # push de la rama
+bash scripts/git_strategy.sh 3                              # gates + merge --no-ff a main (pide confirmación)
 ```
+
+- La rama debe llamarse `fix/<slug>` o `feat/<slug>` (minúsculas, dígitos, `.`, `_`, `-`).
+- El paso 1 no acepta `.`, `-A`, comodines ni pathspecs mágicos, exige el índice limpio y
+  corre `scripts/check_sensitive_paths.py` antes del commit; si falla, deshace la preparación.
+- El paso 3 corre unittest, superficies, política de datos y ambos Gold Sets antes de fusionar.
+  Sin terminal, solo con `--confirmar <rama>` y por instrucción explícita del operador.
+  `run_regression.py` (requiere corpus) y el push de `main` siguen siendo manuales.
+- En Windows ejecútalo desde Git Bash: en PowerShell, `bash` puede resolver al lanzador de WSL.
+- Defensa local opcional contra commits directos en `main`:
+  `git config core.hooksPath .githooks` (activa `.githooks/pre-commit`).
 
 Nunca uses `--force` ni `--no-verify`. Si un hook falla, arrégla la causa.
 
