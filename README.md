@@ -254,7 +254,7 @@ itosturre-agente/
 │   ├── run_regression.py     # Suite de regresión VVCA (gate pre-merge)
 │   ├── check_agent_surfaces.py # Evita divergencia CLAUDE/AGENTS y skills
 │   ├── check_sensitive_paths.py # Evita versionar datos y artefactos locales
-│   └── git_strategy.sh       # Disciplina de ramas (0=rama 1=commit 2=push 3=merge)
+│   └── git_strategy.sh       # Disciplina de ramas (0=rama 1=commit de rutas declaradas 2=push 3=gates+merge)
 ├── services/itosturre-scraper/  # Scraper SJF en vivo — búsqueda estratégica (TS/Playwright)
 ├── services/itosturre-skills/   # Skills jurídicas distribuibles (submódulo)
 ├── corpus/ y jurisprudencia/    # Fuentes locales; no se versionan

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Bloquea commits directos en la rama principal (regla absoluta 4 de CLAUDE.md).
+#
+# Se permite concluir un merge (existe MERGE_HEAD). Es una defensa local y evadible
+# (--no-verify, otro clon): no sustituye la protección de rama en GitHub.
+# Activación, decisión del operador:  git config core.hooksPath .githooks
+set -euo pipefail
+
+main="${ITOS_MAIN:-main}"
+rama=$(git branch --show-current)
+
+if [ "$rama" = "$main" ] && [ ! -f "$(git rev-parse --git-path MERGE_HEAD)" ]; then
+  echo "❌ Commit directo en $main bloqueado (regla absoluta 4)." >&2
+  echo "   Usa: bash scripts/git_strategy.sh 0 <fix|feat>/<slug>" >&2
+  exit 1
+fi

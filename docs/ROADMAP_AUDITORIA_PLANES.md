@@ -36,13 +36,14 @@ FIDELIDAD → APROBACIÓN HUMANA → INCORPORACIÓN.
 | PR | Rama | Contenido | Estado |
 |---|---|---|---|
 | R3 | `fix/telegram-opt-in` | Telegram solo con `--telegram`; fallos de envío visibles (código 3, auditoría `partial`); token redactado; imports perezosos en `capturar_rag.py` | Implementado y probado, sin commit |
-| PR-1 | `feat/plan-audit-ledger` | `itosturre/plan/`, `plan_audit.py lint|hash`, reglas PL-001 a PL-014, Gold Set de planes | Implementado y probado, sin commit |
+| PR-1 | `feat/plan-audit-ledger` | `itosturre/plan/`, `plan_audit.py` (`lint` y `hash`), reglas PL-001 a PL-014, Gold Set de planes | Integrado en `main` |
+| R1 | `fix/git-strategy-generico` | `git_strategy.sh` genérico: rama `fix/<slug>` o `feat/<slug>`, commit solo de rutas declaradas con mensaje propio, política de datos antes del commit, gates antes del merge; hook opcional `.githooks/pre-commit` | Implementado y probado |
+
+R3 también está integrado en `main`.
 
 ## Siguientes PR (orden propuesto)
 
-1. **R1 · `git_strategy.sh` genérico**: rama `fix|feat/<slug>`, commit solo de rutas declaradas
-   con mensaje propio, verificación de política de datos antes del commit y rechazo de `main`.
-2. **R2 · Procedencia en la memoria**: no capturar mensajes de subagentes ni avisos del
+1. **R2 · Procedencia en la memoria**: no capturar mensajes de subagentes ni avisos del
    sistema como "correcciones de criterio"; escapar el sobre reinyectado; comando de purga
    con simulación por defecto.
 3. **PR-2 · Evidencia pura**: esquema `evidencia/1.0`, parser del SJF anclado en
