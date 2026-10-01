@@ -1,7 +1,8 @@
 """
 capturar_rag.py — genera screenshot de chunk cards del corpus OpenNotebook RAG
-Uso (modo tabla, default): python capturar_rag.py --chunks chunks_rag.json --out auditorias/2026-06-14-FOVISSSTE
+Uso (modo tabla, default): python capturar_rag.py --chunks chunks_rag.json --out auditorias/<caso>
 Uso (modo popup, un PNG por artículo 🟡/🔴): python capturar_rag.py --modo popup --items articulos_popup.json --out <caso>
+Envío a Telegram: solo con --telegram explícito (docs/POLITICA_DATOS.md, principio 4).
 """
 import json
 import argparse
@@ -11,9 +12,9 @@ import re
 import sys
 import base64
 from pathlib import Path
-from playwright.sync_api import sync_playwright
-import fitz  # PyMuPDF — ya es dependencia dura del proyecto (ver requirements.txt)
-import requests
+
+# playwright, fitz (PyMuPDF) y requests se importan dentro de las funciones que los usan:
+# así el módulo se puede importar —y probar— sin esas dependencias (la CI no las instala).
 
 try:
     from dotenv import load_dotenv
@@ -178,6 +179,8 @@ def capturar(chunks: list[dict], out_dir: Path, nombre: str = "rag_chunks", leye
     png_path  = out_dir / f"{nombre}.png"
 
     html_path.write_text(build_html(chunks, leyes), encoding="utf-8")
+
+    from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -409,6 +412,10 @@ def render_pdf_page_b64(pdf_path: Path, page: str, zoom: float = 2.0) -> str | N
     except (TypeError, ValueError):
         print(f"[WARN] Número de página inválido: {page!r}", file=sys.stderr)
         return None
+    # Fuera del try: una dependencia ausente es un fallo del entorno y debe propagarse,
+    # no confundirse con un PDF indisponible (que sí degrada a tarjeta sin página).
+    import fitz  # PyMuPDF
+
     try:
         doc = fitz.open(str(pdf_path))
         try:
@@ -538,6 +545,8 @@ def capturar_articulos(items: list[dict], out_dir: Path, prefix: str = "art") ->
     Devuelve [{"path", "caption"}] listo para enviar por Telegram."""
     out_dir.mkdir(parents=True, exist_ok=True)
     resultados = []
+    from playwright.sync_api import sync_playwright
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True,
@@ -583,8 +592,21 @@ def _load_telegram_env() -> tuple:
                 chat_id = line.split("=", 1)[1].strip()
     return (token, chat_id) if token and chat_id else (None, None)
 
+# El token viaja en la ruta de la URL del Bot API; urllib3 la repite en sus mensajes de
+# error ("Max retries exceeded with url: /bot<token>/..."). Nunca se imprime sin redactar.
+_TOKEN_EN_URL = re.compile(r"bot\d+:[A-Za-z0-9_-]+")
+
+
+def _redactar(texto: str, token: str | None = None) -> str:
+    if token:
+        texto = texto.replace(token, "[REDACTADO]")
+    return _TOKEN_EN_URL.sub("bot[REDACTADO]", texto)
+
+
 def enviar_texto(token: str, chat_id: str, text: str) -> bool:
     try:
+        import requests
+
         r = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             data={"chat_id": chat_id, "text": text},
@@ -592,11 +614,13 @@ def enviar_texto(token: str, chat_id: str, text: str) -> bool:
         )
         return r.ok
     except Exception as e:
-        print(f"[WARN] Falló envío de texto a Telegram: {e}", file=sys.stderr)
+        print(f"[WARN] Falló envío de texto a Telegram: {_redactar(str(e), token)}", file=sys.stderr)
         return False
 
 def enviar_foto(token: str, chat_id: str, path: str, caption: str = "") -> bool:
     try:
+        import requests
+
         with open(path, "rb") as f:
             r = requests.post(
                 f"https://api.telegram.org/bot{token}/sendPhoto",
@@ -606,20 +630,30 @@ def enviar_foto(token: str, chat_id: str, path: str, caption: str = "") -> bool:
             )
         return r.ok
     except Exception as e:
-        print(f"[WARN] Falló envío de foto a Telegram ({path}): {e}", file=sys.stderr)
+        print(_redactar(f"[WARN] Falló envío de foto a Telegram ({path}): {e}", token), file=sys.stderr)
         return False
 
 def enviar_lote_telegram(resultados: list[dict], resumen: str) -> dict:
+    """Envía el lote y reporta éxito solo si llegaron el resumen y todas las fotos."""
     token, chat_id = _load_telegram_env()
     if not token or not chat_id:
         print("[WARN] TELEGRAM_BOT_TOKEN/CHAT_ID no configurados — se omite el envío.", file=sys.stderr)
         return {"enviado": False, "razon": "credenciales no configuradas"}
-    enviar_texto(token, chat_id, resumen)
+    try:
+        import requests  # noqa: F401 — se verifica antes de intentar cualquier envío
+    except ImportError:
+        return {"enviado": False, "razon": "dependencia 'requests' no instalada"}
+    texto_ok = enviar_texto(token, chat_id, resumen)
     enviados = sum(1 for r in resultados if enviar_foto(token, chat_id, r["path"], r["caption"]))
-    return {"enviado": True, "fotos_enviadas": enviados, "total": len(resultados)}
+    return {
+        "enviado": texto_ok and enviados == len(resultados),
+        "resumen_enviado": texto_ok,
+        "fotos_enviadas": enviados,
+        "total": len(resultados),
+    }
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--chunks", help="JSON con lista de chunks RAG (modo tabla)")
     parser.add_argument("--items",  help="JSON con lista de artículos enriquecidos (modo popup)")
@@ -627,8 +661,12 @@ def main():
     parser.add_argument("--nombre", default="rag_chunks")
     parser.add_argument("--leyes",  type=int, default=42)
     parser.add_argument("--modo",   choices=["tabla", "popup"], default="tabla")
-    parser.add_argument("--no-telegram", action="store_true", help="Solo generar PNGs, no enviar a Telegram")
-    args = parser.parse_args()
+    envio = parser.add_mutually_exclusive_group()
+    envio.add_argument("--telegram", action="store_true",
+                       help="Enviar los PNG a Telegram (opt-in explícito: requiere aprobación del operador)")
+    envio.add_argument("--no-telegram", action="store_true",
+                       help="Compatibilidad: no enviar (ya es el comportamiento predeterminado)")
+    args = parser.parse_args(argv)
 
     if args.modo == "tabla":
         if not args.chunks:
@@ -645,9 +683,13 @@ def main():
         return
 
     resultados = capturar_articulos(items, Path(args.out))
-    if not args.no_telegram:
+    if args.telegram:
         resumen = f"📖 {len(resultados)} artículo(s) con hallazgo (🟡/🔴) — evidencia adjunta"
         envio = enviar_lote_telegram(resultados, resumen)
+        if not envio.get("enviado"):
+            # El operador pidió el envío explícitamente: un fallo no se reporta como éxito.
+            print(f"[ERROR] Envío a Telegram solicitado y no completado: {envio}", file=sys.stderr)
+            raise SystemExit(3)
         print(f"[OK] Telegram: {envio}")
 
 if __name__ == "__main__":

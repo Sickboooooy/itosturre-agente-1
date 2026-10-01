@@ -373,5 +373,92 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(summary["pasos"]["rag_capture"]["status"], "ok")
 
 
+def audit_with_yellow_article() -> dict:
+    payload = audit_with_normative_chunk()
+    payload["retrieved_sources"][0]["article"] = "1"
+    payload["retrieved_sources"][0]["vvca"]["semaforo"] = "🟡"
+    return payload
+
+
+class TelegramOptInTests(unittest.TestCase):
+    """El envío a Telegram es opt-in (docs/POLITICA_DATOS.md, principio 4)."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.draft = self.root / "borrador.md"
+        self.draft.write_text("Caso enteramente sintético.", encoding="utf-8")
+        self.case = self.root / "caso"
+        self.fake = FakeSubprocesses(
+            audit_stdout=json.dumps(audit_with_yellow_article(), ensure_ascii=False)
+        )
+
+    def run_with_popups(self, *extra: str) -> tuple[int, dict, list[str]]:
+        with (
+            patch("vvca_full.subprocess.run", side_effect=self.fake),
+            patch("vvca_full.shutil.which", return_value="npx.cmd"),
+            patch("itosturre.memoria.puente.registrar_auditoria", return_value=0),
+        ):
+            code = vvca_full.main(
+                ["--caso", str(self.case), "--borrador", str(self.draft),
+                 "--no-rag-capture", *extra]
+            )
+        summary = json.loads((self.case / "vvca_full.json").read_text(encoding="utf-8"))
+        popup_calls = [c for c in self.fake.calls if "popup" in c]
+        self.assertEqual(len(popup_calls), 1)
+        return code, summary, popup_calls[0]
+
+    def test_popups_do_not_request_telegram_by_default(self) -> None:
+        code, summary, popup = self.run_with_popups()
+        self.assertEqual(code, 0)
+        self.assertNotIn("--telegram", popup)
+        self.assertEqual(
+            summary["pasos"]["rag_popup_articulos"]["telegram"], "no_solicitado"
+        )
+
+    def test_telegram_requires_explicit_opt_in(self) -> None:
+        code, summary, popup = self.run_with_popups("--telegram")
+        self.assertEqual(code, 0)
+        self.assertIn("--telegram", popup)
+        self.assertEqual(
+            summary["pasos"]["rag_popup_articulos"]["telegram"], "solicitado"
+        )
+
+    def test_legacy_no_telegram_flag_is_accepted_and_sends_nothing(self) -> None:
+        _code, _summary, popup = self.run_with_popups("--no-telegram")
+        self.assertNotIn("--telegram", popup)
+
+    def test_failed_requested_delivery_is_partial_not_failure(self) -> None:
+        self.fake = FakeSubprocesses(
+            audit_stdout=json.dumps(audit_with_yellow_article(), ensure_ascii=False),
+            capture_returncode=3,
+        )
+        code, summary, _popup = self.run_with_popups("--telegram")
+        self.assertEqual(code, 0)
+        self.assertEqual(summary["status"], "partial")
+        paso = summary["pasos"]["rag_popup_articulos"]
+        self.assertEqual(paso["status"], "partial")
+        self.assertEqual(paso["telegram"], "fallido")
+
+    def test_popup_failure_without_telegram_still_fails_closed(self) -> None:
+        self.fake = FakeSubprocesses(
+            audit_stdout=json.dumps(audit_with_yellow_article(), ensure_ascii=False),
+            capture_returncode=3,
+        )
+        code, summary, _popup = self.run_with_popups()
+        self.assertEqual(code, 1)
+        self.assertEqual(summary["status"], "failed")
+
+    def test_conflicting_telegram_flags_are_rejected(self) -> None:
+        with patch("sys.stderr"), self.assertRaises(SystemExit) as raised:
+            vvca_full.main(
+                ["--caso", str(self.case), "--borrador", str(self.draft),
+                 "--telegram", "--no-telegram"]
+            )
+        self.assertEqual(raised.exception.code, 2)
+        self.assertEqual(self.fake.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
