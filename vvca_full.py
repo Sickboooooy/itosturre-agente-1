@@ -18,7 +18,10 @@ Uso:
   python vvca_full.py --caso auditorias/2026-06-18-AARON-GARCIA \
       --borrador casos_de_prueba/estrategia_aaron_garcia_28may2004.md \
       [--contexto caso.json] [--registros 2024783 2003551 ...] [--force] [--no-sjf]
-      [--no-rag-capture] [--allow-partial-sjf]
+      [--no-rag-capture] [--allow-partial-sjf] [--telegram]
+
+Telegram: los pop-ups por artículo solo se envían con ``--telegram`` explícito
+(docs/POLITICA_DATOS.md, principio 4: sin envíos automáticos).
 
 Falla cerrado: si un paso esencial termina con error o produce una salida inválida,
 persiste el diagnóstico, devuelve código 1 y no anuncia éxito. Solo ``--force``,
@@ -190,8 +193,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--no-popup-articulos", action="store_true",
                      help="Saltar la generación de pop-ups por artículo 🟡/🔴 (snippet + página del PDF)")
-    ap.add_argument("--no-telegram", action="store_true",
-                     help="Generar los pop-ups de artículo pero no enviarlos a Telegram")
+    envio = ap.add_mutually_exclusive_group()
+    envio.add_argument("--telegram", action="store_true",
+                       help="Enviar los pop-ups de artículo a Telegram (opt-in explícito; "
+                            "requiere aprobación del operador)")
+    envio.add_argument("--no-telegram", action="store_true",
+                       help="Compatibilidad: no enviar (ya es el comportamiento predeterminado)")
     ap.add_argument("--python", default=sys.executable, help="Intérprete Python a usar")
     args = ap.parse_args(argv)
 
@@ -592,18 +599,31 @@ def main(argv: list[str] | None = None) -> int:
             popup_file.write_text(json.dumps(popup_items, ensure_ascii=False, indent=2), encoding="utf-8")
             cmd = [args.python, str(REPO / "capturar_rag.py"), "--modo", "popup",
                    "--items", str(popup_file), "--out", str(caso)]
-            if args.no_telegram:
-                cmd.append("--no-telegram")
+            if args.telegram:
+                cmd.append("--telegram")
             try:
                 run(cmd, step="rag_popup_articulos", check=True)
             except PipelineStepError as exc:
-                return _failure(
-                    caso,
-                    summary,
-                    step="rag_popup_articulos",
-                    message="falló la generación de pop-ups por artículo",
-                    result=exc.result,
-                )
+                # Código 3 de capturar_rag: los pop-ups se generaron, pero el envío
+                # solicitado no se completó. La auditoría sigue siendo válida: parcial.
+                if args.telegram and exc.result.returncode == 3:
+                    _partial(
+                        summary,
+                        step="rag_popup_articulos",
+                        message="pop-ups generados; envío a Telegram solicitado y no completado",
+                        result=exc.result,
+                    )
+                    summary["pasos"]["rag_popup_articulos"].update(
+                        {"items": len(popup_items), "telegram": "fallido"}
+                    )
+                else:
+                    return _failure(
+                        caso,
+                        summary,
+                        step="rag_popup_articulos",
+                        message="falló la generación de pop-ups por artículo",
+                        result=exc.result,
+                    )
             except OSError as exc:
                 return _failure(
                     caso,
@@ -611,10 +631,12 @@ def main(argv: list[str] | None = None) -> int:
                     step="rag_popup_articulos",
                     message=f"no se pudo iniciar capturar_rag.py: {exc}",
                 )
-            summary["pasos"]["rag_popup_articulos"] = {
-                "status": "ok",
-                "items": len(popup_items),
-            }
+            else:
+                summary["pasos"]["rag_popup_articulos"] = {
+                    "status": "ok",
+                    "items": len(popup_items),
+                    "telegram": "solicitado" if args.telegram else "no_solicitado",
+                }
     else:
         summary["pasos"]["rag_popup_articulos"] = {
             "status": "skipped",
