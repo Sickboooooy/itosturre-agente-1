@@ -198,6 +198,9 @@ class GitStrategyTests(unittest.TestCase):
         self.escribir("hooks/pre-commit", "#!/usr/bin/env bash\nexit 0\n")
         self.git("add", "hooks/pre-commit")
         self.git("update-index", "--chmod=+x", "hooks/pre-commit")
+        # Con core.filemode=true (Linux, macOS) el `git add` del paso 1 toma el modo del
+        # disco y descartaría el +x del índice; en Windows (filemode=false) no tiene efecto.
+        (self.root / "hooks" / "pre-commit").chmod(0o755)
         resultado = self.script("1", "-m", "chore: hook", "--", "hooks/")
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
         modo = self.git("ls-files", "-s", "hooks/pre-commit").stdout.split()[0]

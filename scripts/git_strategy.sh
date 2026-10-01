@@ -102,6 +102,8 @@ paso1() {
   done
   # El commit incluye todo el índice: lo preparado de antemano (p. ej. un cambio de modo con
   # `git update-index --chmod=+x`) solo se admite si cae dentro de las rutas declaradas.
+  # Con core.filemode=true (Linux, macOS) el `git add` de abajo toma el modo del disco:
+  # ahí el +x se da con `chmod +x`, no solo en el índice.
   local preparado
   while IFS= read -r preparado; do
     [ -n "$preparado" ] || continue
