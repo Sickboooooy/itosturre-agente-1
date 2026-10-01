@@ -27,13 +27,16 @@ jobs:
         run: >-
           python -m compileall -q
           OpenNotebook.py scoring_vvca.py vvca_full.py capturar_rag.py
-          router_competencia.py memoria_cli.py scripts agentes itosturre tests
+          router_competencia.py memoria_cli.py plan_audit.py scripts agentes itosturre tests
 
       - name: Probar políticas VVCA puras
         run: python -m unittest discover -s tests -p "test_*.py"
 
       - name: Evaluar Gold Set VVCA
         run: python scripts/evaluate_gold_set.py
+
+      - name: Evaluar Gold Set de planes
+        run: python scripts/evaluate_plan_gold_set.py
 
       - name: Verificar superficies Claude/Codex
         run: python scripts/check_agent_surfaces.py

@@ -48,6 +48,7 @@ del producto.
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
+| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014); sin red ni LLM, separado del VVCA | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
 | `services/itosturre-skills/` | Skills jurídicas distribuibles | Submódulo |
 | `.claude/skills/` | Fuente versionada de skills vendorizadas | Código padre |
@@ -86,6 +87,7 @@ del producto.
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
+| Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL queda sin caso |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 
