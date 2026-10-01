@@ -33,7 +33,8 @@
   ],
   "tracked_validation_fixtures": [
     "tests/fixtures/vvca_gold_set_v1.json",
-    "tests/fixtures/vvca_gold_set_v2.json"
+    "tests/fixtures/vvca_gold_set_v2.json",
+    "tests/fixtures/plan_gold_set_v1.json"
   ],
   "regression_case_fixtures": [
     "borrador_caso_001.md",

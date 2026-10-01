@@ -1,0 +1,550 @@
+"""Reglas observables del auditor de planes (PL-001 … PL-014).
+
+Cada regla verifica algo que se puede comprobar mirando el ledger (y, para PL-014,
+el documento): campos presentes, vocabulario, hosts, fechas, hashes y referencias.
+Ninguna regla hace inferencia semántica ni decide si un criterio es pertinente al
+caso — eso sigue siendo Capa 2, decisión del abogado.
+
+Un hallazgo es un dict ``{regla, severidad, objetivo, mensaje}``. El plan queda
+bloqueado si existe al menos un hallazgo ``BLOQUEANTE``.
+"""
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Any, Iterable
+from urllib.parse import urlsplit
+
+from .estados import (
+    APROBADO,
+    CONTRADICCION,
+    INEXISTENTE,
+    REQUIERE_DECISION_HUMANA,
+    VERIFICADO,
+    es_marcador_pendiente,
+    normalizar_estado,
+    problema_persona,
+    problemas_aprobacion,
+)
+from .ledger import (
+    CAMPOS_CRITERIO,
+    NATURALEZAS_OFICIALES,
+    LedgerInvalido,
+    fecha_iso,
+    validar_esquema,
+)
+from .menciones import esta_cubierta, extraer_menciones, indice_cobertura
+
+BLOQUEANTE = "BLOQUEANTE"
+ALTA = "ALTA"
+MEDIA = "MEDIA"
+SEVERIDADES = (BLOQUEANTE, ALTA, MEDIA)
+_RANGO = {severidad: indice for indice, severidad in enumerate(SEVERIDADES)}
+
+REGLAS = {
+    "PL-001": "Estado fuera del vocabulario único",
+    "PL-002": "VERIFICADO sin evidencias",
+    "PL-003": "VERIFICADO apoyado en evidencia no oficial",
+    "PL-004": "VERIFICADO con evidencia sin ubicación",
+    "PL-005": "VERIFICADO con evidencia sin extracto literal suficiente",
+    "PL-006": "VERIFICADO con fecha de consulta inválida o posterior al documento",
+    "PL-007": "Criterio judicial VERIFICADO con identificación incompleta",
+    "PL-008": "INEXISTENTE sin evidencia oficial",
+    "PL-009": "Propuesta o inferencia del agente marcada VERIFICADO",
+    "PL-010": "Aprobación inválida",
+    "PL-011": "Contradicción mal declarada",
+    "PL-012": "Decisión sin responsable humano",
+    "PL-013": "IDs duplicados o referencias colgantes",
+    "PL-014": "Mención del documento sin afirmación que la cubra",
+}
+
+ACCIONES = {
+    "PL-001": "Sustituir por un estado del vocabulario único (itosturre/plan/estados.py).",
+    "PL-002": "Adjuntar evidencia oficial o degradar a NO VERIFICADO.",
+    "PL-003": "Sustituir por fuente oficial (https, host permitido) o degradar a NO VERIFICADO.",
+    "PL-004": "Indicar la ubicación exacta en la fuente (artículo, página o registro).",
+    "PL-005": "Transcribir el extracto literal (20 caracteres o más) de la fuente.",
+    "PL-006": "Registrar la fecha real de consulta (AAAA-MM-DD, no posterior al documento).",
+    "PL-007": "Completar los diez campos de identificación del criterio desde el SJF.",
+    "PL-008": "Aportar fuente oficial que acredite la inexistencia o cambiar a NO VERIFICABLE.",
+    "PL-009": "Reclasificar como CANDIDATO o REQUIERE DECISIÓN HUMANA y pedir aprobación humana.",
+    "PL-010": "Recabar nueva aprobación humana sobre el contenido vigente.",
+    "PL-011": "Declarar la contradicción con todas sus afirmaciones y ligarla a una decisión.",
+    "PL-012": "Asignar un responsable humano a la decisión.",
+    "PL-013": "Corregir el ID duplicado o la referencia inexistente.",
+    "PL-014": "Registrar una afirmación que cubra la mención o retirarla del documento.",
+}
+
+HOSTS_OFICIALES = frozenset(
+    {
+        "dof.gob.mx",
+        "www.diputados.gob.mx",
+        "sjf2.scjn.gob.mx",
+        "sjfsemanal.scjn.gob.mx",
+        "www.scjn.gob.mx",
+        "www.corteidh.or.cr",
+    }
+)
+# Variantes conocidas que NO se aceptan, con el host canónico que debe usarse.
+# www.dof.gob.mx: su certificado TLS no cubre el subdominio www.
+HOSTS_CANONICOS = {"www.dof.gob.mx": "dof.gob.mx"}
+EXTRACTO_MINIMO = 20
+_NATURALEZAS_NO_OFICIALES = frozenset({"secundaria", "sistema", "busqueda"})
+
+
+def url_oficial(url: Any, hosts: Iterable[str] = HOSTS_OFICIALES) -> bool:
+    """``True`` si la URL es https, sin credenciales ni puerto raro, y su host es exacto.
+
+    Rechaza hosts parecidos (``dof.gob.mx.example.com``), ``http://`` y trucos de
+    *userinfo* (``https://dof.gob.mx@otro.example``).
+    """
+    if not isinstance(url, str) or not url.strip():
+        return False
+    try:
+        partes = urlsplit(url.strip())
+        puerto = partes.port
+    except ValueError:
+        return False
+    if partes.scheme.lower() != "https":
+        return False
+    if partes.username is not None or partes.password is not None:
+        return False
+    if puerto not in (None, 443):
+        return False
+    host = (partes.hostname or "").rstrip(".").lower()
+    permitidos = {h.strip().rstrip(".").lower() for h in hosts}
+    return bool(host) and host in permitidos
+
+
+def es_evidencia_oficial(evidencia: dict, hosts: Iterable[str] = HOSTS_OFICIALES) -> bool:
+    """Naturaleza oficial declarada **y** URL oficial comprobable."""
+    return evidencia.get("naturaleza") in NATURALEZAS_OFICIALES and url_oficial(
+        evidencia.get("url"), hosts
+    )
+
+
+def _host(url: Any) -> str:
+    try:
+        return (urlsplit(url.strip()).hostname or "").rstrip(".").lower()
+    except (AttributeError, ValueError):
+        return ""
+
+
+def _texto(valor: Any) -> str:
+    """Texto con espacios colapsados; ``""`` si no es texto o es un marcador pendiente."""
+    if not isinstance(valor, str) or es_marcador_pendiente(valor):
+        return ""
+    return " ".join(valor.split())
+
+
+def _problema_campo(valor: Any) -> str | None:
+    """Motivo por el que un campo de identificación no cuenta como dato (``None`` si cuenta).
+
+    Solo vale un texto no vacío que no sea marcador pendiente: ``false``, ``0``, listas
+    u objetos cuentan como faltantes.
+    """
+    if valor is None:
+        return "ausente"
+    if not isinstance(valor, str):
+        return f"no es texto ({type(valor).__name__})"
+    if not valor.strip():
+        return "vacío"
+    if es_marcador_pendiente(valor):
+        return "marcador pendiente"
+    return None
+
+
+class _Auditoria:
+    """Índices del ledger y acumulador de hallazgos para una sola pasada de lint."""
+
+    def __init__(self, ledger: dict, hosts: frozenset[str]) -> None:
+        self.ledger = ledger
+        self.hosts = hosts
+        self.hallazgos: list[dict] = []
+        self._vistos: set[tuple[str, str, str]] = set()
+        self.fecha_documento = fecha_iso(ledger["plan"]["fecha_documento"])
+        self.afirmaciones: list[dict] = ledger.get("afirmaciones") or []
+        self.evidencias: list[dict] = ledger.get("evidencias") or []
+        self.contradicciones: list[dict] = ledger.get("contradicciones") or []
+        self.decisiones: list[dict] = ledger.get("decisiones") or []
+
+        self.evidencias_por_id: dict[str, list[dict]] = defaultdict(list)
+        for evidencia in self.evidencias:
+            self.evidencias_por_id[evidencia["id"]].append(evidencia)
+        self.ids_afirmaciones = {a["id"] for a in self.afirmaciones}
+        self.ids_decisiones = {d["id"] for d in self.decisiones}
+        self.estados = {
+            id(a): normalizar_estado(a["verificacion"].get("estado"))
+            for a in self.afirmaciones
+        }
+        self.verificadas = [a for a in self.afirmaciones if self.estado(a) == VERIFICADO]
+        self.evidencias_de_verificadas = {
+            ev_id for a in self.verificadas for ev_id in self.evidencias_citadas(a)
+        }
+
+    def estado(self, afirmacion: dict) -> str | None:
+        return self.estados[id(afirmacion)]
+
+    @staticmethod
+    def evidencias_citadas(afirmacion: dict) -> list[str]:
+        return list(afirmacion["verificacion"].get("evidencias") or [])
+
+    def emitir(self, regla: str, severidad: str, objetivo: str, mensaje: str) -> None:
+        clave = (regla, objetivo, mensaje)
+        if clave in self._vistos:
+            return
+        self._vistos.add(clave)
+        self.hallazgos.append(
+            {"regla": regla, "severidad": severidad, "objetivo": objetivo, "mensaje": mensaje}
+        )
+
+    # ── PL-001 ──────────────────────────────────────────────────────────────
+    def estados_fuera_de_vocabulario(self) -> None:
+        for afirmacion in self.afirmaciones:
+            if self.estado(afirmacion) is not None:
+                continue
+            crudo = afirmacion["verificacion"].get("estado")
+            detalle = (
+                "APROBADO no es estado de verificación: se registra en `aprobacion`"
+                if normalizar_estado(crudo, admitir_aprobado=True) == APROBADO
+                else "no pertenece al vocabulario único"
+            )
+            self.emitir(
+                "PL-001", BLOQUEANTE, afirmacion["id"], f"Estado {crudo!r}: {detalle}."
+            )
+        for coleccion, nombre in ((self.contradicciones, "contradicción"), (self.decisiones, "decisión")):
+            for item in coleccion:
+                if normalizar_estado(item["estado"], admitir_aprobado=True) is None:
+                    self.emitir(
+                        "PL-001",
+                        BLOQUEANTE,
+                        item["id"],
+                        f"Estado de {nombre} {item['estado']!r} fuera del vocabulario único.",
+                    )
+
+    # ── PL-002 … PL-007, PL-009 ─────────────────────────────────────────────
+    def verificadas_sin_soporte(self) -> None:
+        for afirmacion in self.verificadas:
+            objetivo = afirmacion["id"]
+            citadas = self.evidencias_citadas(afirmacion)
+            resueltas = [ev_id for ev_id in citadas if ev_id in self.evidencias_por_id]
+            if not resueltas:
+                motivo = "no cita evidencias" if not citadas else "ninguna evidencia citada existe"
+                self.emitir("PL-002", BLOQUEANTE, objetivo, f"VERIFICADO pero {motivo}.")
+            for ev_id in resueltas:
+                for evidencia in self.evidencias_por_id[ev_id]:
+                    self._revisar_evidencia_de_verificado(objetivo, evidencia)
+            if afirmacion["tipo"] == "criterio_judicial":
+                self._revisar_identificacion_criterio(afirmacion)
+            if afirmacion["autor"] == "agente" and afirmacion["tipo"] in {"propuesta", "inferencia"}:
+                self.emitir(
+                    "PL-009",
+                    BLOQUEANTE,
+                    objetivo,
+                    f"Una {afirmacion['tipo']} del agente no puede quedar VERIFICADO: "
+                    "requiere decisión humana.",
+                )
+
+    def _revisar_evidencia_de_verificado(self, objetivo: str, evidencia: dict) -> None:
+        ev_id = evidencia["id"]
+        naturaleza = evidencia.get("naturaleza")
+        if naturaleza in _NATURALEZAS_NO_OFICIALES:
+            self.emitir(
+                "PL-003",
+                BLOQUEANTE,
+                objetivo,
+                f"Evidencia {ev_id} de naturaleza '{naturaleza}' no sostiene un VERIFICADO.",
+            )
+        url = evidencia.get("url")
+        if not _texto(url):
+            self.emitir(
+                "PL-003",
+                BLOQUEANTE,
+                objetivo,
+                f"Evidencia {ev_id}: URL vacía o marcador pendiente ({url!r}).",
+            )
+        elif not url_oficial(url, self.hosts):
+            mensaje = f"Evidencia {ev_id}: URL {url!r} no es https de un host oficial permitido."
+            canonico = HOSTS_CANONICOS.get(_host(url))
+            if canonico:
+                mensaje += f" Usar el host canónico {canonico}."
+            self.emitir("PL-003", BLOQUEANTE, objetivo, mensaje)
+        if not _texto(evidencia.get("ubicacion")):
+            self.emitir(
+                "PL-004",
+                BLOQUEANTE,
+                objetivo,
+                f"Evidencia {ev_id} sin ubicación en la fuente (vacía o marcador pendiente).",
+            )
+        extracto_crudo = evidencia.get("extracto")
+        extracto = _texto(extracto_crudo)
+        if len(extracto) < EXTRACTO_MINIMO:
+            detalle = (
+                "es un marcador pendiente"
+                if es_marcador_pendiente(extracto_crudo)
+                else f"tiene {len(extracto)} caracteres"
+            )
+            self.emitir(
+                "PL-005",
+                BLOQUEANTE,
+                objetivo,
+                f"Evidencia {ev_id}: el extracto literal {detalle} (mínimo {EXTRACTO_MINIMO}).",
+            )
+        consulta = fecha_iso(evidencia.get("fecha_consulta"))
+        if consulta is None:
+            self.emitir(
+                "PL-006",
+                BLOQUEANTE,
+                objetivo,
+                f"Evidencia {ev_id}: fecha_consulta {evidencia.get('fecha_consulta')!r} "
+                "no es AAAA-MM-DD válida.",
+            )
+        elif self.fecha_documento is not None and consulta > self.fecha_documento:
+            self.emitir(
+                "PL-006",
+                BLOQUEANTE,
+                objetivo,
+                f"Evidencia {ev_id}: consultada el {consulta.isoformat()}, después de la "
+                f"fecha del documento ({self.fecha_documento.isoformat()}).",
+            )
+
+    def _revisar_identificacion_criterio(self, afirmacion: dict) -> None:
+        identificacion = afirmacion.get("identificacion_criterio") or {}
+        faltantes = []
+        for campo in CAMPOS_CRITERIO:
+            motivo = _problema_campo(identificacion.get(campo))
+            if motivo:
+                faltantes.append(f"{campo} ({motivo})")
+        if faltantes:
+            self.emitir(
+                "PL-007",
+                BLOQUEANTE,
+                afirmacion["id"],
+                "Identificación del criterio incompleta: " + ", ".join(faltantes) + ".",
+            )
+
+    # ── PL-008 ──────────────────────────────────────────────────────────────
+    def inexistentes_sin_prueba(self) -> None:
+        for afirmacion in self.afirmaciones:
+            if self.estado(afirmacion) != INEXISTENTE:
+                continue
+            evidencias = [
+                evidencia
+                for ev_id in self.evidencias_citadas(afirmacion)
+                for evidencia in self.evidencias_por_id.get(ev_id, [])
+            ]
+            # Una consulta sin resultados no prueba la inexistencia aunque se haya
+            # hecho en un portal oficial: no cuenta como evidencia oficial.
+            oficiales = [
+                e
+                for e in evidencias
+                if es_evidencia_oficial(e, self.hosts)
+                and _texto(e.get("extracto"))
+                and e.get("resultados") != 0
+            ]
+            if oficiales:
+                continue
+            if evidencias and all(
+                e.get("naturaleza") == "busqueda" or e.get("resultados") == 0 for e in evidencias
+            ):
+                mensaje = (
+                    "INEXISTENTE apoyado solo en búsquedas sin resultados: no encontrar no "
+                    "prueba la inexistencia."
+                )
+            else:
+                mensaje = (
+                    "INEXISTENTE sin evidencia oficial (naturaleza oficial, URL oficial y "
+                    "extracto) que lo acredite."
+                )
+            self.emitir("PL-008", BLOQUEANTE, afirmacion["id"], mensaje)
+
+    # ── PL-010 ──────────────────────────────────────────────────────────────
+    def aprobaciones_invalidas(self) -> None:
+        for afirmacion in self.afirmaciones:
+            problemas = problemas_aprobacion(afirmacion)
+            if problemas:
+                self.emitir(
+                    "PL-010",
+                    BLOQUEANTE,
+                    afirmacion["id"],
+                    "Aprobación inválida: " + "; ".join(problemas) + ".",
+                )
+
+    # ── PL-011 ──────────────────────────────────────────────────────────────
+    def contradicciones_mal_declaradas(self) -> None:
+        declaradas = {
+            af_id for contradiccion in self.contradicciones for af_id in contradiccion["afirmaciones"]
+        }
+        for afirmacion in self.afirmaciones:
+            if self.estado(afirmacion) == CONTRADICCION and afirmacion["id"] not in declaradas:
+                self.emitir(
+                    "PL-011",
+                    ALTA,
+                    afirmacion["id"],
+                    "Afirmación en CONTRADICCIÓN que no figura en ninguna contradicción declarada.",
+                )
+        for contradiccion in self.contradicciones:
+            objetivo = contradiccion["id"]
+            if len(set(contradiccion["afirmaciones"])) < 2:
+                self.emitir(
+                    "PL-011",
+                    ALTA,
+                    objetivo,
+                    "Una contradicción necesita al menos dos afirmaciones distintas.",
+                )
+            estado = normalizar_estado(contradiccion["estado"], admitir_aprobado=True)
+            if (
+                estado is not None
+                and estado not in {CONTRADICCION, REQUIERE_DECISION_HUMANA}
+                and not _texto(contradiccion.get("decision_id"))
+            ):
+                self.emitir(
+                    "PL-011",
+                    ALTA,
+                    objetivo,
+                    f"Contradicción en estado {estado} sin decision_id que documente cómo se resolvió.",
+                )
+
+    # ── PL-012 ──────────────────────────────────────────────────────────────
+    def decisiones_sin_responsable(self) -> None:
+        for decision in self.decisiones:
+            responsable = decision.get("responsable")
+            motivo = problema_persona(responsable)
+            if motivo is None:
+                continue
+            if motivo == "vacío":
+                mensaje = "Decisión sin responsable asignado."
+            else:
+                mensaje = f"Responsable {responsable.strip()!r} no identifica a una persona humana ({motivo})."
+            estado = normalizar_estado(decision["estado"], admitir_aprobado=True)
+            if estado == APROBADO:
+                mensaje += " Una decisión APROBADA debe identificar a la persona que la tomó."
+            self.emitir("PL-012", ALTA, decision["id"], mensaje)
+
+    # ── PL-013 ──────────────────────────────────────────────────────────────
+    def ids_y_referencias(self) -> None:
+        apariciones: dict[str, list[tuple[str, dict]]] = defaultdict(list)
+        for nombre, coleccion in (
+            ("afirmacion", self.afirmaciones),
+            ("evidencia", self.evidencias),
+            ("contradiccion", self.contradicciones),
+            ("decision", self.decisiones),
+        ):
+            for item in coleccion:
+                apariciones[item["id"]].append((nombre, item))
+        for item_id, lista in apariciones.items():
+            if len(lista) < 2:
+                continue
+            afecta = any(
+                (nombre == "afirmacion" and self.estado(item) == VERIFICADO)
+                or (nombre == "evidencia" and item_id in self.evidencias_de_verificadas)
+                for nombre, item in lista
+            )
+            tipos = ", ".join(nombre for nombre, _ in lista)
+            self.emitir(
+                "PL-013",
+                BLOQUEANTE if afecta else MEDIA,
+                item_id,
+                f"ID duplicado ({len(lista)} apariciones: {tipos}).",
+            )
+
+        todos = set(apariciones)
+        for afirmacion in self.afirmaciones:
+            verificada = self.estado(afirmacion) == VERIFICADO
+            for ev_id in self.evidencias_citadas(afirmacion):
+                if ev_id not in self.evidencias_por_id:
+                    self.emitir(
+                        "PL-013",
+                        BLOQUEANTE if verificada else MEDIA,
+                        afirmacion["id"],
+                        f"Cita la evidencia inexistente {ev_id}.",
+                    )
+        for contradiccion in self.contradicciones:
+            for af_id in contradiccion["afirmaciones"]:
+                if af_id not in self.ids_afirmaciones:
+                    self.emitir(
+                        "PL-013",
+                        MEDIA,
+                        contradiccion["id"],
+                        f"Refiere la afirmación inexistente {af_id}.",
+                    )
+            decision_id = _texto(contradiccion.get("decision_id"))
+            if decision_id and decision_id not in self.ids_decisiones:
+                self.emitir(
+                    "PL-013",
+                    MEDIA,
+                    contradiccion["id"],
+                    f"Refiere la decisión inexistente {decision_id}.",
+                )
+        for decision in self.decisiones:
+            for bloqueado in decision.get("bloquea") or []:
+                if bloqueado not in todos:
+                    self.emitir(
+                        "PL-013",
+                        MEDIA,
+                        decision["id"],
+                        f"Bloquea el elemento inexistente {bloqueado}.",
+                    )
+
+    # ── PL-014 ──────────────────────────────────────────────────────────────
+    def cobertura(self, documento: str) -> None:
+        textos: list[str] = []
+        for afirmacion in self.afirmaciones:
+            textos.extend(afirmacion.get("referencias") or [])
+            textos.append(afirmacion["texto"])
+        indice = indice_cobertura(textos)
+        reportadas: set[tuple] = set()
+        for mencion in extraer_menciones(documento):
+            clave = (mencion.tipo, mencion.clave, *mencion.calificadores)
+            if clave in reportadas or esta_cubierta(mencion, indice):
+                continue
+            reportadas.add(clave)
+            mensaje = (
+                f"Mención «{mencion.original}» ({mencion.normalizada}) sin afirmación "
+                "que la cubra."
+            )
+            if mencion.ambigua:
+                mensaje += " Mención ambigua: no identifica el ordenamiento."
+            self.emitir("PL-014", BLOQUEANTE, f"documento:L{mencion.linea}", mensaje)
+
+
+def lint_ledger(
+    ledger: dict,
+    *,
+    documento: str | None = None,
+    hosts_oficiales: Iterable[str] = HOSTS_OFICIALES,
+) -> list[dict]:
+    """Aplica PL-001 … PL-014 y devuelve los hallazgos ordenados por severidad y regla.
+
+    Lanza ``LedgerInvalido`` si el ledger no cumple el esquema ``plan-ledger/1.0``.
+    PL-014 solo se evalúa cuando se pasa ``documento``.
+    """
+    errores = validar_esquema(ledger)
+    if errores:
+        raise LedgerInvalido(errores)
+    auditoria = _Auditoria(ledger, frozenset(hosts_oficiales))
+    auditoria.estados_fuera_de_vocabulario()
+    auditoria.verificadas_sin_soporte()
+    auditoria.inexistentes_sin_prueba()
+    auditoria.aprobaciones_invalidas()
+    auditoria.contradicciones_mal_declaradas()
+    auditoria.decisiones_sin_responsable()
+    auditoria.ids_y_referencias()
+    if documento is not None:
+        auditoria.cobertura(documento)
+    return sorted(
+        auditoria.hallazgos,
+        key=lambda h: (_RANGO[h["severidad"]], h["regla"]),
+    )
+
+
+def esta_bloqueado(hallazgos: Iterable[dict]) -> bool:
+    """``True`` si hay al menos un hallazgo BLOQUEANTE."""
+    return any(h["severidad"] == BLOQUEANTE for h in hallazgos)
+
+
+def resumen_severidades(hallazgos: Iterable[dict]) -> dict[str, int]:
+    """Conteo de hallazgos por severidad, con las tres claves siempre presentes."""
+    conteo = {severidad: 0 for severidad in SEVERIDADES}
+    for hallazgo in hallazgos:
+        conteo[hallazgo["severidad"]] += 1
+    return conteo
