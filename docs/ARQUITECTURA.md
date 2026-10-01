@@ -48,8 +48,8 @@ del producto.
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
-| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014); sin red ni LLM, separado del VVCA | Código padre |
-| `itosturre/evidencia/` | Capa de evidencia pura (C7): registro `evidencia/1.0` (URL oficial, fecha de consulta aportada por quien llama, huellas del original y del derivado), fuente única de hosts oficiales, huellas y JSON canónico, parser del SJF anclado en "Registro digital:", limpieza de LeyesBiblio con invariantes, ubicación de artículos (cuerpo / transitorios / indeterminada) y notas de reforma con gramática completa. `validar_registro` es solo estructural y **no habilita VERIFICADO**: hace falta además `comprobar_integridad`, que recalcula las huellas desde el original y el derivado y vuelve a leer la fuente. Solo biblioteca estándar; sin red, reloj ni escritura. `plan` puede importarla; ella no importa `plan` ni `audit` | Código padre |
+| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-017. CLI: `lint`, `hash`, `cotejar`, `evidencia agregar-tesis` y `evidencia agregar-ley`. Sin red ni LLM, separado del VVCA | Código padre |
+| `itosturre/evidencia/` | Capa de evidencia pura (C7): registro `evidencia/1.0` (URL oficial, fecha de consulta aportada por quien llama, huellas del original y del derivado), fuente única de hosts oficiales, huellas y JSON canónico, parser del SJF anclado en "Registro digital:", limpieza de LeyesBiblio con invariantes, ubicación de artículos (cuerpo / transitorios / indeterminada) y notas de reforma con gramática completa. `validar_registro` es solo estructural y **no habilita VERIFICADO**: hace falta además `comprobar_integridad`, que recalcula las huellas desde el original y el derivado y vuelve a leer la fuente. Solo biblioteca estándar; sin red ni reloj. La única E/S de archivos es `paquete.py`: almacén direccionado por contenido (`registros/<huella>.json`, `objetos/<sha256>`), publicación que falla si el destino existe (enlace duro o `O_EXCL`, nunca comprobar-y-reemplazar), huella verificada en cada lectura y rechazo de enlaces simbólicos y puntos de reanálisis (raíz, `registros/`, `objetos/` y cada archivo, con contención por ruta real); solo guarda registros íntegros con sus artefactos. `plan` puede importarla; ella no importa `plan` ni `audit` | Código padre |
 | `scripts/generar_fixtures_evidencia.py` | Regenera `tests/fixtures/evidencia/` desde originales descargados (requiere PyMuPDF); no corre en CI | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
 | `services/itosturre-skills/` | Skills jurídicas distribuibles | Submódulo |
@@ -64,10 +64,54 @@ del producto.
 | Fuente jurídica | `corpus/`, `jurisprudencia/` | Local; no versionar documentos pesados |
 | Índice regenerable | `chroma_db/`, `graphify-out/` | Local; reconstruible |
 | Producto de cliente | `auditorias/` | Local, confidencial, nunca versionar |
+| Paquetes de evidencia de un asunto | `auditorias/<asunto>/plan/…` o fuera del repositorio | Local, confidencial, nunca versionar (D7). `plan_audit.py evidencia agregar-*` rechaza escribir dentro del repositorio fuera de una zona que la política de datos prohíbe versionar |
 | Prospectos B2B | `leads_data/` | Local; incluye consentimientos y exclusiones; nunca versionar |
 | Casos sintéticos | `casos_de_prueba/` | Versionados; la regresión usa una lista cerrada |
 | Fixtures de evidencia oficial | `tests/fixtures/evidencia/` | Versionados; texto oficial literal (páginas de LeyesBiblio, renders del SJF) con procedencia en `manifiesto.json`; bytes exactos (`.gitattributes`, sin conversión de fin de línea); cada archivo autorizado en `config/data-policy.json` |
 | Dependencias | `venv/`, `node_modules/` | Local; regenerables |
+
+## Flujo de evidencia de planes (C7 → C9)
+
+```text
+innerText del SJF / PDF de LeyesBiblio (obtenidos por el operador; sin red)
+        |  plan_audit.py evidencia agregar-tesis | agregar-ley  (--fecha-consulta del operador)
+        v
+paquete de evidencia  registros/<huella>.json + objetos/<sha256>   (solo si pasa la integridad)
+        |  publicación exclusiva (enlace duro / O_EXCL), sin enlaces simbólicos ni junctions
+        |  imprime sha256_documento y un bloque de evidencia para pegar
+        v
+ledger plan-ledger/1.0  evidencias[]: url + sha256_documento + ubicacion + extracto
+        |                (+ ultima_reforma_dof opcional para leyes)
+        |                decisiones[].advertencias_fuente para las advertencias de la fuente
+        v
+plan_audit.py cotejar --ledger L --paquete DIR      → CONFORME / DISCREPANTE / SIN_EVIDENCIA por par
+plan_audit.py lint --ledger L --paquete DIR         → PL-001…PL-014 + PL-015…PL-017
+```
+
+El cotejo de identidad comprueba, en este orden y fallando cerrado: vínculo (huella del
+original y URL exacta; un solo registro) → registro utilizable → integridad con los
+objetos del paquete y, para leyes, **relación original–texto** (el texto extraído se
+reproduce re-extrayendo el PDF con el mismo extractor y versión que declara el registro;
+`Extractor` inyectado, PyMuPDF en la CLI; sin él → SIN_EVIDENCIA) → documento y versión
+(registro digital de la tesis; registros y claves que menciona la afirmación; última
+reforma de la ley; día de la consulta) → ubicación (artículo único en el cuerpo, sin
+rangos ni enumeraciones; artículos y ley que menciona la afirmación frente al artículo
+ubicado y al ordenamiento, fijado por archivo **y** título del encabezado) → campos
+críticos y extracto. Por afirmación, cada registro, clave o artículo mencionado debe
+quedar cubierto por una evidencia CONFORME. Un CONFORME cuya fuente trae advertencias
+requiere decisión humana. Identidad no es fidelidad (PR-4) y el cotejo nunca aprueba ni
+cambia estados (D3). El cotejo lleva la huella del ledger y del paquete sobre los que se
+calculó: `lint_ledger(..., cotejo=)` rechaza (`ValueError`) uno de otro contenido.
+
+| Regla | Severidad | Cuándo |
+|---|---|---|
+| PL-015 | BLOQUEANTE | VERIFICADO que cita una evidencia DISCREPANTE |
+| PL-016 | BLOQUEANTE | VERIFICADO sin evidencia CONFORME, o cuyas menciones no cubre ninguna evidencia CONFORME (sostiene a lo sumo NO VERIFICABLE) |
+| PL-017 | BLOQUEANTE si VERIFICADO; ALTA si no | Evidencia CONFORME con advertencias de la fuente sin una decisión con `advertencias_fuente` (evidencia, `sha256_documento` o `huella_registro` vigentes, códigos y resolución) y responsable humano; para VERIFICADO, además APROBADA |
+
+Las reglas del cotejo viven en `REGLAS_COTEJO`, no en `REGLAS`: sin `--paquete` el lint,
+sus salidas y el Gold Set de planes son los de PR-1. Ninguna salida de `lint`
+(`--json`/`--md`) puede quedar dentro del paquete.
 
 ## Fuentes canónicas
 
@@ -90,7 +134,8 @@ del producto.
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
-| Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL queda sin caso |
+| Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
+| Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-017, que el Gold Set no admite porque no tiene paquete. Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 
