@@ -16,6 +16,10 @@ Contrato de fallo seguro (etapa 7G):
   contexto del modelo. Los diagnósticos van a la bitácora, no a stdout.
 * Un fallo de SQLite, un payload malformado o un disco lleno degradan la
   funcionalidad —no se recuerda ese evento— y el agente continúa.
+
+Transparencia: lo que ``SessionStart`` inyecta se emite con
+``suppressOutput: False`` para que el operador vea qué memoria entra en el
+contexto (ver ``_emitir``).
 """
 from __future__ import annotations
 
@@ -72,13 +76,22 @@ def _leer_payload() -> dict:
 
 
 def _emitir(evento: str, contexto: str) -> None:
-    """Inyecta contexto de vuelta al modelo. Única escritura permitida a stdout."""
+    """Inyecta contexto de vuelta al modelo. Única escritura permitida a stdout.
+
+    **Visible para el operador (``suppressOutput: False``).** Lo que se inyecta
+    al arrancar entra en el contexto del modelo como memoria del proyecto; si se
+    oculta, nadie ve qué se está recordando. Así pasó: catorce informes de
+    subagentes se reinyectaron como "correcciones de criterio" en cada sesión
+    sin que el operador pudiera notarlo. El bloque está acotado a
+    ``PRESUPUESTO_RESTAURACION`` y su coste de pantalla es menor que el de una
+    memoria contaminada en silencio.
+    """
     sys.stdout.write(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": evento,
             "additionalContext": contexto,
         },
-        "suppressOutput": True,
+        "suppressOutput": False,
     }, ensure_ascii=False))
 
 
@@ -140,6 +153,7 @@ def _restaurar(payload: dict, evento: str) -> dict:
     try:
         from itosturre.memoria import construir_snapshot
         from itosturre.memoria.hooks import habilitado
+        from itosturre.memoria.snapshot import sobre_integro
         from itosturre.memoria.store import MemoriaStore
 
         if not habilitado():
@@ -155,6 +169,11 @@ def _restaurar(payload: dict, evento: str) -> dict:
 
             texto = store.consumir_snapshot()
             origen = "snapshot"
+            if texto is not None and not sobre_integro(texto):
+                # Snapshot anterior al escape: un resumen pudo cerrar el sobre.
+                # Se descarta (ya quedó consumido) y se reconstruye escapado.
+                diag["snapshot_descartado"] = "sobre no íntegro"
+                texto = None
             if texto is None:
                 # Sin snapshot previo (primera sesión tras instalar los hooks, o
                 # ya consumido): se sintetiza uno de lo más relevante reciente.

@@ -8,9 +8,17 @@ la base: una sesión con 40 eventos y otra con 40 000 producen el mismo tamaño.
 
 Aquí no se trunca nada: lo que no cabe, no se resume a medias, se referencia.
 Un texto cortado a la mitad es peor que un puntero, porque parece completo.
+
+**Todo texto derivado de eventos se escapa** (``&``, ``<``, ``>``) antes de
+entrar en el sobre ``<memoria-itosturre>``. Un resumen es dato capturado —puede
+venir de un prompt, de un commit o de una importación— y sin escape bastaría un
+``</memoria-itosturre>`` dentro de él para cerrar el sobre y que lo que sigue se
+leyera como instrucción fuera de la marca de "datos". El escape conserva la
+legibilidad: ``a &amp; b`` y ``&lt;tag&gt;`` se leen sin esfuerzo.
 """
 from __future__ import annotations
 
+import html
 from collections import Counter
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -23,14 +31,44 @@ _MAX_ARCHIVOS = 8
 
 _COMANDO = 'python memoria_cli.py buscar "{consulta}"'
 
+#: Etiquetas del sobre. Deben aparecer exactamente una vez cada una.
+APERTURA_SOBRE = "<memoria-itosturre"
+CIERRE_SOBRE = "</memoria-itosturre>"
+
+
+def _escapar(texto: str) -> str:
+    """Neutraliza ``&``, ``<`` y ``>`` del texto que procede de eventos."""
+    return html.escape(texto, quote=False)
+
+
+def sobre_integro(texto: str) -> bool:
+    """¿Abre y cierra el sobre exactamente una vez, al principio y al final?
+
+    Defensa para snapshots ya guardados: los construidos antes del escape
+    pueden llevar un cierre del sobre dentro de un resumen. Quien restaura debe
+    descartarlos y reconstruir desde los eventos, que hoy salen escapados.
+    """
+    cuerpo = (texto or "").strip()
+    return (
+        cuerpo.startswith(APERTURA_SOBRE)
+        and cuerpo.endswith(CIERRE_SOBRE)
+        and cuerpo.count(APERTURA_SOBRE) == 1
+        and cuerpo.count(CIERRE_SOBRE) == 1
+    )
+
 
 def _resumen(evento: Mapping[str, Any], ancho: int = 96) -> str:
+    """Resumen de una línea, recortado y **escapado** para ir dentro del sobre.
+
+    Se recorta antes de escapar: al revés se podría partir una entidad
+    (``&am…``) y el ancho se mediría sobre el texto inflado.
+    """
     texto = " ".join(str(evento.get("summary") or "").split())
-    if len(texto) <= ancho:
-        return texto
-    # Se corta en el último espacio para no partir una palabra por la mitad.
-    corte = texto.rfind(" ", 0, ancho)
-    return texto[: corte if corte > ancho // 2 else ancho].rstrip() + "…"
+    if len(texto) > ancho:
+        # Se corta en el último espacio para no partir una palabra por la mitad.
+        corte = texto.rfind(" ", 0, ancho)
+        texto = texto[: corte if corte > ancho // 2 else ancho].rstrip() + "…"
+    return _escapar(texto)
 
 
 def _seccion(
@@ -44,7 +82,7 @@ def _seccion(
         return ""
     lineas = [f"  {titulo} ({len(eventos)}):"]
     for evento in eventos[:maximo]:
-        fecha = str(evento.get("timestamp") or "")[:10]
+        fecha = _escapar(str(evento.get("timestamp") or "")[:10])
         lineas.append(f"    · [{fecha}] {_resumen(evento)}")
     if len(eventos) > maximo:
         lineas.append(f"    · … y {len(eventos) - maximo} más")
@@ -61,7 +99,7 @@ def _seccion_archivos(eventos: Sequence[Mapping[str, Any]]) -> str:
     lineas = [f"  Archivos tocados ({len(rutas)}):"]
     for ruta, veces in rutas.most_common(_MAX_ARCHIVOS):
         sufijo = f" ×{veces}" if veces > 1 else ""
-        lineas.append(f"    · {ruta}{sufijo}")
+        lineas.append(f"    · {_escapar(ruta)}{sufijo}")
     if len(rutas) > _MAX_ARCHIVOS:
         lineas.append(f"    · … y {len(rutas) - _MAX_ARCHIVOS} más")
     lineas.append("    → " + _COMANDO.format(consulta="archivo modificado"))
@@ -116,9 +154,11 @@ def construir_snapshot(
         _siguiente_accion(de("alerta_procesal"), errores, abiertas),
     ]
 
+    # Los atributos se escapan con comillas incluidas: la sesión llega del
+    # payload del hook o del entorno, y una comilla cerraría el atributo.
     cabecera = (
-        f'<memoria-itosturre proyecto="{project_id}"'
-        + (f' sesion="{session_id}"' if session_id else "")
+        f'{APERTURA_SOBRE} proyecto="{html.escape(str(project_id))}"'
+        + (f' sesion="{html.escape(str(session_id))}"' if session_id else "")
         + f' eventos-en-memoria="{total_en_memoria if total_en_memoria is not None else len(lista)}">'
     )
     aviso = (
@@ -126,7 +166,7 @@ def construir_snapshot(
         "   La memoria recuerda decisiones; NUNCA es fuente de una cita legal —\n"
         "   los artículos salen del corpus (regla 2 VVCA) y las tesis del SJF.]"
     )
-    cierre = "</memoria-itosturre>"
+    cierre = CIERRE_SOBRE
 
     partes = [cabecera, aviso]
     usados = len("\n".join(partes).encode("utf-8")) + len(cierre.encode("utf-8")) + 2

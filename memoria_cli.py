@@ -15,6 +15,10 @@ Uso:
   python memoria_cli.py reanudar                 # consume el último snapshot
   python memoria_cli.py stats
   python memoria_cli.py tipos
+  python memoria_cli.py olvidar --tipos user_correction correccion_criterio_pjf \
+      --procedencia-no-humana                    # simulación: lista, no borra
+  python memoria_cli.py olvidar --tipos user_correction correccion_criterio_pjf \
+      --procedencia-no-humana --aplicar          # borra (solo este proyecto)
 
 En Windows anteponer el intérprete del venv: ``./venv/Scripts/python.exe``.
 En macOS/Linux: ``./venv/bin/python``.
@@ -38,6 +42,7 @@ from itosturre.memoria import (  # noqa: E402
     formato_evento,
     tipo_valido,
 )
+from itosturre.memoria.store import filtros_de_olvido, validar_fecha  # noqa: E402
 
 
 def _utf8() -> None:
@@ -178,7 +183,71 @@ def cmd_reindexar(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> int:
+def _fecha(valor: str) -> str:
+    try:
+        return validar_fecha(valor)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _describir_filtros(filtros: dict) -> str:
+    partes = []
+    if filtros.get("tipos"):
+        partes.append("tipos=" + ",".join(filtros["tipos"]))
+    if filtros.get("desde"):
+        partes.append(f"desde={filtros['desde']}")
+    if filtros.get("hasta"):
+        partes.append(f"hasta={filtros['hasta']}")
+    if filtros.get("contiene"):
+        partes.append("contiene=(texto)")
+    if filtros.get("procedencia_no_humana"):
+        partes.append("procedencia-no-humana")
+    return " · ".join(partes)
+
+
+def cmd_olvidar(args: argparse.Namespace) -> int:
+    """Purga selectiva. Sin ``--aplicar`` es una simulación que no toca la base."""
+    try:
+        # Se valida antes de abrir: un error de uso no debe ni tocar la base.
+        filtros_de_olvido(tipos=args.tipos, desde=args.desde, hasta=args.hasta,
+                          contiene=args.contiene,
+                          procedencia_no_humana=args.procedencia_no_humana)
+        with _abrir(args) as store:
+            resultado = store.olvidar(
+                tipos=args.tipos,
+                desde=args.desde,
+                hasta=args.hasta,
+                contiene=args.contiene,
+                procedencia_no_humana=args.procedencia_no_humana,
+                aplicar=args.aplicar,
+            )
+    except ValueError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 2
+
+    modo = "APLICADO" if resultado["aplicado"] else "SIMULACIÓN (no se borra nada)"
+    print("═" * 64)
+    print(f"  OLVIDAR · {resultado['project_id']} · {modo}")
+    print(f"  Filtros: {_describir_filtros(resultado['filtros'])}")
+    print("═" * 64)
+    if not resultado["coincidencias"]:
+        print("  (sin coincidencias)")
+    for ev in resultado["coincidencias"]:
+        resumen = " ".join(str(ev.get("summary") or "").split())[:80]
+        fecha = str(ev.get("timestamp") or "")[:10]
+        print(f"  #{ev['id']:<6} [{fecha}] {ev['event_type']:<24} {resumen}")
+    print("─" * 64)
+    total = len(resultado["coincidencias"])
+    if resultado["aplicado"]:
+        print(f"  🗑️  {resultado['borrados']} evento(s) borrado(s) · "
+              f"{resultado['snapshots_consumidos']} snapshot(s) pendiente(s) marcados como "
+              "consumidos" + (" · purga registrada (memoria_purga)" if resultado["borrados"] else ""))
+    else:
+        print(f"  {total} evento(s) coinciden. Para borrarlos, repite el comando con --aplicar.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     _utf8()
     ap = argparse.ArgumentParser(
         description="Memoria contextual de Itosturre",
@@ -225,7 +294,25 @@ def main() -> int:
     sub.add_parser("tipos", help="Listar la taxonomía").set_defaults(func=cmd_tipos)
     sub.add_parser("reindexar", help="Reconstruir el índice FTS").set_defaults(func=cmd_reindexar)
 
-    args = ap.parse_args()
+    p = sub.add_parser(
+        "olvidar",
+        help="Purgar eventos por filtros (simulación salvo --aplicar)",
+        description="Borra eventos de ESTE proyecto que cumplan TODOS los filtros. "
+                    "Sin --aplicar solo lista las coincidencias. Exige al menos un filtro.",
+    )
+    p.add_argument("--tipos", nargs="+", metavar="T", help="Tipos de evento")
+    p.add_argument("--desde", type=_fecha, metavar="AAAA-MM-DD", help="Día mínimo (inclusive)")
+    p.add_argument("--hasta", type=_fecha, metavar="AAAA-MM-DD", help="Día máximo (inclusive)")
+    p.add_argument("--contiene", metavar="TEXTO",
+                   help="Subcadena en resumen o detalles (sin distinguir mayúsculas ni acentos)")
+    p.add_argument("--procedencia-no-humana", action="store_true", dest="procedencia_no_humana",
+                   help="Texto guardado que no escribió el operador (subagentes, "
+                        "notificaciones, canales, pegados)")
+    p.add_argument("--aplicar", action="store_true",
+                   help="Borrar de verdad (por defecto es una simulación)")
+    p.set_defaults(func=cmd_olvidar)
+
+    args = ap.parse_args(argv)
     try:
         return int(args.func(args))
     except MemoriaNoDisponible as exc:

@@ -62,7 +62,10 @@ python memoria_cli.py reanudar            # consumir el último snapshot
 python memoria_cli.py stats
 python memoria_cli.py tipos               # taxonomía completa
 python memoria_cli.py reindexar           # reconstruir el índice FTS
+python memoria_cli.py olvidar --tipos user_correction --procedencia-no-humana   # simulación
 ```
+
+Purga selectiva con `olvidar`: ver [Olvidar](#olvidar-purga-selectiva).
 
 Importación de la memoria histórica (idempotente):
 
@@ -109,7 +112,8 @@ un techo de contexto y un techo en filas no lo garantiza.
 | `itosturre/memoria/redaccion.py` | Secretos, saneo de `MATCH`, anclaje de rutas |
 | `itosturre/memoria/ranking.py` | Taxonomía, puntuación, presupuesto (puro) |
 | `itosturre/memoria/store.py` | `record` / `recall` / sesiones / snapshots |
-| `itosturre/memoria/snapshot.py` | Snapshot por referencia (puro) |
+| `itosturre/memoria/snapshot.py` | Snapshot por referencia, con escape del sobre (puro) |
+| `itosturre/memoria/hooks.py` | Qué se captura y procedencia de los prompts (puro salvo `procesar`) |
 | `itosturre/memoria/puente.py` | Auditoría VVCA → eventos |
 | `memoria_cli.py` | Interfaz de línea de comandos |
 
@@ -128,7 +132,8 @@ curso.** La memoria es accesoria; el trabajo del abogado no lo es.
 Genéricos: `architecture_decision`, `user_decision`, `user_correction`,
 `important_context`, `task_started`, `task_completed`, `error_detected`,
 `error_resolved`, `test_failed`, `file_modified`, `git_commit`, `git_branch`,
-`dependency_changed`, `configuration_changed`, `session_snapshot`.
+`dependency_changed`, `configuration_changed`, `session_snapshot`,
+`memoria_purga` (rastro de `olvidar`, sin bono y fuera del snapshot).
 
 De dominio: `correccion_criterio_pjf`, `alerta_procesal`, `cita_bloqueada`,
 `plazo_detectado`, `corpus_gap`, `vvca_veredicto`.
@@ -147,6 +152,9 @@ consulta.
 | Path traversal | Toda ruta anclada al proyecto; fuera de él se descarta el campo | `RutasAncladas` |
 | Cruce entre clientes | `project_id` en **todas** las consultas | `AislamientoEntreProyectos` |
 | Evento como instrucción | El bloque se marca como datos | `test_snapshot_marca_su_contenido_como_datos` |
+| Resumen que cierra el sobre | Escape de `&`, `<`, `>` en todo texto derivado de eventos | `SobreEscapado` |
+| Informe de subagente tomado por corrección | Procedencia antes que marcadores | `ProcedenciaDelPrompt` |
+| Memoria contaminada sin forma de limpiarla | `olvidar` (simulación por defecto) | `Olvidar` |
 
 ```bash
 python -m unittest discover -s tests -p "test_memoria_*.py"
@@ -166,7 +174,7 @@ Configurados en `.claude/settings.json`. Entrada única:
 
 | Evento | Matcher | Qué hace | `async` |
 |---|---|---|:--:|
-| `SessionStart` | — | Inyecta el contexto de reanudación | no¹ |
+| `SessionStart` | — | Inyecta el contexto de reanudación (visible: `suppressOutput: false`) | no¹ |
 | `PreCompact` | todos | Guarda el snapshot antes de compactar | no² |
 | `SessionEnd` | — | Snapshot al cerrar | sí |
 | `PostToolUse` | `Write\|Edit\|NotebookEdit\|Bash` | Captura cambios y comandos | sí |
@@ -188,7 +196,8 @@ el caso más frecuente.
 | Pruebas en rojo; en verde solo si cierra un fallo | Pruebas verdes sueltas |
 | Instalación de dependencias | `ls`, `cd`, `cat`, `echo`, `pwd`… |
 | Cambios de configuración | Artefactos: `__pycache__`, `node_modules`, `chroma_db`, `temp/`, `*.log` |
-| Prompts con marcador de decisión o corrección | El resto de prompts |
+| Prompts del operador con marcador de decisión o corrección | El resto de prompts |
+| Solo el texto propio, sin bloques pegados | Prompts de procedencia no humana (subagentes, notificaciones, canales) |
 
 **Se guarda el hecho, no la salida.** "Modificó `store.py`" es un hecho; el diff
 es ruido que ya está en git. Ninguna salida de herramienta se persiste completa.
@@ -202,6 +211,107 @@ reconocimiento es insensible a acentos: se escribe "la via correcta" tanto como
 "la vía correcta".
 
 Desactivable por separado con `ITOSTURRE_MEMORIA_PROMPTS=off`, sin tocar el resto.
+
+### Procedencia: solo cuenta lo que escribió el operador
+
+`UserPromptSubmit` no distingue quién escribió el texto. En la base real
+(1-oct-2026), de 21 eventos de corrección, 14 eran informes de subagentes que contenían
+"a partir de ahora" o "recuerda que", y uno era un bloque pegado de terceros. Se
+reinyectaban en cada arranque como si fueran criterio del operador (regla
+absoluta 6). Por eso **la procedencia se mira antes que los marcadores**
+(`procedencia_no_humana` y `texto_de_usuario` en `itosturre/memoria/hooks.py`,
+funciones puras):
+
+| Marca en el prompt | Motivo anotado |
+|---|---|
+| `<agent-message` | mensaje de subagente |
+| `[Subagent hand-back]` | informe de subagente |
+| `<task-notification` | notificación de tarea |
+| `<system-reminder` | recordatorio del sistema |
+| `[SYSTEM NOTIFICATION` | notificación del sistema |
+| `<cross-session-message` | mensaje entre sesiones |
+| `<channel source=` | canal externo en cuarentena |
+| `<command-name>` / `<command-message>` | comando expandido |
+
+- **Cuarentena de canales.** Un mensaje de Telegram u otro canal externo puede
+  venir de cualquiera que alcance el bot: nunca se captura como corrección, por
+  mucho que diga "la vía correcta es…". Si el operador quiere conservarlo, lo
+  registra él con `memoria_cli.py registrar`.
+- **Texto pegado.** Cada bloque `<pasted_content …>…</pasted_content …>` se
+  elimina y se clasifica solo el texto restante del operador; lo pegado ni
+  dispara la captura ni se guarda. Si lo que queda tiene menos de 12 caracteres,
+  no se captura. Un bloque sin cierre se trata como pegado hasta el final. Una
+  marca de la tabla **dentro** de lo pegado no descarta el texto propio: es
+  contenido que el operador eligió pegar, no un mensaje del arnés.
+- **Sin corte por longitud.** Un informe no es sospechoso por largo, sino por su
+  procedencia; una corrección larga del operador sigue capturándose.
+- **Bitácora sin contenido.** Cada descarte se anota en `hooks.log` como
+  `"accion": "descartado", "motivo": "procedencia <motivo>"`, pasado por el
+  redactor y sin el texto del prompt.
+
+### El sobre `<memoria-itosturre>` se escapa
+
+Todo texto derivado de eventos que entra en el sobre —resúmenes, fechas, rutas,
+la siguiente acción sugerida— se escapa (`&`, `<`, `>`; `html.escape` con
+`quote=False`; los atributos de la cabecera, con comillas). Un resumen que
+contenga `</memoria-itosturre>` o `<system-reminder>` aparece como
+`&lt;/memoria-itosturre&gt;`: sigue siendo legible y ya no puede cerrar el sobre
+ni abrir otro. La etiqueta de cierre aparece exactamente una vez.
+
+Los snapshots guardados antes de este cambio pueden no estar escapados: al
+restaurar, uno cuyo sobre no esté íntegro (`sobre_integro`) se descarta y se
+reconstruye desde los eventos; la bitácora lo anota como `snapshot_descartado`.
+
+### Restauración visible
+
+`SessionStart` emite `suppressOutput: false`: el operador **ve** el bloque que se
+inyecta en el contexto del modelo. Antes se ocultaba, y eso permitió que los
+informes de subagentes se reinyectaran sesión tras sesión sin que nadie lo
+notara. El bloque está acotado a 2 KB; su coste en pantalla es menor que el de
+una memoria contaminada en silencio.
+
+### Olvidar (purga selectiva)
+
+```bash
+# 1. Simulación (por defecto): lista id, fecha, tipo y 80 caracteres; no borra.
+python memoria_cli.py olvidar --tipos user_correction correccion_criterio_pjf \
+    --procedencia-no-humana
+
+# 2. Aplicación, tras revisar la lista: mismos filtros + --aplicar.
+python memoria_cli.py olvidar --tipos user_correction correccion_criterio_pjf \
+    --procedencia-no-humana --aplicar
+
+# Otros filtros, combinables (Y lógico):
+python memoria_cli.py olvidar --desde 2026-09-01 --hasta 2026-09-30 --contiene "hand-back"
+```
+
+| Filtro | Efecto |
+|---|---|
+| `--tipos T…` | Tipos de evento (canonizados) |
+| `--desde` / `--hasta AAAA-MM-DD` | Rango de días, ambos inclusive |
+| `--contiene TEXTO` | Subcadena literal en resumen o detalles, sin distinguir mayúsculas ni acentos |
+| `--procedencia-no-humana` | El texto guardado no lo escribió el operador (mismo detector que la captura) |
+| `--aplicar` | Borra de verdad; sin él es una simulación |
+
+Garantías:
+
+- **Exige al menos un filtro.** Sin filtros sale con error (código 2): nunca
+  "borrar todo" por omisión.
+- **Solo el `project_id` actual.** Otros proyectos de la misma base no se tocan.
+- **Índice coherente.** El borrado pasa por el disparador `eventos_ad`, que
+  retira cada fila del índice FTS externo; una búsqueda posterior ya no la
+  encuentra.
+- **Sin reinyección.** Los snapshots pendientes del proyecto se marcan como
+  consumidos: el siguiente `SessionStart` se reconstruye sin lo borrado.
+- **Rastro sin contenido.** Se registra un `memoria_purga` con el número de
+  eventos borrados y los filtros usados; de `--contiene` solo consta que se
+  usó, no el texto. Los `memoria_purga` nunca se seleccionan para borrar.
+- **Transacción única.** O se borra y se audita, o no cambia nada.
+
+`--procedencia-no-humana` mira cualquier tipo de evento: un commit cuyo mensaje
+mencione `<system-reminder>` también coincidiría. Por eso se recomienda
+combinarlo con `--tipos user_correction correccion_criterio_pjf` y revisar
+siempre la simulación antes de `--aplicar`.
 
 ### Interruptores
 
@@ -258,7 +368,14 @@ funcionalidad —ese evento no se recuerda— y el agente continúa.
   mantiene deliberadamente estrecho porque un falso positivo aquí no añade ruido,
   **desplaza la respuesta correcta**.
 - **Sin poda automática.** A ~1 KB por evento no es problema en años, pero no hay
-  política de retención todavía.
+  política de retención todavía. La purga existe (`olvidar`), pero es manual.
+- **La procedencia depende de las marcas del arnés.** Si Claude Code cambia el
+  formato de `<agent-message>`, `<channel>` o `<pasted_content>`, hay que
+  actualizar `_NO_HUMANO` en `hooks.py`. Un prompt del operador que mencione
+  literalmente una de esas marcas no se captura: error del lado seguro.
+- **`olvidar` no reescribe snapshots ya consumidos.** Los marca para que no se
+  reinyecten, pero su texto histórico sigue en la tabla `snapshots` y
+  `reanudar --sin-consumir` lo mostraría.
 - **Permisos del archivo.** `0o700` donde POSIX lo soporta; en Windows el control
   lo lleva la ACL del perfil y no se simula una garantía que el sistema no da.
 

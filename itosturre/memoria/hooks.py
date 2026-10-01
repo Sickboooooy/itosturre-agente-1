@@ -38,6 +38,9 @@ ENV_LOG = "ITOSTURRE_MEMORIA_LOG"
 
 #: Tope del resumen persistido. Un evento es un hecho, no un transcript.
 MAX_RESUMEN = 200
+#: Un prompt (o lo que queda de él sin el texto pegado) más corto que esto no
+#: expresa una decisión que valga la pena recordar.
+MIN_PROMPT = 12
 #: Tope de la bitácora antes de rotar.
 MAX_LOG_BYTES = 512 * 1024
 
@@ -244,8 +247,92 @@ def _sin_acentos(texto: str) -> str:
     return "".join(c for c in descompuesto if unicodedata.category(c) != "Mn")
 
 
+# ─────────────────────────────────────────
+# Procedencia del prompt
+# ─────────────────────────────────────────
+
+#: Marcas de contenido que llega por el canal del prompt sin haberlo escrito el
+#: operador: informes de subagentes, notificaciones del arnés, mensajes entre
+#: sesiones, canales externos y comandos expandidos.
+#:
+#: **Por qué existe.** ``UserPromptSubmit`` no distingue quién escribió el
+#: texto. En la base real (1-oct-2026), de 21 eventos de corrección, 14 eran informes de
+#: subagentes que contenían "a partir de ahora" o "recuerda que" y se
+#: reinyectaban en cada arranque como si fueran criterio del operador (regla
+#: absoluta 6). Un marcador de decisión solo significa algo si lo escribió el
+#: humano: por eso la procedencia se mira **antes** que los marcadores.
+#:
+#: Los mensajes de canales externos (Telegram) quedan en **cuarentena**: pueden
+#: venir de cualquiera que alcance el bot y nunca se capturan como corrección.
+#: Cada entrada lleva el motivo que se anota en la bitácora; nunca el contenido.
+_NO_HUMANO: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("mensaje de subagente", re.compile(r"<agent-message\b", re.IGNORECASE)),
+    ("informe de subagente", re.compile(r"\[Subagent hand-back\]", re.IGNORECASE)),
+    ("notificación de tarea", re.compile(r"<task-notification\b", re.IGNORECASE)),
+    ("recordatorio del sistema", re.compile(r"<system-reminder\b", re.IGNORECASE)),
+    ("notificación del sistema", re.compile(r"\[SYSTEM NOTIFICATION", re.IGNORECASE)),
+    ("mensaje entre sesiones", re.compile(r"<cross-session-message\b", re.IGNORECASE)),
+    ("canal externo en cuarentena", re.compile(r"<channel\s+source\s*=", re.IGNORECASE)),
+    ("comando expandido", re.compile(r"<command-(?:name|message)\b", re.IGNORECASE)),
+)
+
+#: Bloque pegado completo: ``<pasted_content …>…</pasted_content …>``.
+_PEGADO = re.compile(
+    r"<pasted_content\b[^>]*>.*?</pasted_content\b[^>]*>", re.IGNORECASE | re.DOTALL
+)
+#: Bloque pegado sin cierre: se considera pegado hasta el final del texto. Cubre
+#: el prompt cortado y, sobre todo, el resumen ya guardado, que ``MAX_RESUMEN``
+#: pudo recortar antes de la etiqueta de cierre.
+_PEGADO_ABIERTO = re.compile(r"<pasted_content\b.*\Z", re.IGNORECASE | re.DOTALL)
+
+
+def _tiene_pegado(texto: str) -> bool:
+    return "<pasted_content" in texto.lower()
+
+
+def texto_de_usuario(texto: str) -> str:
+    """El texto que escribió el operador, sin los bloques pegados. Función pura.
+
+    Lo pegado es de terceros —un escrito de la contraparte, un informe, un
+    correo— aunque llegue en el prompt del operador: sus "a partir de ahora" no
+    son decisiones de nadie en este proyecto. Se elimina cada bloque
+    ``<pasted_content …>…</pasted_content …>`` y, si queda uno sin cerrar, todo
+    lo que sigue a su apertura. Sin bloques pegados el texto se devuelve intacto.
+    """
+    if not texto or not _tiene_pegado(texto):
+        return texto or ""
+    sin_bloques = _PEGADO_ABIERTO.sub(" ", _PEGADO.sub(" ", texto))
+    return sin_bloques.strip()
+
+
+def procedencia_no_humana(texto: str) -> str | None:
+    """Motivo por el que el texto no es del operador, o ``None`` si lo es. Pura.
+
+    Se aplica al texto propio del usuario (``texto_de_usuario``): una marca
+    dentro de un bloque pegado es contenido de terceros que el operador decidió
+    pegar, no un mensaje del arnés. Un prompt que, quitado lo pegado, se queda
+    sin texto propio suficiente tampoco es del operador.
+
+    No hay corte por longitud: un informe largo no es sospechoso por largo, sino
+    por su procedencia, y una corrección larga del operador sigue siendo suya.
+
+    Reutilizable sobre texto ya guardado (``memoria_cli.py olvidar
+    --procedencia-no-humana``): el resumen persistido conserva el principio del
+    prompt, que es donde viven estas marcas.
+    """
+    if not texto:
+        return None
+    propio = texto_de_usuario(texto)
+    for motivo, patron in _NO_HUMANO:
+        if patron.search(propio):
+            return motivo
+    if _tiene_pegado(texto) and len(propio.strip()) < MIN_PROMPT:
+        return "contenido pegado sin texto propio"
+    return None
+
+
 def clasificar_prompt(texto: str) -> dict[str, Any] | None:
-    """Captura solo prompts que expresan una decisión o corrección.
+    """Captura solo prompts del operador que expresan una decisión o corrección.
 
     **Por qué es tan restrictivo.** Un prompt de este proyecto puede contener un
     expediente con datos de cliente. Guardar todos sería desproporcionado y
@@ -253,13 +340,21 @@ def clasificar_prompt(texto: str) -> dict[str, Any] | None:
     los que llevan un marcador explícito de decisión, recortados a
     ``MAX_RESUMEN`` y pasados por el redactor.
 
+    **Procedencia primero.** Antes de buscar marcadores se descarta lo que no
+    escribió el operador (``procedencia_no_humana``) y se clasifica solo su
+    texto propio (``texto_de_usuario``): lo pegado ni dispara la captura ni se
+    guarda.
+
     Desactivable por completo con ``ITOSTURRE_MEMORIA_PROMPTS=off``.
     """
     if (os.getenv(ENV_PROMPTS) or "on").strip().lower() in ("0", "off", "false", "no"):
         return None
-    if not texto or len(texto.strip()) < 12:
+    if not texto or procedencia_no_humana(texto):
         return None
-    plano = _sin_acentos(texto)
+    propio = texto_de_usuario(texto)
+    if len(propio.strip()) < MIN_PROMPT:
+        return None
+    plano = _sin_acentos(propio)
     if _CRITERIO.search(plano):
         tipo, importancia = "correccion_criterio_pjf", 1
     elif _MARCADOR.search(plano):
@@ -268,9 +363,9 @@ def clasificar_prompt(texto: str) -> dict[str, Any] | None:
         return None
     return {
         "event_type": tipo,
-        "summary": _recortar(texto),
+        "summary": _recortar(propio),
         "importance": importancia,
-        "dedupe": f"prompt:{_recortar(texto, 120)}",
+        "dedupe": f"prompt:{_recortar(propio, 120)}",
     }
 
 
@@ -320,7 +415,13 @@ def procesar(payload: Mapping[str, Any], evento: str, *, raiz: str | os.PathLike
 
         propuesta = clasificar(payload, evento)
         if propuesta is None:
-            diag["motivo"] = "sin valor persistente"
+            # El descarte por procedencia se anota con su motivo (nunca con el
+            # texto): es lo que permite auditar en hooks.log que un informe de
+            # subagente o un mensaje de canal no entró como corrección.
+            motivo = None
+            if evento == "UserPromptSubmit":
+                motivo = procedencia_no_humana(str(payload.get("prompt") or ""))
+            diag["motivo"] = f"procedencia {motivo}" if motivo else "sin valor persistente"
             return diag
 
         # SQLite solo se importa cuando de verdad hay algo que guardar: el camino
