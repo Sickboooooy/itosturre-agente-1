@@ -16,8 +16,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
-from datetime import datetime, timezone
+import unicodedata
+from collections import Counter
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -29,6 +32,12 @@ from .esquema import (
     reconstruir_fts,
     ruta_base,
 )
+from .hooks import procedencia_no_humana as _procedencia_no_humana
+
+#: Tipo del evento de auditoría que deja ``olvidar``. Nunca se purga a sí mismo.
+TIPO_PURGA = "memoria_purga"
+
+_FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 #: Multiplicador del conjunto de candidatos antes de repuntuar y recortar.
 #: Se pide más de lo que se devolverá porque BM25 ordena por coincidencia léxica
@@ -434,6 +443,197 @@ class MemoriaStore:
             (self.project_id, origen),
         )
         return int(cur.rowcount or 0)
+
+    # ── purga selectiva ──────────────────────────────────────────────────
+    def olvidar(
+        self,
+        *,
+        tipos: Sequence[str] | None = None,
+        desde: str | None = None,
+        hasta: str | None = None,
+        contiene: str | None = None,
+        procedencia_no_humana: bool = False,
+        aplicar: bool = False,
+    ) -> dict[str, Any]:
+        """Selecciona eventos de este proyecto y, solo con ``aplicar=True``, los borra.
+
+        Los filtros se combinan con Y lógico:
+
+        * ``tipos`` — tipos de evento (se canonizan como en ``record``).
+        * ``desde`` / ``hasta`` — días ``AAAA-MM-DD``, ambos inclusive.
+        * ``contiene`` — subcadena literal en el resumen o en los detalles,
+          insensible a mayúsculas y acentos (mismo criterio que el índice FTS).
+        * ``procedencia_no_humana`` — el texto guardado no lo escribió el
+          operador, según el mismo detector que filtra la captura de prompts.
+
+        Garantías:
+
+        * **Simulación por defecto.** Sin ``aplicar`` no se modifica nada.
+        * **Al menos un filtro.** Sin filtros se lanza ``ValueError``: no hay
+          forma de "borrar todo" por omisión.
+        * **Solo este ``project_id``.** Igual que el resto de consultas.
+        * **Índice coherente.** El borrado pasa por el disparador
+          ``eventos_ad`` de ``esquema.py``, que retira cada fila del índice FTS
+          externo con sus valores originales.
+        * **Sin reinyección de lo borrado.** Se marcan como consumidos los
+          snapshots pendientes del proyecto: el siguiente ``SessionStart`` se
+          reconstruye desde los eventos que quedan.
+        * **Rastro sin contenido.** Se registra un ``memoria_purga`` con cuántos
+          eventos se borraron y qué filtros se usaron; de ``contiene`` solo
+          consta que se usó, nunca el texto (podría ser justo el dato que se
+          quiere hacer desaparecer). Los ``memoria_purga`` nunca se seleccionan.
+
+        Todo ocurre en una transacción: o se borra y se audita, o nada.
+        """
+        filtros = filtros_de_olvido(
+            tipos=tipos, desde=desde, hasta=hasta, contiene=contiene,
+            procedencia_no_humana=procedencia_no_humana,
+        )
+        aguja = _plegar(contiene.strip()) if filtros["contiene"] else None
+
+        borrados = consumidos = 0
+        if aplicar:
+            self.con.execute("BEGIN IMMEDIATE")
+        try:
+            coincidencias = self._seleccionar_olvido(
+                filtros["tipos"] or [], filtros["desde"], filtros["hasta"], aguja,
+                filtros["procedencia_no_humana"],
+            )
+            if aplicar and coincidencias:
+                cur = self.con.executemany(
+                    "DELETE FROM eventos WHERE id = ? AND project_id = ?",
+                    [(f["id"], self.project_id) for f in coincidencias],
+                )
+                borrados = int(cur.rowcount or 0)
+                por_sesion = Counter(f["session_id"] for f in coincidencias)
+                self.con.executemany(
+                    "UPDATE sesiones SET n_eventos = MAX(0, n_eventos - ?)"
+                    " WHERE session_id = ? AND project_id = ?",
+                    [(n, sesion, self.project_id) for sesion, n in por_sesion.items()],
+                )
+                consumidos = int(self.con.execute(
+                    "UPDATE snapshots SET consumido = 1 WHERE project_id = ? AND consumido = 0",
+                    (self.project_id,),
+                ).rowcount or 0)
+                self.record(
+                    TIPO_PURGA,
+                    f"Purga de memoria con olvidar: {borrados} evento(s) borrado(s)",
+                    details={"borrados": borrados, "snapshots_consumidos": consumidos,
+                             "filtros": filtros},
+                )
+            if aplicar:
+                self.con.execute("COMMIT")
+        except Exception:
+            if self.con.in_transaction:
+                self.con.execute("ROLLBACK")
+            raise
+
+        return {
+            "project_id": self.project_id,
+            "aplicado": bool(aplicar),
+            "filtros": filtros,
+            "coincidencias": [
+                {k: f[k] for k in ("id", "timestamp", "event_type", "summary")}
+                for f in coincidencias
+            ],
+            "borrados": borrados,
+            "snapshots_consumidos": consumidos,
+        }
+
+    def _seleccionar_olvido(
+        self,
+        tipos: Sequence[str],
+        desde: str | None,
+        hasta: str | None,
+        aguja: str | None,
+        procedencia_no_humana: bool,
+    ) -> list[dict[str, Any]]:
+        sql = (
+            "SELECT id, session_id, timestamp, event_type, summary, details FROM eventos"
+            " WHERE project_id = ? AND event_type != ?"
+        )
+        params: list[Any] = [self.project_id, TIPO_PURGA]
+        if tipos:
+            sql += f" AND event_type IN ({','.join('?' * len(tipos))})"
+            params.extend(tipos)
+        # Se compara el día (los diez primeros caracteres) y no la marca entera:
+        # así ``hasta`` incluye el día completo, sea cual sea el formato horario.
+        if desde:
+            sql += " AND substr(timestamp, 1, 10) >= ?"
+            params.append(desde)
+        if hasta:
+            sql += " AND substr(timestamp, 1, 10) <= ?"
+            params.append(hasta)
+        sql += " ORDER BY timestamp, id"
+        filas = [dict(f) for f in self.con.execute(sql, params).fetchall()]
+
+        # Texto y procedencia se filtran en Python: subcadena literal sin
+        # comodines de LIKE y el mismo detector que usa el hook de captura.
+        if aguja:
+            filas = [
+                f for f in filas
+                if aguja in _plegar(f["summary"] or "") or aguja in _plegar(f["details"] or "")
+            ]
+        if procedencia_no_humana:
+            filas = [
+                f for f in filas
+                if _procedencia_no_humana(f["summary"] or "")
+                or _procedencia_no_humana(f["details"] or "")
+            ]
+        return filas
+
+
+def filtros_de_olvido(
+    *,
+    tipos: Sequence[str] | None = None,
+    desde: str | None = None,
+    hasta: str | None = None,
+    contiene: str | None = None,
+    procedencia_no_humana: bool = False,
+) -> dict[str, Any]:
+    """Valida y normaliza los filtros de ``olvidar``. Pura: no toca la base.
+
+    Lanza ``ValueError`` si no hay ningún filtro, si una fecha no es
+    ``AAAA-MM-DD`` o si el rango está invertido. El diccionario devuelto es el
+    que queda en el evento de auditoría: de ``contiene`` solo guarda si se usó.
+    """
+    tipos_canon = sorted({ranking.canonizar(t) for t in (tipos or []) if t and t.strip()})
+    desde = validar_fecha(desde) if desde else None
+    hasta = validar_fecha(hasta) if hasta else None
+    con_texto = bool(contiene and contiene.strip())
+    if not (tipos_canon or desde or hasta or con_texto or procedencia_no_humana):
+        raise ValueError(
+            "olvidar exige al menos un filtro (--tipos, --desde, --hasta, --contiene"
+            " o --procedencia-no-humana); nunca borra todo por omisión"
+        )
+    if desde and hasta and desde > hasta:
+        raise ValueError(f"Rango vacío: --desde {desde} es posterior a --hasta {hasta}")
+    return {
+        "tipos": tipos_canon or None,
+        "desde": desde,
+        "hasta": hasta,
+        "contiene": con_texto,
+        "procedencia_no_humana": bool(procedencia_no_humana),
+    }
+
+
+def validar_fecha(valor: str) -> str:
+    """Devuelve la fecha si es un día real en formato ``AAAA-MM-DD``; si no, ``ValueError``.
+
+    Se exige el formato exacto (``date.fromisoformat`` acepta otros en Python
+    3.11+) porque la comparación con la marca guardada es por texto.
+    """
+    texto = (valor or "").strip()
+    if not _FECHA_RE.match(texto):
+        raise ValueError(f"Fecha inválida '{valor}': se espera AAAA-MM-DD")
+    date.fromisoformat(texto)  # rechaza 2026-02-30
+    return texto
+
+
+def _plegar(texto: str) -> str:
+    """Minúsculas y sin diacríticos, para comparar como lo hace el índice FTS."""
+    descompuesto = unicodedata.normalize("NFD", texto)
+    return "".join(c for c in descompuesto if unicodedata.category(c) != "Mn").casefold()
 
 
 def _serializar(valor: Any) -> str | None:

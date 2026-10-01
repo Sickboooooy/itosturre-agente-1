@@ -95,6 +95,11 @@ TIPOS: Mapping[str, Tipo] = dict(
         _t("git_branch", 0.04, 3, "Rama creada o cambiada"),
         # ── Continuidad ──
         _t("session_snapshot", 0.0, 3, "Instantánea de continuidad de sesión"),
+        # ── Mantenimiento ──
+        # Sin bono: es rastro de auditoría, no conocimiento que deba competir
+        # por el contexto. Ninguna sección del snapshot lo muestra.
+        _t("memoria_purga", 0.0, 3,
+           "Purga de eventos con `olvidar` (cuántos y con qué filtros; sin contenido)"),
     )
 )
 
