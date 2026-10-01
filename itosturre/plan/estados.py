@@ -18,6 +18,9 @@ import re
 import unicodedata
 from typing import Any, Mapping
 
+# Marcadores de dato faltante: fuente única en la capa de evidencia (D2: plan depende
+# de evidencia, nunca al revés). Se reexportan con los mismos nombres.
+from ..evidencia.esquema import MARCADORES_PENDIENTES, es_marcador_pendiente
 from .ledger import fecha_iso
 
 CANDIDATO = "CANDIDATO"
@@ -90,8 +93,6 @@ PALABRAS_MODELO = frozenset(
 # "itosclaude_bot", "revisión por IA").
 PALABRAS_AGENTE_SUELTAS = frozenset({"agente", "llm", "bot", "ia"})
 
-# Marcadores que emiten las skills cuando falta un dato: nunca cuentan como valor.
-MARCADORES_PENDIENTES = ("[ASIGNAR", "[COMPLETAR", "[VERIFICAR", "[NO VERIFICADA")
 MINIMO_LETRAS_PERSONA = 3
 
 _TOKEN_RE = re.compile(r"[a-z]+|\d+(?:\.\d+)*")
@@ -144,14 +145,6 @@ def contenido_sha256(afirmacion: Mapping[str, Any]) -> str:
     tipo = str(afirmacion.get("tipo") or "").strip()
     carga = f"{tipo}\n{texto_canonico(afirmacion.get('texto'))}"
     return hashlib.sha256(carga.encode("utf-8")).hexdigest()
-
-
-def es_marcador_pendiente(valor: Any) -> bool:
-    """``True`` si el texto contiene un marcador de dato faltante (``[ASIGNAR]``…)."""
-    if not isinstance(valor, str):
-        return False
-    normalizado = _sin_acentos(valor).upper()
-    return any(marcador in normalizado for marcador in MARCADORES_PENDIENTES)
 
 
 def responsable_no_humano(nombre: Any) -> bool:

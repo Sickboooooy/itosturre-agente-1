@@ -1,0 +1,236 @@
+{
+ "descripcion": "Procedencia de los fixtures de la capa de evidencia. Textos oficiales literales; ningún dato de tesis o ley es inventado. Las variantes sintéticas viven en las pruebas, rotuladas como tales.",
+ "esquema": "manifiesto-fixtures-evidencia/1.0",
+ "fixtures": [
+  {
+   "archivo": "leyesbiblio_CNPP.json",
+   "extractor": "PyMuPDF fitz.Page.get_text() (modo por omisión)",
+   "fecha_consulta": null,
+   "medio": "descarga_https",
+   "nota_fecha": "no registrada: el PDF se descargó para PEN-01 sin registrar la hora",
+   "original": {
+    "archivo": "CNPP.pdf",
+    "bytes": 1704798,
+    "media_type": "application/pdf",
+    "metadatos_pdf": {
+     "author": "Cámara de Diputados del H. Congreso de la Unión",
+     "creationDate": "D:20251201201131-06'00'",
+     "creator": "Microsoft® Word 2016",
+     "modDate": "D:20251201201147-06'00'",
+     "title": "Código Nacional de Procedimientos Penales"
+    },
+    "paginas_pdf": 168,
+    "sha256": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904"
+   },
+   "paginas": [
+    1,
+    52,
+    54,
+    139,
+    155
+   ],
+   "proposito": "primera página con encabezado; art. 1o., 167 y Único en el cuerpo; nota partida '…25-11-2022 / y publicada DOF…'; frontera TRANSITORIOS; 'Artículo Primero.-' repetido en transitorios de decretos",
+   "sha256_archivo": "a687acfd77aa742db3e78c95cfaa10e9301a9027b75f9fbd3152a4897db6739c",
+   "tipo": "ley_leyesbiblio",
+   "url_oficial": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+   "version_extractor": "PyMuPDF 1.28.0 / MuPDF 1.29.0"
+  },
+  {
+   "archivo": "leyesbiblio_CPF.json",
+   "extractor": "PyMuPDF fitz.Page.get_text() (modo por omisión)",
+   "fecha_consulta": null,
+   "medio": "descarga_https",
+   "nota_fecha": "no registrada: el PDF se descargó para PEN-01 sin registrar la hora",
+   "original": {
+    "archivo": "CPF.pdf",
+    "bytes": 2794133,
+    "media_type": "application/pdf",
+    "metadatos_pdf": {
+     "author": "Cámara de Diputados del H. Congreso de la Unión",
+     "creationDate": "D:20260324134635-06'00'",
+     "creator": "Microsoft® Word 2016",
+     "modDate": "D:20260324134656-06'00'",
+     "title": "Código Penal Federal"
+    },
+    "paginas_pdf": 353,
+    "sha256": "a2d80c4383c5fbc8453cf290c19b7853eb0a5a05d1e366572da384edfafda88c"
+   },
+   "paginas": [
+    1,
+    147,
+    151
+   ],
+   "proposito": "art. 1o.- en el cuerpo y 'ARTICULO 1°.-' en un decreto de reforma: sin la página de la frontera (p. 147) el encabezado es ambiguo",
+   "sha256_archivo": "8f3f4ad1b866c2f64f839994063595f9f4b4322631d4bd9e14c3d5cf17a78cb4",
+   "tipo": "ley_leyesbiblio",
+   "url_oficial": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPF.pdf",
+   "version_extractor": "PyMuPDF 1.28.0 / MuPDF 1.29.0"
+  },
+  {
+   "archivo": "leyesbiblio_CPEUM.json",
+   "extractor": "PyMuPDF fitz.Page.get_text() (modo por omisión)",
+   "fecha_consulta": null,
+   "medio": "descarga_https",
+   "nota_fecha": "no registrada: el PDF se descargó para PEN-01 sin registrar la hora",
+   "original": {
+    "archivo": "CPEUM.pdf",
+    "bytes": 3141703,
+    "media_type": "application/pdf",
+    "metadatos_pdf": {
+     "author": "Cámara de Diputados del H. Congreso de la Unión",
+     "creationDate": "D:20260603201329-06'00'",
+     "creator": "Microsoft® Word 2016",
+     "modDate": "D:20260603201405-06'00'",
+     "title": "Constitución Política de los Estados Unidos Mexicanos"
+    },
+    "paginas_pdf": 414,
+    "sha256": "ca63a23a4b7444ebdbdad93759fbf46bd14c069e587c5878decf89fc9c12ca8e"
+   },
+   "paginas": [
+    43,
+    71,
+    74,
+    75,
+    144
+   ],
+   "proposito": "páginas con muchas notas de reforma: partidas en dos líneas, recorridas, fe de erratas, '(2 reformas)', 'Reforma DOF …: Derogó …' con fechas internas",
+   "sha256_archivo": "5fbb94a5783a40399c47ad246dcbe6a4687d68d35a992d576a61c3f01659bb7e",
+   "tipo": "ley_leyesbiblio",
+   "url_oficial": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+   "version_extractor": "PyMuPDF 1.28.0 / MuPDF 1.29.0"
+  },
+  {
+   "archivo": "leyesbiblio_CFF.json",
+   "extractor": "PyMuPDF fitz.Page.get_text() (modo por omisión)",
+   "fecha_consulta": null,
+   "medio": "descarga_https",
+   "nota_fecha": "no registrada: el PDF se descargó para PEN-01 sin registrar la hora",
+   "original": {
+    "archivo": "CFF.pdf",
+    "bytes": 3134465,
+    "media_type": "application/pdf",
+    "metadatos_pdf": {
+     "author": "Cámara de Diputados del H. Congreso de la Unión",
+     "creationDate": "D:20260417200908-06'00'",
+     "creator": "Microsoft® Word 2016",
+     "modDate": "D:20260417201500-06'00'",
+     "title": "Código Fiscal de la Federación"
+    },
+    "paginas_pdf": 377,
+    "sha256": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d"
+   },
+   "paginas": [
+    2,
+    30,
+    148
+   ],
+   "proposito": "art. 4o.- frente a 4o.-A.-; notas de multas y cantidades compiladas por resolución miscelánea, partidas en dos líneas",
+   "sha256_archivo": "36531727d70c93b8406553d748f0fdfaa7e99e89a67f44bf11f42800f5ea74a3",
+   "tipo": "ley_leyesbiblio",
+   "url_oficial": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+   "version_extractor": "PyMuPDF 1.28.0 / MuPDF 1.29.0"
+  },
+  {
+   "archivo": "leyesbiblio_LAmp.json",
+   "extractor": "PyMuPDF fitz.Page.get_text() (modo por omisión)",
+   "fecha_consulta": null,
+   "medio": "descarga_https",
+   "nota_fecha": "no registrada: el PDF se descargó para PEN-01 sin registrar la hora",
+   "original": {
+    "archivo": "LAmp.pdf",
+    "bytes": 1369391,
+    "media_type": "application/pdf",
+    "metadatos_pdf": {
+     "author": "Cámara de Diputados del H. Congreso de la Unión",
+     "creationDate": "D:20251017144002-06'00'",
+     "creator": "Microsoft® Word 2016",
+     "modDate": "D:20251017144022-06'00'",
+     "title": "Ley de Amparo, Reglamentaria de los artículos 103 y 107 de la Constitución Política de los Estados Unidos Mexicanos"
+    },
+    "paginas_pdf": 119,
+    "sha256": "05560493ac2b17b9e77eeb9741843176ee0fde76f05e75f853465b13621be78d"
+   },
+   "paginas": [
+    1
+   ],
+   "proposito": "título del encabezado en dos líneas",
+   "sha256_archivo": "91fbc12f953909f2109e904f9f4a9746e289dc3a5a0166b158dd52af2933a30e",
+   "tipo": "ley_leyesbiblio",
+   "url_oficial": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf",
+   "version_extractor": "PyMuPDF 1.28.0 / MuPDF 1.29.0"
+  },
+  {
+   "archivo": "sjf_2006224.txt",
+   "extractor": "Playwright sync_api + Chromium headless (revisión chromium-1234 según el script de captura del operador): document.body.innerText",
+   "fecha_consulta": null,
+   "medio": "render_navegador",
+   "nota_fecha": "no registrada: render del material PEN-01; el script de captura imprimió la hora UTC en consola, pero no quedó registrada con el archivo",
+   "original": {
+    "archivo": "sjf_2006224.txt",
+    "bytes": 6692,
+    "media_type": "text/plain; charset=utf-8",
+    "sha256": "6adc1838474dc02470dcff94190ac8bde3fd0622fd0c24938f6ea4895ae2e50b",
+    "sha256_innertext_lf": {
+     "origen": "reconstruida (CRLF→LF); sin huella de captura registrada",
+     "sha256_impresa_en_captura": null,
+     "valor": "8c6bf569b0f6386e545e00fa7eaad93529581fa598db9743b64523ab94f7b93d"
+    }
+   },
+   "paginas": null,
+   "proposito": "regresión del bug de época: el banner dice Duodécima Época antes del ancla y la tesis es de la Décima; jurisprudencia con fecha de publicación y de obligatoriedad",
+   "sha256_archivo": "6adc1838474dc02470dcff94190ac8bde3fd0622fd0c24938f6ea4895ae2e50b",
+   "tipo": "tesis_sjf",
+   "url_oficial": "https://sjf2.scjn.gob.mx/detalle/tesis/2006224",
+   "version_extractor": "no registrada"
+  },
+  {
+   "archivo": "sjf_2031931.txt",
+   "extractor": "Playwright sync_api + Chromium headless (revisión chromium-1234 según el script de captura del operador): document.body.innerText",
+   "fecha_consulta": "2026-10-01T19:57Z",
+   "medio": "render_navegador",
+   "nota_fecha": "aportada por el operador al entregar el render",
+   "original": {
+    "archivo": "sjf_2031931.txt",
+    "bytes": 4771,
+    "media_type": "text/plain; charset=utf-8",
+    "sha256": "3eca09954ce9e3710ee37ed6fd0f4087ae348239f5d5943b9793044569864b1e",
+    "sha256_innertext_lf": {
+     "origen": "reconstruida (CRLF→LF) y coincidente con la huella impresa en la captura",
+     "sha256_impresa_en_captura": "4fa85f1c1ae4b347d668595ac787e3f9bc67711cd6094ce47b36e02ee9b1b00e",
+     "valor": "4fa85f1c1ae4b347d668595ac787e3f9bc67711cd6094ce47b36e02ee9b1b00e"
+    }
+   },
+   "paginas": null,
+   "proposito": "discrepancia real de la fuente: campo 'Duodécima Época' y clave con sufijo (11a.)",
+   "sha256_archivo": "3eca09954ce9e3710ee37ed6fd0f4087ae348239f5d5943b9793044569864b1e",
+   "tipo": "tesis_sjf",
+   "url_oficial": "https://sjf2.scjn.gob.mx/detalle/tesis/2031931",
+   "version_extractor": "no registrada"
+  },
+  {
+   "archivo": "sjf_2032506.txt",
+   "extractor": "Playwright sync_api + Chromium headless (revisión chromium-1234 según el script de captura del operador): document.body.innerText",
+   "fecha_consulta": "2026-10-01T19:57Z",
+   "medio": "render_navegador",
+   "nota_fecha": "aportada por el operador al entregar el render",
+   "original": {
+    "archivo": "sjf_2032506.txt",
+    "bytes": 4799,
+    "media_type": "text/plain; charset=utf-8",
+    "sha256": "c6f627df5a4a6257ce4dc7f72843a870a0606de19a52436bb787848815152f8c",
+    "sha256_innertext_lf": {
+     "origen": "reconstruida (CRLF→LF) y coincidente con la huella impresa en la captura",
+     "sha256_impresa_en_captura": "821674b6e0613567003d19f0022cd4d77f7d9dbf8dcc37d7b71526e3b21ccb89",
+     "valor": "821674b6e0613567003d19f0022cd4d77f7d9dbf8dcc37d7b71526e3b21ccb89"
+    }
+   },
+   "paginas": null,
+   "proposito": "aislada de la Duodécima Época, clave (12a.), dos materias",
+   "sha256_archivo": "c6f627df5a4a6257ce4dc7f72843a870a0606de19a52436bb787848815152f8c",
+   "tipo": "tesis_sjf",
+   "url_oficial": "https://sjf2.scjn.gob.mx/detalle/tesis/2032506",
+   "version_extractor": "no registrada"
+  }
+ ],
+ "generador": "scripts/generar_fixtures_evidencia.py"
+}

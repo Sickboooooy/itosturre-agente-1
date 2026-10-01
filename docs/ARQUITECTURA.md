@@ -49,6 +49,8 @@ del producto.
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
 | `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014); sin red ni LLM, separado del VVCA | Código padre |
+| `itosturre/evidencia/` | Capa de evidencia pura (C7): registro `evidencia/1.0` (URL oficial, fecha de consulta aportada por quien llama, huellas del original y del derivado), fuente única de hosts oficiales, huellas y JSON canónico, parser del SJF anclado en "Registro digital:", limpieza de LeyesBiblio con invariantes, ubicación de artículos (cuerpo / transitorios / indeterminada) y notas de reforma con gramática completa. `validar_registro` es solo estructural y **no habilita VERIFICADO**: hace falta además `comprobar_integridad`, que recalcula las huellas desde el original y el derivado y vuelve a leer la fuente. Solo biblioteca estándar; sin red, reloj ni escritura. `plan` puede importarla; ella no importa `plan` ni `audit` | Código padre |
+| `scripts/generar_fixtures_evidencia.py` | Regenera `tests/fixtures/evidencia/` desde originales descargados (requiere PyMuPDF); no corre en CI | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
 | `services/itosturre-skills/` | Skills jurídicas distribuibles | Submódulo |
 | `.claude/skills/` | Fuente versionada de skills vendorizadas | Código padre |
@@ -64,6 +66,7 @@ del producto.
 | Producto de cliente | `auditorias/` | Local, confidencial, nunca versionar |
 | Prospectos B2B | `leads_data/` | Local; incluye consentimientos y exclusiones; nunca versionar |
 | Casos sintéticos | `casos_de_prueba/` | Versionados; la regresión usa una lista cerrada |
+| Fixtures de evidencia oficial | `tests/fixtures/evidencia/` | Versionados; texto oficial literal (páginas de LeyesBiblio, renders del SJF) con procedencia en `manifiesto.json`; bytes exactos (`.gitattributes`, sin conversión de fin de línea); cada archivo autorizado en `config/data-policy.json` |
 | Dependencias | `venv/`, `node_modules/` | Local; regenerables |
 
 ## Fuentes canónicas

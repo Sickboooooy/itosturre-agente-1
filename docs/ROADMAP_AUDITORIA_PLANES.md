@@ -1,6 +1,6 @@
 # Hoja de ruta: auditoría de planeación legal de alto nivel
 
-**Estado:** v1 · 1-oct-2026 · base `main@533ea22`
+**Estado:** v1.1 · 1-oct-2026 · base `main@4c8e456`
 **Origen:** cuatro propuestas independientes (producto, evidencia oficial, motor de planes,
 remediación del núcleo), crítica externa de Codex sobre la hoja de ruta y revisión de código
 cruzada de los dos primeros PR. Toda decisión jurídica sigue siendo del responsable.
@@ -35,28 +35,32 @@ FIDELIDAD → APROBACIÓN HUMANA → INCORPORACIÓN.
 
 | PR | Rama | Contenido | Estado |
 |---|---|---|---|
-| R3 | `fix/telegram-opt-in` | Telegram solo con `--telegram`; fallos de envío visibles (código 3, auditoría `partial`); token redactado; imports perezosos en `capturar_rag.py` | Implementado y probado, sin commit |
+| R3 | `fix/telegram-opt-in` | Telegram solo con `--telegram`; fallos de envío visibles (código 3, auditoría `partial`); token redactado; imports perezosos en `capturar_rag.py` | Integrado en `main` |
 | PR-1 | `feat/plan-audit-ledger` | `itosturre/plan/`, `plan_audit.py` (`lint` y `hash`), reglas PL-001 a PL-014, Gold Set de planes | Integrado en `main` |
-| R1 | `fix/git-strategy-generico` | `git_strategy.sh` genérico: rama `fix/<slug>` o `feat/<slug>`, commit solo de rutas declaradas con mensaje propio, política de datos antes del commit, gates antes del merge; hook opcional `.githooks/pre-commit` | Implementado y probado |
+| R1 | `fix/git-strategy-generico` | `git_strategy.sh` genérico: rama `fix/<slug>` o `feat/<slug>`, commit solo de rutas declaradas con mensaje propio, política de datos antes del commit, gates antes del merge; hook opcional `.githooks/pre-commit` | Integrado en `main` |
+| R2 | `fix/memoria-procedencia` | Procedencia en la memoria: no capturar mensajes de subagentes ni avisos del sistema como "correcciones de criterio"; sobre reinyectado escapado; purga con simulación por defecto | Integrado en `main` |
+| PR-2 | `feat/evidencia-pura` | `itosturre/evidencia/` (C7): registro `evidencia/1.0` con validación estructural por lista de problemas y `comprobar_integridad` aparte (recalcula huellas y relee la fuente; sin ella un registro no sostiene VERIFICADO); hosts oficiales y `url_oficial` como fuente única (plan los reexporta); huellas SHA-256 y JSON canónico; parser del innerText del SJF anclado en "Registro digital:" con estructura validada (rubro, campos de una línea, publicación y obligatoriedad contadas en todo el texto); limpieza de LeyesBiblio con título plausible y consensuado; ubicación de artículos cuerpo/transitorios/indeterminada; notas de reforma con gramática completa e invariante de fechas; fixtures oficiales literales con manifiesto de procedencia | Implementado y probado tras la revisión externa (ronda 2) |
 
-R3 también está integrado en `main`.
+PR-2 corrige la lectura de la época en la capa Python; el scraper TypeScript
+(`services/itosturre-scraper`, `vvca_audit.ts:418`) sigue tomando la época del banner
+hasta R5.
 
 ## Siguientes PR (orden propuesto)
 
-1. **R2 · Procedencia en la memoria**: no capturar mensajes de subagentes ni avisos del
-   sistema como "correcciones de criterio"; escapar el sobre reinyectado; comando de purga
-   con simulación por defecto.
-3. **PR-2 · Evidencia pura**: esquema `evidencia/1.0`, parser del SJF anclado en
-   "Registro digital:" (corrige la época tomada del banner), limpieza de LeyesBiblio con
-   invariantes y parser de notas de reforma; fixtures públicos sin red.
-4. **PR-3 · Cotejo de identidad** contra la evidencia registrada (hash, encabezado exacto,
+1. **PR-3 · Cotejo de identidad** contra la evidencia registrada (hash, encabezado exacto,
    subcadena normalizada, última reforma; rubro por igualdad normalizada).
-5. **R4 · Núcleo VVCA probable en CI** y corrección de extracción, resolución de ley,
+2. **R4 · Núcleo VVCA probable en CI** y corrección de extracción, resolución de ley,
    detección de tesis y veredicto con alcance explícito ("existencia y ubicación").
-6. **PR-4 · Fidelidad determinista** (plazos, modales, negaciones, excepciones,
+   Incluye un falso positivo comprobado: `has_exact_article_heading` de
+   `itosturre/audit/evidence.py` acepta "Artículo 4o.-A.-" cuando se pide el "4o".
+3. **PR-4 · Fidelidad determinista** (plazos, modales, negaciones, excepciones,
    cuantificadores); nunca emite CONFORME por sí sola.
-7. **Exposición**: MENÚ 16 y regla absoluta "APROBADO solo humano" cuando el CLI esté
+4. **Exposición**: MENÚ 16 y regla absoluta "APROBADO solo humano" cuando el CLI esté
    probado con un piloto (re-correr PEN-01 con el kit).
+
+Pendientes derivados de PR-2, sin lugar asignado en el orden: **R5** (época del scraper
+anclada en "Registro digital:") y **C8** (descarga y caché de evidencia fuera del repo:
+red, reloj y escritura que producen registros `evidencia/1.0`).
 
 ## Qué no construir
 

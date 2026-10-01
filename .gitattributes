@@ -1,0 +1,4 @@
+# Fixtures de evidencia: bytes exactos. Sus huellas SHA-256 están en
+# tests/fixtures/evidencia/manifiesto.json y las pruebas las verifican; sin esta
+# regla, core.autocrlf cambiaría los fines de línea entre Windows y el CI (Linux).
+tests/fixtures/evidencia/** -text
