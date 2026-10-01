@@ -59,7 +59,8 @@ PYTHON="$(pwd)/venv/bin/python" bash scripts/bootstrap_corpus.sh
 
 `requirements.txt` incluye **PyMuPDF** y **langchain-text-splitters**: eran
 imports de `OpenNotebook.py` que faltaban y abortaban el `ingest`. Si un comando
-falla con `ModuleNotFoundError`, reinstala los requirements en el venv.
+falla con `ModuleNotFoundError` (en `OpenNotebook.py`: "❌ OpenNotebook necesita el
+paquete …", código de salida 1), reinstala los requirements en el venv.
 
 ---
 

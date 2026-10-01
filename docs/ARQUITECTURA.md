@@ -37,7 +37,7 @@ del producto.
 
 | Componente | Responsabilidad | Persistencia |
 |---|---|---|
-| `OpenNotebook.py` | Ingesta, recuperación RAG, extracción y auditoría de citas | Código padre |
+| `OpenNotebook.py` | Ingesta, recuperación RAG, extracción y auditoría de citas. Se importa sin dependencias pesadas (carga perezosa) y `audit()` admite colección y codificador inyectados para pruebas (R4a) | Código padre |
 | `scoring_vvca.py` | Semáforo y veredicto VVCA | Código padre |
 | `vvca_full.py` | Orquestación del pipeline completo | Código padre |
 | `capturar_rag.py` | Evidencia visual de fuentes recuperadas | Código padre |
@@ -113,6 +113,53 @@ Las reglas del cotejo viven en `REGLAS_COTEJO`, no en `REGLAS`: sin `--paquete` 
 sus salidas y el Gold Set de planes son los de PR-1. Ninguna salida de `lint`
 (`--json`/`--md`) puede quedar dentro del paquete.
 
+## Núcleo VVCA: costuras y pruebas sin corpus (R4a)
+
+`OpenNotebook.py` ya no importa PyMuPDF, ChromaDB, LangChain ni sentence-transformers
+al tope. `_cargar_dependencias()` las importa juntas, una sola vez y en el orden del
+antiguo import, la primera vez que se usan (`get_embedder`, `get_collection`,
+`extract_text_from_pdf`, `ingest`). Así `import OpenNotebook` funciona con la biblioteca
+estándar y el CI (Python 3.11 sin paquetes) ejerce la extracción, la resolución de ley y
+el veredicto.
+
+- **Dependencia faltante al usarla:** `DependenciaFaltante` (subclase de
+  `ModuleNotFoundError`) dice qué paquete falta y cómo instalarlo; la CLI imprime
+  `❌ OpenNotebook necesita el paquete …` y sale con código 1, el mismo que producía el
+  `ImportError` al importar. Diferencias deliberadas: falla al usar la dependencia y no
+  al importar (`--help`, `correct`, `calibrate` y `scripts/check_corpus.py` ya no exigen
+  los paquetes; `audit --file` inexistente informa primero el archivo), sin traceback; y
+  `ingest` carga las cuatro antes de abrir la colección, de modo que `--clear` nunca
+  borra y luego aborta. `python-dotenv` se carga ahora antes que esos paquetes: una
+  variable de `.env` que lean al importarse (p. ej. de `huggingface_hub`) empieza a surtir
+  efecto; el `.env` actual no define ninguna.
+- **Costuras de `audit()`** (solo por nombre; la CLI no las usa):
+  `audit(text, verbose=False, allow_incomplete_corpus=False, *, collection=None, encode=None)`.
+  `collection` sustituye la colección de ChromaDB (`count`, `get`, `query`) y `encode`
+  el codificador de consultas (`encode_query`, modelo e5 con prefijo `"query: "`). Con una
+  colección inyectada no se carga el modelo, no se abre ChromaDB y no se comprueba
+  `CHROMA_PATH`, que solo sirve para abrir la colección persistente; `count() == 0` se
+  comprueba igual. Con ambos en `None` el camino es el de siempre (modelo → `CHROMA_PATH`
+  → colección), comprobado con la puerta antes/después sobre el corpus real.
+- **Dobles de prueba** (`tests/vvca_falsos.py`): `FakeCollection` emula solo `count`,
+  `get` y `query` con filtros `$and`/`$eq`/`$in`, `include` y distancia coseno;
+  `CodificadorFalso` asigna un eje a cada consulta registrada, de modo que la prueba fija
+  el texto exacto de la consulta y la distancia de cada fragmento; `importar_opennotebook()`
+  importa el módulo sin dejar el `.env` ni el logging en el proceso de pruebas. Cualquier
+  uso no emulado lanza `UsoNoEmulado` (deriva de `BaseException` para que los
+  `except Exception` de `audit()` no lo conviertan en un camino de respaldo silencioso).
+- **Caracterización** (`tests/test_vvca_nucleo.py`): fija el comportamiento ACTUAL de
+  `extract_references`, la resolución de ley, `_article_candidates`, `build_vvca`,
+  `build_vvca_tesis`, `check_corpus_coverage`, `audit` y `veredicto_global`, incluidos los
+  defectos conocidos. `DEFECTOS_CONOCIDOS` registra cada uno (ID, PR que lo corrige,
+  comportamiento correcto) y su prueba lleva el ID en el nombre: el PR que lo corrija
+  cambia esa prueba a sabiendas; no hay `expectedFailure`. Cada prueba fija
+  `JURISPRUDENCIA_PATH` en un temporal y `COSINE_THRESHOLD` en 0.25: nunca lee la
+  jurisprudencia del operador ni depende de su `.env`.
+
+Cómo probar el núcleo: `python -m unittest -v tests.test_vvca_nucleo` (con el venv o con
+un Python 3.11 sin paquetes). Los dobles no reproducen distancias ni fragmentos reales: la
+calidad de la recuperación sigue dependiendo de `scripts/run_regression.py`.
+
 ## Fuentes canónicas
 
 1. `CLAUDE.md` contiene la política operativa compartida. `AGENTS.md` es su adaptación
@@ -134,13 +181,15 @@ sus salidas y el Gold Set de planes son los de PR-1. Ninguna salida de `lint`
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
+| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` |
 | Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-017, que el Gold Set no admite porque no tiene paquete. Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 
 La regresión VVCA no se ejecuta en CI compartido porque requiere el corpus local y el modelo
-de embeddings. Un resultado verde de CI no reemplaza ese gate local.
+de embeddings. Un resultado verde de CI no reemplaza ese gate local: desde R4a el CI ejerce
+la lógica del núcleo con dobles, pero no la recuperación real.
 
 ## Decisiones vigentes
 
@@ -151,6 +200,9 @@ de embeddings. Un resultado verde de CI no reemplaza ese gate local.
 - Los dos submódulos oficiales son `itosturre-scraper` e `itosturre-skills`.
 - La modularización de `OpenNotebook.py` comenzó por funciones puras bajo `itosturre/audit/`.
   Las siguientes extracciones serán incrementales, conservarán la CLI y pasarán la regresión.
+  Desde R4a el módulo se importa sin dependencias pesadas y `audit()` es probable con
+  dobles; las correcciones del núcleo (R4b–R4d) cambian las pruebas de caracterización a
+  sabiendas.
 - `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
   permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.

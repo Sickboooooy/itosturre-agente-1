@@ -39,12 +39,14 @@ Comandos:
 """
 
 import argparse
+import importlib
 import json
 import re
 import sys
 import logging
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from types import SimpleNamespace
+from typing import Callable, Optional, Tuple, Dict, List
 
 from itosturre.audit.context import vvca_contextualizacion
 from itosturre.audit.evidence import select_article_evidence
@@ -56,10 +58,63 @@ from itosturre.audit.policy import disclaimer_graduado, vvca_score, vvca_semafor
 from itosturre.audit.traceability import build_trace_record, traceability_bundle
 from scoring_vvca import veredicto_global
 
-import fitz  # PyMuPDF
-import chromadb
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
+# ─────────────────────────────────────────
+# DEPENDENCIAS PESADAS (carga perezosa)
+# ─────────────────────────────────────────
+# PyMuPDF, ChromaDB, LangChain y sentence-transformers se importaban al tope del módulo.
+# Ahora se cargan juntas la primera vez que se USAN (modelo, colección, PDF), de modo que
+# `import OpenNotebook` funciona sin paquetes: el CI (Python 3.11 sin dependencias) puede
+# ejercer la extracción, la resolución de ley y el veredicto con una colección falsa.
+# Se cargan las cuatro a la vez y en el orden del antiguo import (las bibliotecas nativas
+# de torch/onnxruntime pueden ser sensibles al orden) y antes de cualquier efecto: si falta
+# una, `ingest --clear` falla antes de borrar la colección, como fallaba antes al importar.
+_DEPENDENCIAS_PESADAS = (
+    # (módulo, paquete de pip)
+    ("fitz", "PyMuPDF"),
+    ("chromadb", "chromadb"),
+    ("langchain_text_splitters", "langchain-text-splitters"),
+    ("sentence_transformers", "sentence-transformers"),
+)
+_DEPENDENCIAS_CACHE: Optional[SimpleNamespace] = None
+
+
+class DependenciaFaltante(ModuleNotFoundError):
+    """Falta un paquete pesado del auditor. El mensaje dice cuál y cómo instalarlo."""
+
+
+def _cargar_dependencias() -> SimpleNamespace:
+    """Importa (una sola vez) las dependencias pesadas y las expone con sus nombres de
+    siempre: ``fitz``, ``chromadb``, ``RecursiveCharacterTextSplitter`` y
+    ``SentenceTransformer``. Un ImportError distinto de "módulo no encontrado" (DLL rota,
+    versión incompatible) se propaga tal cual, igual que antes."""
+    global _DEPENDENCIAS_CACHE
+    if _DEPENDENCIAS_CACHE is None:
+        modulos = {}
+        for modulo, paquete in _DEPENDENCIAS_PESADAS:
+            try:
+                modulos[modulo] = importlib.import_module(modulo)
+            except ModuleNotFoundError as exc:
+                detalle = (
+                    f" (falta el submódulo '{exc.name}')"
+                    if exc.name and exc.name != modulo else ""
+                )
+                raise DependenciaFaltante(
+                    f"OpenNotebook necesita el paquete '{paquete}' (módulo '{modulo}') "
+                    f"para esta operación y no está instalado{detalle}. Instálalo con el "
+                    f"intérprete del venv del proyecto: python -m pip install -r "
+                    f"requirements.txt (o solo: python -m pip install {paquete}). "
+                    f"Ver docs/ENTORNO.md.",
+                    name=modulo,
+                ) from exc
+        _DEPENDENCIAS_CACHE = SimpleNamespace(
+            fitz=modulos["fitz"],
+            chromadb=modulos["chromadb"],
+            RecursiveCharacterTextSplitter=(
+                modulos["langchain_text_splitters"].RecursiveCharacterTextSplitter
+            ),
+            SentenceTransformer=modulos["sentence_transformers"].SentenceTransformer,
+        )
+    return _DEPENDENCIAS_CACHE
 
 # ─────────────────────────────────────────
 # LOGGING
@@ -451,8 +506,9 @@ _EMBEDDER_CACHE = None
 def get_embedder():
     global _EMBEDDER_CACHE
     if _EMBEDDER_CACHE is None:
+        dependencias = _cargar_dependencias()
         logger.info(f"⏳ Cargando modelo de embeddings: {EMBED_MODEL}...")
-        _EMBEDDER_CACHE = SentenceTransformer(EMBED_MODEL)
+        _EMBEDDER_CACHE = dependencias.SentenceTransformer(EMBED_MODEL)
     return _EMBEDDER_CACHE
 
 
@@ -464,7 +520,7 @@ def encode_query(text: str) -> List[float]:
 
 
 def get_collection(embedder):
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    client = _cargar_dependencias().chromadb.PersistentClient(path=CHROMA_PATH)
 
     class STEmbeddingFunction:
         def __init__(self, model):
@@ -504,7 +560,7 @@ def is_legal_pdf(path: Path) -> bool:
 
 def extract_text_from_pdf(pdf_path: Path) -> list:
     """Extrae texto y metadatos (página, posición) de PDF."""
-    doc = fitz.open(str(pdf_path))
+    doc = _cargar_dependencias().fitz.open(str(pdf_path))
     pages = []
     for page_num, page in enumerate(doc, 1):
         text = page.get_text()
@@ -533,8 +589,11 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
 
     logger.info(f"📚 PDFs encontrados: {len(pdfs)}")
 
+    # get_embedder() carga las cuatro dependencias pesadas antes de tocar la colección:
+    # si falta alguna, la ingesta aborta aquí, nunca después de borrar con --clear.
     embedder = get_embedder()
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
+    dependencias = _cargar_dependencias()
+    client = dependencias.chromadb.PersistentClient(path=CHROMA_PATH)
 
     # clear y reingest borran la colección antes de ingestar
     # (antes: se borraba dos veces si se pasaban ambas flags)
@@ -547,7 +606,7 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
 
     collection = get_collection(embedder)
 
-    fallback_splitter = RecursiveCharacterTextSplitter(
+    fallback_splitter = dependencias.RecursiveCharacterTextSplitter(
         chunk_size=1500,
         chunk_overlap=200,
         separators=["\n\n", "\n", " "]
@@ -1072,7 +1131,14 @@ def check_corpus_coverage(refs: List[Dict], collection) -> List[str]:
     return sorted(missing)
 
 
-def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = False) -> Dict:
+def audit(
+    text: str,
+    verbose: bool = False,
+    allow_incomplete_corpus: bool = False,
+    *,
+    collection=None,
+    encode: Optional[Callable[[str], List[float]]] = None,
+) -> Dict:
     """
     Audita el borrador contra el corpus legal.
     Retorna JSON con alerts y retrieved_sources.
@@ -1082,20 +1148,34 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
     de leyes faltantes para que el caller decida si continuar.
     Pasar allow_incomplete_corpus=True para forzar la auditoría e incluir
     la advertencia en el campo 'corpus_warning' del resultado.
+
+    Costuras de prueba (R4a; solo por nombre, nunca las usa la CLI):
+      - ``collection``: objeto con la API de ``chromadb.Collection`` que usa esta
+        función (``count``, ``get``, ``query``). Si se inyecta, no se carga el modelo ni
+        se abre ChromaDB y se omite la comprobación de CHROMA_PATH: esa ruta solo sirve
+        para abrir la colección persistente (y evitar que ChromaDB cree una vacía en una
+        ruta equivocada), y una colección inyectada no la usa. ``count() == 0`` se
+        comprueba igual en ambos caminos.
+      - ``encode``: codificador de consultas (texto → vector); por defecto
+        ``encode_query`` (modelo e5 con prefijo "query: ").
+    Con ambos en None el camino es el de siempre: modelo → CHROMA_PATH → colección.
     """
-    embedder = get_embedder()
+    if collection is None:
+        embedder = get_embedder()
 
-    # Verificar que existe la base vectorial
-    chroma_path = Path(CHROMA_PATH)
-    if not chroma_path.exists():
-        return {
-            "status": "error",
-            "message": "Base vectorial no encontrada. Ejecuta primero: python OpenNotebook.py ingest --directory /ruta/pdfs/",
-            "alerts": [],
-            "retrieved_sources": []
-        }
+        # Verificar que existe la base vectorial
+        chroma_path = Path(CHROMA_PATH)
+        if not chroma_path.exists():
+            return {
+                "status": "error",
+                "message": "Base vectorial no encontrada. Ejecuta primero: python OpenNotebook.py ingest --directory /ruta/pdfs/",
+                "alerts": [],
+                "retrieved_sources": []
+            }
 
-    collection = get_collection(embedder)
+        collection = get_collection(embedder)
+
+    codificar = encode if encode is not None else encode_query
 
     if collection.count() == 0:
         return {
@@ -1218,7 +1298,7 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                         if not metadata_candidate_found:
                             raise LookupError("sin candidatos exactos de metadata")
                         results = collection.query(
-                            query_embeddings=[encode_query(query)],
+                            query_embeddings=[codificar(query)],
                             n_results=max(3, candidate_count),
                             where=exact_where,
                         )
@@ -1231,14 +1311,14 @@ def audit(text: str, verbose: bool = False, allow_incomplete_corpus: bool = Fals
                 try:
                     # Encoding asimétrico (retrieval.query); filtro por fuente si se conoce.
                     results = collection.query(
-                        query_embeddings=[encode_query(query)],
+                        query_embeddings=[codificar(query)],
                         n_results=3,
                         where=where_filter,
                     )
                 except Exception:
                     # where_filter puede fallar si la fuente no existe en el corpus
                     results = collection.query(
-                        query_embeddings=[encode_query(query)],
+                        query_embeddings=[codificar(query)],
                         n_results=3,
                     )
                     expected_source = None
@@ -1893,4 +1973,10 @@ Ejemplos:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except DependenciaFaltante as exc:
+        # Mismo código de salida (1) que el ImportError que antes abortaba al importar,
+        # con un mensaje que dice qué paquete falta y cómo instalarlo.
+        print(f"❌ {exc}", file=sys.stderr)
+        sys.exit(1)

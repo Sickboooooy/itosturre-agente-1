@@ -1,6 +1,6 @@
 # Hoja de ruta: auditoría de planeación legal de alto nivel
 
-**Estado:** v1.2 · 1-oct-2026 · base `main@ec86da1`
+**Estado:** v1.3 · 1-oct-2026 · base `main@7761487`
 **Origen:** cuatro propuestas independientes (producto, evidencia oficial, motor de planes,
 remediación del núcleo), crítica externa de Codex sobre la hoja de ruta y revisión de código
 cruzada de los dos primeros PR. Toda decisión jurídica sigue siendo del responsable.
@@ -39,9 +39,9 @@ FIDELIDAD → APROBACIÓN HUMANA → INCORPORACIÓN.
 | PR-1 | `feat/plan-audit-ledger` | `itosturre/plan/`, `plan_audit.py` (`lint` y `hash`), reglas PL-001 a PL-014, Gold Set de planes | Integrado en `main` |
 | R1 | `fix/git-strategy-generico` | `git_strategy.sh` genérico: rama `fix/<slug>` o `feat/<slug>`, commit solo de rutas declaradas con mensaje propio, política de datos antes del commit, gates antes del merge; hook opcional `.githooks/pre-commit` | Integrado en `main` |
 | R2 | `fix/memoria-procedencia` | Procedencia en la memoria: no capturar mensajes de subagentes ni avisos del sistema como "correcciones de criterio"; sobre reinyectado escapado; purga con simulación por defecto | Integrado en `main` |
-| PR-2 | `feat/evidencia-pura` | `itosturre/evidencia/` (C7): registro `evidencia/1.0` con validación estructural por lista de problemas y `comprobar_integridad` aparte (recalcula huellas y relee la fuente; sin ella un registro no sostiene VERIFICADO); hosts oficiales y `url_oficial` como fuente única (plan los reexporta); huellas SHA-256 y JSON canónico; parser del innerText del SJF anclado en "Registro digital:" con estructura validada (rubro, campos de una línea, publicación y obligatoriedad contadas en todo el texto); limpieza de LeyesBiblio con título plausible y consensuado; ubicación de artículos cuerpo/transitorios/indeterminada; notas de reforma con gramática completa e invariante de fechas; fixtures oficiales literales con manifiesto de procedencia | Implementado y probado tras la revisión externa (ronda 2) |
-
-| PR-3 | `feat/cotejo-identidad` | Cotejo de identidad (C9): paquete de evidencia direccionado por contenido (`itosturre/evidencia/paquete.py`, único módulo de la capa con E/S de archivos; publicación que falla si el destino existe —enlace duro u `O_EXCL`—, huella verificada al leer, rechazo de enlaces simbólicos y junctions con contención por ruta real, solo registros íntegros y sin ambigüedad); `itosturre/plan/identidad.py` coteja cada par (afirmación, evidencia) en el orden vínculo → registro → integridad (+ relación original–texto de las leyes por re-extracción con extractor inyectado) → documento y versión (+ registros/claves que menciona la afirmación) → ubicación (sin rangos; + artículo y ley que menciona la afirmación) → campos y extracto, con CONFORME / DISCREPANTE / SIN_EVIDENCIA (NO_COTEJADO para INEXISTENTE), cobertura de menciones por afirmación y `requiere_decision_humana` cuando la fuente trae advertencias; el cotejo lleva la huella del ledger y del paquete; reglas PL-015…PL-017 solo con paquete (`REGLAS_COTEJO`), PL-017 con decisiones `advertencias_fuente` ligadas a la fuente vigente; CLI `cotejar`, `lint --paquete` (ninguna salida dentro del paquete) y `evidencia agregar-tesis` / `agregar-ley` (origen del texto, páginas declaradas comprobadas, título frente a la URL); sección de cotejo en el reporte; campo opcional `ultima_reforma_dof` en las evidencias del ledger | Implementado y probado tras la revisión externa (ronda 2) |
+| PR-2 | `feat/evidencia-pura` | `itosturre/evidencia/` (C7): registro `evidencia/1.0` con validación estructural por lista de problemas y `comprobar_integridad` aparte (recalcula huellas y relee la fuente; sin ella un registro no sostiene VERIFICADO); hosts oficiales y `url_oficial` como fuente única (plan los reexporta); huellas SHA-256 y JSON canónico; parser del innerText del SJF anclado en "Registro digital:" con estructura validada (rubro, campos de una línea, publicación y obligatoriedad contadas en todo el texto); limpieza de LeyesBiblio con título plausible y consensuado; ubicación de artículos cuerpo/transitorios/indeterminada; notas de reforma con gramática completa e invariante de fechas; fixtures oficiales literales con manifiesto de procedencia | Integrado en `main` tras la revisión externa (ronda 2) |
+| PR-3 | `feat/cotejo-identidad` | Cotejo de identidad (C9): paquete de evidencia direccionado por contenido (`itosturre/evidencia/paquete.py`, único módulo de la capa con E/S de archivos; publicación que falla si el destino existe —enlace duro u `O_EXCL`—, huella verificada al leer, rechazo de enlaces simbólicos y junctions con contención por ruta real, solo registros íntegros y sin ambigüedad); `itosturre/plan/identidad.py` coteja cada par (afirmación, evidencia) en el orden vínculo → registro → integridad (+ relación original–texto de las leyes por re-extracción con extractor inyectado) → documento y versión (+ registros/claves que menciona la afirmación) → ubicación (sin rangos; + artículo y ley que menciona la afirmación) → campos y extracto, con CONFORME / DISCREPANTE / SIN_EVIDENCIA (NO_COTEJADO para INEXISTENTE), cobertura de menciones por afirmación y `requiere_decision_humana` cuando la fuente trae advertencias; el cotejo lleva la huella del ledger y del paquete; reglas PL-015…PL-017 solo con paquete (`REGLAS_COTEJO`), PL-017 con decisiones `advertencias_fuente` ligadas a la fuente vigente; CLI `cotejar`, `lint --paquete` (ninguna salida dentro del paquete) y `evidencia agregar-tesis` / `agregar-ley` (origen del texto, páginas declaradas comprobadas, título frente a la URL); sección de cotejo en el reporte; campo opcional `ultima_reforma_dof` en las evidencias del ledger | Integrado en `main` tras la revisión externa (ronda 2) |
+| R4a | `fix/vvca-nucleo-probable` (propuesta) | Núcleo VVCA probable en CI sin cambiar comportamiento: carga perezosa de PyMuPDF/ChromaDB/LangChain/sentence-transformers en `OpenNotebook.py` (`import OpenNotebook` con la biblioteca estándar; dependencia faltante → mensaje claro y código 1); costuras `audit(..., *, collection=None, encode=None)`; dobles `tests/vvca_falsos.py`; caracterización `tests/test_vvca_nucleo.py` con el registro `DEFECTOS_CONOCIDOS` (R4-D01…D14). Puerta antes/después sobre el corpus real: salidas idénticas salvo campos de reloj | Implementado y probado |
 
 PR-2 corrige la lectura de la época en la capa Python; el scraper TypeScript
 (`services/itosturre-scraper`, `vvca_audit.ts:418`) sigue tomando la época del banner
@@ -54,10 +54,34 @@ CONFORME ya garantiza qué documento, qué versión y qué artículo (texto acot
 encabezado y el siguiente) respaldan la afirmación, que es la entrada que necesita el
 cotejo de fidelidad.
 
-1. **R4 · Núcleo VVCA probable en CI** y corrección de extracción, resolución de ley,
-   detección de tesis y veredicto con alcance explícito ("existencia y ubicación").
-   Incluye un falso positivo comprobado: `has_exact_article_heading` de
-   `itosturre/audit/evidence.py` acepta "Artículo 4o.-A.-" cuando se pide el "4o".
+1. **R4 · Núcleo VVCA**, partido en PR pequeños (crítica externa: PR pequeños y nunca
+   `expectedFailure` como criterio de aceptación). R4a dejó el núcleo probable en CI y
+   cada defecto fijado por una prueba que afirma la salida ACTUAL; el PR que lo corrige
+   cambia esa prueba a sabiendas (registro `DEFECTOS_CONOCIDOS` en
+   `tests/test_vvca_nucleo.py`).
+   - **R4b · Extracción y resolución de ley:** R4-D01 a R4-D06.
+   - **R4c · Veredicto honesto** con alcance explícito ("existencia y ubicación"):
+     R4-D08 a R4-D12.
+   - **R4d · Jurisprudencia determinista** (detección de registros y cotejo de rubro):
+     R4-D07, R4-D13 y R4-D14.
+
+   | ID | PR | Defecto (comportamiento actual, fijado en R4a) | Comportamiento correcto esperado |
+   |---|---|---|---|
+   | R4-D01 | R4b | `ARTICLE_RE` pierde Ter/Quáter y la letra de "4o.-A": "artículo 247 Ter del CPF" se audita como art. 247 (🟢 en el corpus real) | Conservar el sufijo y buscar ese precepto |
+   | R4-D02 | R4b | Enumeraciones: "arts. 14, 16 y 19" (y "Los artículos 14, 16, 19 y 20 CPEUM" del caso versionado) solo extraen el 14; `extract_article_numbers` no reconoce "arts." | Una referencia por artículo enumerado |
+   | R4-D03 | R4b | Ley por subcadena: "perito Olivares" → art. 10 LIVA | Coincidencia por palabra o abreviatura completa |
+   | R4-D04 | R4b | "la constitución de la sociedad" → CPEUM | "constitución" sin denominación no identifica la CPEUM |
+   | R4-D05 | R4b | Hallazgo R4a: la ventana derecha de 100 caracteres prevalece y cruza párrafos: "CFF Art. 42." seguido de un párrafo constitucional se audita como art. 42 CPEUM; un "Art. 5" suelto toma la ley del párrafo siguiente | Prevalece la ley adyacente en la misma oración |
+   | R4-D06 | R4b | `has_exact_article_heading` acepta "Artículo 4o.-A.-", "1004-A.-" y "29-B." como encabezado de 4o, 1004 y 29; el chunker los etiqueta con el número base (CFF 4o.-A, LIVA 2o.-B/C/D) y entran como candidatos | Tras el número solo cabe el cierre del encabezado |
+   | R4-D07 | R4d | "REGISTRO DIGITAL: …" y "Registro Digital: …" no se detectan; la tesis desaparece de la auditoría | Detección sin distinguir mayúsculas |
+   | R4-D08 | R4c | Un fragmento "(Se deroga)" sale 🟢 verified (corpus real: art. 64 CFF, 2o LIVA, 209 Bis CFF) | Un derogado nunca es 🟢 |
+   | R4-D09 | R4c | `source_match` es True por construcción; si el filtro por fuente falla, la evidencia de otro ordenamiento sale 🟢 con "Fuente correcta"; la penalización −15 es inalcanzable | Comparar siempre con la fuente esperada |
+   | R4-D10 | R4c | Sin coincidencia confiable en una fuente indexada → `refuted` y "Posible alucinación" (🔴 bloqueante); la rama "Alucinación detectada" solo se alcanza si el índice no devuelve vecinos | "No localizado" es no verificable (🟡) |
+   | R4-D11 | R4c | El 🟢 dice "Normativa y jurisprudencia verificadas" sin tesis citadas (corpus real: "CFF Art. 42.") | La razón enuncia solo lo verificado |
+   | R4-D12 | R4c | Hallazgo R4a: sin tesis, "SJF 0.0 🔴 (0/0 tesis ok)"; sin artículos, 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" aunque las tesis estén verificadas | "Sin citas" en esa dimensión |
+   | R4-D13 | R4d | Cotejo de rubro sin NFD: el mismo rubro sin acentos se bloquea como discrepante (falso 🔴) | Normalizar NFD y mayúsculas (Regla 1) |
+   | R4-D14 | R4d | El cotejo ignora palabras de menos de 5 letras: el rubro con el sentido invertido ("NO ES …") pasa 🟢 | Detectar negaciones o exigir coincidencia literal normalizada |
+
 2. **PR-4 · Fidelidad determinista** (plazos, modales, negaciones, excepciones,
    cuantificadores) sobre pares ya CONFORME en identidad; nunca emite CONFORME por sí sola.
 3. **Exposición**: MENÚ 16 y regla absoluta "APROBADO solo humano" cuando el CLI esté
