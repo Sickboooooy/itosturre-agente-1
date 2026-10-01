@@ -11,6 +11,25 @@ Decisiones de esquema:
   - Los IDs duplicados y las referencias colgantes NO son errores estructurales: son
     hallazgos PL-013, para que el reporte los muestre junto con lo demás.
   - Las llaves desconocidas se ignoran (compatibilidad hacia adelante).
+  - Llaves opcionales del cotejo de identidad (PR-3). Este esquema no las valida (son
+    llaves desconocidas para ``plan-ledger/1.0``); las interpretan ``identidad.py`` y
+    ``lint.py`` (PL-017):
+
+    * ``evidencias[].ultima_reforma_dof`` (``AAAA-MM-DD``): versión de la ley en la que
+      se apoya la afirmación. Si viene, debe coincidir con la ``ultima_reforma_dof`` del
+      registro del paquete; un valor no interpretable impide el CONFORME.
+    * ``decisiones[].advertencias_fuente``: decisión humana sobre las advertencias de la
+      fuente de una evidencia (p. ej. ``epoca_discrepante``)::
+
+          {"evidencia": "E6",
+           "sha256_documento": "<huella del original vigente>",   # o "huella_registro"
+           "codigos": ["epoca_discrepante"],
+           "resolucion": "<qué se adopta y por qué>"}
+
+      Solo atiende las advertencias si la evidencia y la huella son las vigentes (si la
+      fuente cambia, deja de valer), declara todos los códigos de la fuente, trae una
+      resolución no vacía y su responsable es humano; para sostener un VERIFICADO,
+      además, la decisión debe estar APROBADA. ``bloquea`` por sí solo no basta.
 """
 from __future__ import annotations
 

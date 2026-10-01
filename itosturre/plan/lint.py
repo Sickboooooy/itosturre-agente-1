@@ -1,9 +1,14 @@
-"""Reglas observables del auditor de planes (PL-001 … PL-014).
+"""Reglas observables del auditor de planes (PL-001 … PL-014, y PL-015 … PL-017 con paquete).
 
 Cada regla verifica algo que se puede comprobar mirando el ledger (y, para PL-014,
 el documento): campos presentes, vocabulario, hosts, fechas, hashes y referencias.
 Ninguna regla hace inferencia semántica ni decide si un criterio es pertinente al
 caso — eso sigue siendo Capa 2, decisión del abogado.
+
+Con un paquete de evidencia (``paquete=`` o un ``cotejo=`` ya calculado) se agregan
+las reglas del cotejo de identidad (``identidad.py``), PL-015 … PL-017. Viven en
+``REGLAS_COTEJO`` y no en ``REGLAS``: sin paquete el lint es idéntico al de PR-1 y el
+Gold Set de planes (que no admite paquete) sigue midiendo PL-001 … PL-014.
 
 Un hallazgo es un dict ``{regla, severidad, objetivo, mensaje}``. El plan queda
 bloqueado si existe al menos un hallazgo ``BLOQUEANTE``.
@@ -11,7 +16,7 @@ bloqueado si existe al menos un hallazgo ``BLOQUEANTE``.
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 # Fuente única de hosts oficiales (D2: plan depende de evidencia, nunca al revés).
 # Se reexportan con los mismos nombres para no romper a quien los importe de aquí.
@@ -26,6 +31,18 @@ from .estados import (
     normalizar_estado,
     problema_persona,
     problemas_aprobacion,
+)
+from .identidad import (
+    CONFORME,
+    DISCREPANTE,
+    PASOS,
+    SIN_EVIDENCIA,
+    CotejoLedger,
+    Extractor,
+    cotejar_ledger,
+    decision_atiende,
+    decisiones_candidatas,
+    problemas_decision_advertencias,
 )
 from .ledger import (
     CAMPOS_CRITERIO,
@@ -59,6 +76,13 @@ REGLAS = {
     "PL-014": "Mención del documento sin afirmación que la cubra",
 }
 
+# Reglas del cotejo de identidad: solo se evalúan con un paquete de evidencia.
+REGLAS_COTEJO = {
+    "PL-015": "VERIFICADO con evidencia DISCREPANTE en el cotejo de identidad",
+    "PL-016": "VERIFICADO sin ninguna evidencia CONFORME en el cotejo de identidad",
+    "PL-017": "Advertencias de la fuente sin decisión humana que las atienda",
+}
+
 ACCIONES = {
     "PL-001": "Sustituir por un estado del vocabulario único (itosturre/plan/estados.py).",
     "PL-002": "Adjuntar evidencia oficial o degradar a NO VERIFICADO.",
@@ -74,6 +98,9 @@ ACCIONES = {
     "PL-012": "Asignar un responsable humano a la decisión.",
     "PL-013": "Corregir el ID duplicado o la referencia inexistente.",
     "PL-014": "Registrar una afirmación que cubra la mención o retirarla del documento.",
+    "PL-015": "Corregir el ledger o la evidencia según la fuente registrada, o degradar a NO VERIFICADO.",
+    "PL-016": "Registrar la evidencia en el paquete y completar el vínculo, o degradar a NO VERIFICABLE.",
+    "PL-017": "Registrar una decisión humana APROBADA con advertencias_fuente (evidencia, sha256_documento, códigos y resolución).",
 }
 
 EXTRACTO_MINIMO = 20
@@ -443,6 +470,96 @@ class _Auditoria:
                         f"Bloquea el elemento inexistente {bloqueado}.",
                     )
 
+    # ── PL-015 … PL-017 (cotejo de identidad) ───────────────────────────────
+    def cotejo_de_identidad(self, cotejo: CotejoLedger) -> None:
+        # Un cotejo calculado sobre otro contenido no se reutiliza: es un error de uso
+        # (entrada equivocada), no una propiedad del plan; por eso ValueError y no un
+        # hallazgo, que haría parecer auditado un ledger que no se cotejó.
+        problemas = cotejo.problemas_correspondencia(self.ledger)
+        if problemas or [a.afirmacion for a in cotejo.afirmaciones] != [a["id"] for a in self.afirmaciones]:
+            raise ValueError(
+                "el cotejo de identidad no corresponde a este ledger: "
+                + ("; ".join(problemas) or "afirmaciones distintas")
+            )
+        for afirmacion, agregado in zip(self.afirmaciones, cotejo.afirmaciones):
+            objetivo = afirmacion["id"]
+            verificada = self.estado(afirmacion) == VERIFICADO
+            if verificada:
+                for par in agregado.pares:
+                    if par.resultado == DISCREPANTE:
+                        self.emitir(
+                            "PL-015",
+                            BLOQUEANTE,
+                            objetivo,
+                            f"Evidencia {par.evidencia} DISCREPANTE en el cotejo de identidad "
+                            f"(paso {par.paso}, {PASOS.get(par.paso, '—')}): "
+                            + "; ".join(m.resumen() for m in par.motivos[:3])
+                            + ".",
+                        )
+                sin_conforme = not any(par.resultado == CONFORME for par in agregado.pares)
+                if sin_conforme or agregado.resultado == SIN_EVIDENCIA:
+                    detalle = "; ".join(
+                        [
+                            f"{par.evidencia}: {par.resultado}"
+                            + (f" ({par.motivos[0].resumen()})" if par.motivos else "")
+                            for par in agregado.pares
+                        ]
+                        + [m.resumen() for m in agregado.motivos]
+                    ) or "no cita evidencias"
+                    self.emitir(
+                        "PL-016",
+                        BLOQUEANTE,
+                        objetivo,
+                        "VERIFICADO sin respaldo CONFORME en el cotejo de identidad "
+                        f"({detalle}). Sin evidencia CONFORME que cubra lo que la afirmación "
+                        "menciona, sostiene a lo sumo NO VERIFICABLE.",
+                    )
+            for par in agregado.pares:
+                if par.resultado == CONFORME and par.requiere_decision_humana:
+                    self._decision_sobre_advertencias(objetivo, verificada, par)
+
+    def _decision_sobre_advertencias(self, objetivo: str, verificada: bool, par: Any) -> None:
+        """PL-017. Una decisión atiende las advertencias de la fuente de una evidencia solo
+        si declara en ``advertencias_fuente`` la evidencia, el ``sha256_documento`` (o la
+        ``huella_registro``) vigente, los códigos que resuelve y una resolución no vacía,
+        y su responsable es una persona humana (como en PL-012). Para sostener un
+        VERIFICADO debe estar APROBADA (como una contradicción resuelta en PL-011); para
+        otros estados basta con que esté registrada para esa evidencia y esa fuente."""
+        codigos = ", ".join(par.codigos_advertencia)
+        if any(decision_atiende(d, par, aprobada=verificada) for d in self.decisiones):
+            return
+        candidatas = decisiones_candidatas(self.decisiones, par)
+        porque = "; ".join(
+            f"{d['id']}: "
+            + (
+                "no está APROBADA"
+                if verificada
+                and not problemas_decision_advertencias(d, par)
+                and normalizar_estado(d["estado"], admitir_aprobado=True) != APROBADO
+                else ", ".join(problemas_decision_advertencias(d, par, exigir_resolucion=verificada))
+            )
+            for d in candidatas
+        )
+        detalle = f" Decisiones que no la atienden: {porque}." if porque else ""
+        if verificada:
+            self.emitir(
+                "PL-017",
+                BLOQUEANTE,
+                objetivo,
+                f"VERIFICADO apoyado en {par.evidencia}, cuya fuente trae advertencias ({codigos}), "
+                "sin una decisión humana APROBADA que declare advertencias_fuente "
+                f"(evidencia {par.evidencia}, sha256_documento vigente, códigos y resolución).{detalle}",
+            )
+        else:
+            self.emitir(
+                "PL-017",
+                ALTA,
+                objetivo,
+                f"La fuente de {par.evidencia} trae advertencias ({codigos}) sin una decisión humana "
+                "registrada que las atienda (advertencias_fuente con la evidencia y el "
+                f"sha256_documento vigente).{detalle}",
+            )
+
     # ── PL-014 ──────────────────────────────────────────────────────────────
     def cobertura(self, documento: str) -> None:
         textos: list[str] = []
@@ -470,15 +587,27 @@ def lint_ledger(
     *,
     documento: str | None = None,
     hosts_oficiales: Iterable[str] = HOSTS_OFICIALES,
+    paquete: Any = None,
+    cotejo: CotejoLedger | None = None,
+    extractores: Sequence[Extractor] = (),
 ) -> list[dict]:
     """Aplica PL-001 … PL-014 y devuelve los hallazgos ordenados por severidad y regla.
 
     Lanza ``LedgerInvalido`` si el ledger no cumple el esquema ``plan-ledger/1.0``.
-    PL-014 solo se evalúa cuando se pasa ``documento``.
+    PL-014 solo se evalúa cuando se pasa ``documento``. PL-015 … PL-017 solo se evalúan
+    con un paquete de evidencia ya cargado (``paquete``) o con su ``cotejo`` ya
+    calculado (``identidad.cotejar_ledger``); sin ninguno de los dos, el resultado es
+    idéntico al del lint sin cotejo. Un ``cotejo`` calculado sobre otro contenido del
+    ledger lanza ``ValueError``. ``extractores`` se pasan al cotejo (relación
+    original–texto de las leyes).
     """
+    if paquete is not None and cotejo is not None:
+        raise ValueError("pasar paquete o cotejo, no ambos")
     errores = validar_esquema(ledger)
     if errores:
         raise LedgerInvalido(errores)
+    if paquete is not None:
+        cotejo = cotejar_ledger(ledger, paquete, extractores=extractores)
     auditoria = _Auditoria(ledger, frozenset(hosts_oficiales))
     auditoria.estados_fuera_de_vocabulario()
     auditoria.verificadas_sin_soporte()
@@ -489,6 +618,8 @@ def lint_ledger(
     auditoria.ids_y_referencias()
     if documento is not None:
         auditoria.cobertura(documento)
+    if cotejo is not None:
+        auditoria.cotejo_de_identidad(cotejo)
     return sorted(
         auditoria.hallazgos,
         key=lambda h: (_RANGO[h["severidad"]], h["regla"]),

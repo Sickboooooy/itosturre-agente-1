@@ -4,8 +4,9 @@ Un documento solo es evidencia si trae procedencia verificable (D4): URL oficial
 fecha de consulta y huellas del original y del derivado. El RAG y el VVCA solo
 localizan. ``validar_registro`` revisa la forma; ``comprobar_integridad`` recalcula
 las huellas desde los artefactos y vuelve a leer la fuente. Solo un registro que pasa
-ambas puede sostener un VERIFICADO. Aquí no hay red, reloj ni escritura de archivos; la descarga y la caché
-son otro componente (C8).
+ambas puede sostener un VERIFICADO. Aquí no hay red ni reloj; la única E/S de archivos
+es la del paquete de evidencia (``paquete.py``: almacén direccionado por contenido de
+registros y artefactos). La descarga y la caché son otro componente (C8).
 
 Dependencias (D2): ``itosturre/plan`` puede importar este paquete; este paquete no
 importa ``plan`` ni ``audit`` (VVCA).
@@ -55,6 +56,17 @@ from .leyesbiblio import (
     verificar_documento,
     verificar_pagina,
 )
+from .paquete import (
+    ErrorPaquete,
+    ObjetoCorrupto,
+    Paquete,
+    RegistroEnPaquete,
+    RegistroRechazado,
+    cargar_paquete,
+    crear_paquete,
+    es_enlace,
+    guardar_evidencia,
+)
 from .reformas import (
     NotaReforma,
     ResultadoNotas,
@@ -76,22 +88,31 @@ __all__ = [
     "TIPO_LEY_LEYESBIBLIO",
     "TIPO_TESIS_SJF",
     "DocumentoLeyesBiblio",
+    "ErrorPaquete",
     "ErrorSJF",
     "NotaReforma",
+    "ObjetoCorrupto",
     "PaginaLimpia",
+    "Paquete",
+    "RegistroEnPaquete",
+    "RegistroRechazado",
     "ResultadoNotas",
     "TesisSJF",
     "TipoEvidencia",
     "UbicacionArticulo",
     "advertencia",
+    "cargar_paquete",
     "comprobar_integridad",
     "construir_registro",
     "crear_extracto",
+    "crear_paquete",
     "derivado_canonico",
     "es_marcador_pendiente",
+    "es_enlace",
     "es_sha256",
     "extraer_notas",
     "fecha_consulta_valida",
+    "guardar_evidencia",
     "host_de",
     "huella_registro",
     "invariante_fechas",

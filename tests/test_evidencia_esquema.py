@@ -2,7 +2,8 @@
 
 También fija las reglas de arquitectura de la capa (D2 y "capa pura"): solo
 biblioteca estándar, sin importar ``plan``/``audit``/``memoria``, sin red, sin reloj y
-sin escritura de archivos. Sin red ni dependencias externas.
+sin E/S de archivos salvo en ``paquete.py`` (almacén del paquete de evidencia). Sin red
+ni dependencias externas.
 """
 from __future__ import annotations
 
@@ -289,11 +290,29 @@ class ArquitecturaTests(unittest.TestCase):
     PROHIBIDOS = ("itosturre.plan", "itosturre.audit", "itosturre.memoria", "itosturre.leads")
     RED = {"socket", "ssl", "requests", "httpx", "urllib3", "playwright", "subprocess", "http", "ftplib", "smtplib"}
     RELOJ = {"now", "today", "utcnow", "time", "monotonic"}
-    ESCRITURA = {"open", "write_text", "write_bytes", "mkdir", "unlink", "remove", "rename"}
+    ESCRITURA = {"open", "write_text", "write_bytes", "mkdir", "unlink", "remove", "rename", "fdopen", "mkstemp"}
+    LECTURA = {"read_text", "read_bytes", "iterdir", "glob", "rglob", "listdir", "scandir", "walk", "is_file", "is_dir", "exists"}
+    MODULOS_ARCHIVO = {"os", "pathlib", "tempfile", "shutil", "io", "glob"}
+    # Único módulo con E/S de archivos (almacén del paquete de evidencia). Sigue sin red
+    # ni reloj: esas prohibiciones aplican a todo el paquete, también a este módulo.
+    CON_ARCHIVOS = "paquete.py"
 
     def _arboles(self):
         for ruta in sorted(PAQUETE.glob("*.py")):
             yield ruta, ast.parse(ruta.read_text(encoding="utf-8"), filename=str(ruta))
+
+    @staticmethod
+    def _llamadas(arbol):
+        for nodo in ast.walk(arbol):
+            if not isinstance(nodo, ast.Call):
+                continue
+            yield (
+                nodo.func.attr
+                if isinstance(nodo.func, ast.Attribute)
+                else nodo.func.id
+                if isinstance(nodo.func, ast.Name)
+                else ""
+            )
 
     def test_solo_biblioteca_estandar_y_sin_dependencias_hacia_arriba(self) -> None:
         estandar = set(sys.stdlib_module_names)
@@ -319,18 +338,30 @@ class ArquitecturaTests(unittest.TestCase):
 
     def test_sin_reloj_ni_escritura(self) -> None:
         for ruta, arbol in self._arboles():
-            for nodo in ast.walk(arbol):
-                if not isinstance(nodo, ast.Call):
-                    continue
-                nombre = (
-                    nodo.func.attr
-                    if isinstance(nodo.func, ast.Attribute)
-                    else nodo.func.id
-                    if isinstance(nodo.func, ast.Name)
-                    else ""
-                )
+            prohibidas = self.RELOJ if ruta.name == self.CON_ARCHIVOS else self.RELOJ | self.ESCRITURA | self.LECTURA
+            for nombre in self._llamadas(arbol):
                 with self.subTest(archivo=ruta.name, llamada=nombre):
-                    self.assertNotIn(nombre, self.RELOJ | self.ESCRITURA)
+                    self.assertNotIn(nombre, prohibidas)
+
+    def test_solo_el_paquete_importa_modulos_de_archivos(self) -> None:
+        importadores = set()
+        for ruta, arbol in self._arboles():
+            for nodo in ast.walk(arbol):
+                if isinstance(nodo, ast.Import):
+                    raices = {alias.name.split(".")[0] for alias in nodo.names}
+                elif isinstance(nodo, ast.ImportFrom) and not nodo.level:
+                    raices = {(nodo.module or "").split(".")[0]}
+                else:
+                    continue
+                if raices & self.MODULOS_ARCHIVO:
+                    importadores.add(ruta.name)
+        self.assertEqual(importadores, {self.CON_ARCHIVOS})
+
+    def test_el_paquete_tampoco_usa_reloj_ni_red(self) -> None:
+        # La exención del paquete es solo para archivos: reloj y red siguen prohibidos.
+        arbol = ast.parse((PAQUETE / self.CON_ARCHIVOS).read_text(encoding="utf-8"))
+        self.assertFalse(set(self._llamadas(arbol)) & self.RELOJ)
+        self.assertTrue(set(self._llamadas(arbol)) & self.ESCRITURA)  # la exención se usa
 
     def test_exportaciones_publicas(self) -> None:
         for nombre in evidencia.__all__:
