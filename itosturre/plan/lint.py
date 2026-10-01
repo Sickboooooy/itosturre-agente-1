@@ -12,8 +12,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from typing import Any, Iterable
-from urllib.parse import urlsplit
 
+# Fuente única de hosts oficiales (D2: plan depende de evidencia, nunca al revés).
+# Se reexportan con los mismos nombres para no romper a quien los importe de aquí.
+from ..evidencia.fuentes import HOSTS_CANONICOS, HOSTS_OFICIALES, host_de, url_oficial
 from .estados import (
     APROBADO,
     CONTRADICCION,
@@ -74,45 +76,8 @@ ACCIONES = {
     "PL-014": "Registrar una afirmación que cubra la mención o retirarla del documento.",
 }
 
-HOSTS_OFICIALES = frozenset(
-    {
-        "dof.gob.mx",
-        "www.diputados.gob.mx",
-        "sjf2.scjn.gob.mx",
-        "sjfsemanal.scjn.gob.mx",
-        "www.scjn.gob.mx",
-        "www.corteidh.or.cr",
-    }
-)
-# Variantes conocidas que NO se aceptan, con el host canónico que debe usarse.
-# www.dof.gob.mx: su certificado TLS no cubre el subdominio www.
-HOSTS_CANONICOS = {"www.dof.gob.mx": "dof.gob.mx"}
 EXTRACTO_MINIMO = 20
 _NATURALEZAS_NO_OFICIALES = frozenset({"secundaria", "sistema", "busqueda"})
-
-
-def url_oficial(url: Any, hosts: Iterable[str] = HOSTS_OFICIALES) -> bool:
-    """``True`` si la URL es https, sin credenciales ni puerto raro, y su host es exacto.
-
-    Rechaza hosts parecidos (``dof.gob.mx.example.com``), ``http://`` y trucos de
-    *userinfo* (``https://dof.gob.mx@otro.example``).
-    """
-    if not isinstance(url, str) or not url.strip():
-        return False
-    try:
-        partes = urlsplit(url.strip())
-        puerto = partes.port
-    except ValueError:
-        return False
-    if partes.scheme.lower() != "https":
-        return False
-    if partes.username is not None or partes.password is not None:
-        return False
-    if puerto not in (None, 443):
-        return False
-    host = (partes.hostname or "").rstrip(".").lower()
-    permitidos = {h.strip().rstrip(".").lower() for h in hosts}
-    return bool(host) and host in permitidos
 
 
 def es_evidencia_oficial(evidencia: dict, hosts: Iterable[str] = HOSTS_OFICIALES) -> bool:
@@ -120,13 +85,6 @@ def es_evidencia_oficial(evidencia: dict, hosts: Iterable[str] = HOSTS_OFICIALES
     return evidencia.get("naturaleza") in NATURALEZAS_OFICIALES and url_oficial(
         evidencia.get("url"), hosts
     )
-
-
-def _host(url: Any) -> str:
-    try:
-        return (urlsplit(url.strip()).hostname or "").rstrip(".").lower()
-    except (AttributeError, ValueError):
-        return ""
 
 
 def _texto(valor: Any) -> str:
@@ -264,7 +222,7 @@ class _Auditoria:
             )
         elif not url_oficial(url, self.hosts):
             mensaje = f"Evidencia {ev_id}: URL {url!r} no es https de un host oficial permitido."
-            canonico = HOSTS_CANONICOS.get(_host(url))
+            canonico = HOSTS_CANONICOS.get(host_de(url))
             if canonico:
                 mensaje += f" Usar el host canónico {canonico}."
             self.emitir("PL-003", BLOQUEANTE, objetivo, mensaje)

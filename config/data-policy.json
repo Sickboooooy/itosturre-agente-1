@@ -34,7 +34,16 @@
   "tracked_validation_fixtures": [
     "tests/fixtures/vvca_gold_set_v1.json",
     "tests/fixtures/vvca_gold_set_v2.json",
-    "tests/fixtures/plan_gold_set_v1.json"
+    "tests/fixtures/plan_gold_set_v1.json",
+    "tests/fixtures/evidencia/manifiesto.json",
+    "tests/fixtures/evidencia/leyesbiblio_CFF.json",
+    "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+    "tests/fixtures/evidencia/leyesbiblio_CPEUM.json",
+    "tests/fixtures/evidencia/leyesbiblio_CPF.json",
+    "tests/fixtures/evidencia/leyesbiblio_LAmp.json",
+    "tests/fixtures/evidencia/sjf_2006224.txt",
+    "tests/fixtures/evidencia/sjf_2031931.txt",
+    "tests/fixtures/evidencia/sjf_2032506.txt"
   ],
   "regression_case_fixtures": [
     "borrador_caso_001.md",
