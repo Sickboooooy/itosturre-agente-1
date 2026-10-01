@@ -9,7 +9,9 @@ sentence-transformers>=2.7.0
 # ingest/audit. Encoding asimétrico e5: prefijos "passage:" (ingest) / "query:"
 # (búsqueda). Sin trust_remote_code. Ver get_embedder() en OpenNotebook.py.
 # Extracción de texto de PDFs legales en ingest() — `import fitz`. NO es opcional:
-# OpenNotebook.py la importa al tope, sin ella ningún comando arranca.
+# OpenNotebook.py la carga junto con chromadb, langchain y sentence-transformers la
+# primera vez que audit/query/ingest las usan; sin ella esos comandos fallan con un
+# mensaje que dice qué instalar (importar el módulo ya no las exige: ver R4a).
 PyMuPDF>=1.24.0
 # Splitter de respaldo para sub-dividir artículos/cláusulas largos en ingest().
 # `from langchain_text_splitters import RecursiveCharacterTextSplitter`.
