@@ -169,7 +169,10 @@ paso3() {
   rama=$(rama_actual)
   [ "$rama" != "$MAIN" ] || die "Cámbiate a la rama de trabajo que quieres fusionar."
   validar_rama "$rama"
-  git diff --quiet && git diff --cached --quiet || die "Hay cambios sin commitear en $rama; commitea o descártalos antes del merge."
+  # --ignore-submodules=dirty: el contenido modificado dentro de un submódulo no bloquea,
+  # pero un cambio de su puntero (commit referenciado) sí cuenta como pendiente.
+  git diff --quiet --ignore-submodules=dirty && git diff --cached --quiet --ignore-submodules=dirty ||
+    die "Hay cambios sin commitear en $rama; commitea o descártalos antes del merge."
 
   if [ -n "$confirmar" ]; then
     [ "$confirmar" = "$rama" ] || die "--confirmar '$confirmar' no coincide con la rama actual '$rama'."
