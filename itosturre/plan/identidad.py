@@ -2055,7 +2055,11 @@ def agregar(
 
 
 def cotejar_ledger(
-    ledger: Mapping[str, Any], paquete: Any, *, extractores: Sequence[Extractor] = ()
+    ledger: Mapping[str, Any],
+    paquete: Any,
+    *,
+    extractores: Sequence[Extractor] = (),
+    cache: dict | None = None,
 ) -> CotejoLedger:
     """Coteja cada evidencia referida por cada afirmación del ledger contra el paquete.
 
@@ -2063,6 +2067,10 @@ def cotejar_ledger(
     con ``problemas``, ``buscar(sha, url)``, ``objeto(huella)`` y ``huella()``).
     ``extractores`` permite acreditar la relación original–texto de las leyes; sin el
     extractor que declara un registro, esas evidencias quedan SIN_EVIDENCIA.
+    ``cache`` (opcional, PR-4) es un dict que el llamador comparte con el cotejo de
+    fidelidad (``fidelidad.cotejar_fidelidad``) para no volver a extraer el mismo PDF;
+    debe usarse con un solo paquete y un solo juego de extractores. Sin él, el cotejo usa
+    uno propio, como antes.
     Lanza ``LedgerInvalido`` si el ledger no cumple ``plan-ledger/1.0``.
     """
     errores = validar_esquema(ledger)
@@ -2072,7 +2080,8 @@ def cotejar_ledger(
     por_id: dict[str, list[Mapping[str, Any]]] = {}
     for evidencia in ledger.get("evidencias") or []:
         por_id.setdefault(evidencia["id"], []).append(evidencia)
-    cache: dict = {}  # PEN-01 D7: por evidencia equivalente y por documento + extractor
+    # PEN-01 D7: por evidencia equivalente y por documento + extractor.
+    cache = {} if cache is None else cache
     agregados: list[ResultadoAfirmacion] = []
     for afirmacion in ledger.get("afirmaciones") or []:
         estado = normalizar_estado(afirmacion["verificacion"].get("estado"))
@@ -2141,6 +2150,7 @@ def consultar_articulo(
     sha256: str | None = None,
     url: str | None = None,
     extractores: Sequence[Extractor] = (),
+    cache: dict | None = None,
 ) -> ConsultaArticulo:
     """Texto exacto del artículo que usará el cotejo para el documento ``sha256``/``url``.
 
@@ -2148,7 +2158,8 @@ def consultar_articulo(
     relación original–texto (re-extracción), documento reconstruido, ``articulo_de_ubicacion``
     sobre "Artículo N", ``ubicar_articulo`` y ``tramo_articulo``. Lanza ``ValueError`` si
     no hay exactamente una ley del paquete con esa huella (y URL, si se da) o si el
-    artículo no se puede interpretar.
+    artículo no se puede interpretar. ``cache`` (opcional, PR-4): el mismo dict que
+    ``cotejar_ledger(cache=)`` para no re-extraer un PDF ya acreditado; sin él, uno propio.
     """
     sha = sha256.strip().lower() if isinstance(sha256, str) and sha256.strip() else None
     candidatos = [
@@ -2171,9 +2182,7 @@ def consultar_articulo(
     identificador = articulo_de_ubicacion(texto if re.match(r"(?i)art", texto) else f"Artículo {texto}")
     if identificador is None:
         raise ValueError(f"no se puede interpretar un único artículo en {articulo!r} (p. ej. 19, 1o., 113 Bis)")
-    fuente = _cotejar_fuente(
-        {"naturaleza": "compilado_oficial", "url": url, "sha256_documento": sha}, paquete, extractores, {}
-    )
+    fuente = _fuente_de_ley(paquete, sha, url, extractores, {} if cache is None else cache)
     if fuente.resultado is not None:
         return ConsultaArticulo(url, sha, fuente.motivos, articulo=identificador)
     metadatos = fuente.metadatos
@@ -2193,6 +2202,63 @@ def consultar_articulo(
         articulo=identificador,
         ubicacion=ubicado,
         tramo=tramo_articulo(documento, ubicado.unica) if ubicado.unica else None,
+    )
+
+
+def _fuente_de_ley(paquete: Any, sha: str, url: str, extractores: Sequence[Extractor], cache: dict) -> _Fuente:
+    """Pasos a–c de una ley con la misma llave de caché que ``cotejar_par`` (una evidencia
+    ``compilado_oficial`` con esa huella y esa URL): el cotejo de identidad y el de
+    fidelidad comparten el cálculo y la re-extracción."""
+    clave = ("fuente", repr(sha), repr("compilado_oficial"), repr(url))
+    if clave in cache:
+        return cache[clave]
+    fuente = _cotejar_fuente(
+        {"naturaleza": "compilado_oficial", "url": url, "sha256_documento": sha}, paquete, extractores, cache
+    )
+    cache[clave] = fuente
+    return fuente
+
+
+@dataclass(frozen=True)
+class LeyRegistrada:
+    """Una ley del paquete tal como la usa el cotejo (pasos a–c ya comprobados).
+
+    ``motivos`` no vacío: los pasos a–c no pasaron y ``documento`` es ``None``. Lo usa el
+    cotejo de fidelidad (PR-4) para resolver las ``referencias`` de una afirmación con el
+    mismo rigor que la identidad: ley ligada por huella y URL, integridad, relación
+    original–texto y ordenamiento fijado por archivo **y** título del encabezado.
+    """
+
+    url: str
+    sha256_documento: str
+    motivos: tuple[Motivo, ...] = ()
+    documento: DocumentoLeyesBiblio | None = None
+    ultima_reforma_dof: str | None = None
+    ordenamiento: str | None = None
+    motivo_ordenamiento: str | None = None
+
+
+def ley_registrada(
+    paquete: Any,
+    *,
+    sha256: str,
+    url: str,
+    extractores: Sequence[Extractor] = (),
+    cache: dict | None = None,
+) -> LeyRegistrada:
+    """Documento reconstruido de la ley ``sha256``/``url`` del paquete, por el mismo camino
+    que ``consultar_articulo`` (sin elegir artículo). Nunca lanza: lo que no se acredita
+    queda en ``motivos``."""
+    fuente = _fuente_de_ley(paquete, sha256, url, tuple(extractores), {} if cache is None else cache)
+    if fuente.resultado is not None or fuente.documento is None:
+        motivos = fuente.motivos or (Motivo("a", "tipo", NO_COMPROBABLE, "no es una ley de LeyesBiblio"),)
+        return LeyRegistrada(url, sha256, tuple(motivos))
+    return LeyRegistrada(
+        url, sha256, (),
+        documento=fuente.documento,
+        ultima_reforma_dof=fuente.metadatos.get("ultima_reforma_dof"),
+        ordenamiento=fuente.ordenamiento,
+        motivo_ordenamiento=fuente.motivo_ordenamiento,
     )
 
 

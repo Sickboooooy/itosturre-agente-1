@@ -48,7 +48,7 @@ del producto.
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
-| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014; también citas "SIGLA número" y rangos); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-019. CLI: `lint`, `hash`, `cotejar`, `evidencia agregar-tesis`, `evidencia agregar-ley` y `evidencia articulo` (texto exacto del artículo que usa el cotejo). Sin red ni LLM, separado del VVCA | Código padre |
+| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014; también citas "SIGLA número" y rangos); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-019, y cotejo de fidelidad determinista (`fidelidad.py`, C10: señales por categoría, nunca CONFORME) con PL-020. CLI: `lint`, `hash`, `cotejar`, `fidelidad`, `evidencia agregar-tesis`, `evidencia agregar-ley` y `evidencia articulo` (texto exacto del artículo que usa el cotejo). Sin red ni LLM, separado del VVCA | Código padre |
 | `itosturre/evidencia/` | Capa de evidencia pura (C7): registro `evidencia/1.0` (URL oficial, fecha de consulta aportada por quien llama, huellas del original y del derivado), fuente única de hosts oficiales, huellas y JSON canónico, parser del SJF anclado en "Registro digital:", limpieza de LeyesBiblio con invariantes, ubicación de artículos (cuerpo / transitorios / indeterminada) y notas de reforma con gramática completa. `validar_registro` es solo estructural y **no habilita VERIFICADO**: hace falta además `comprobar_integridad`, que recalcula las huellas desde el original y el derivado y vuelve a leer la fuente. Solo biblioteca estándar; sin red ni reloj. La única E/S de archivos es `paquete.py`: almacén direccionado por contenido (`registros/<huella>.json`, `objetos/<sha256>`), publicación que falla si el destino existe (enlace duro o `O_EXCL`, nunca comprobar-y-reemplazar), huella verificada en cada lectura y rechazo de enlaces simbólicos y puntos de reanálisis (raíz, `registros/`, `objetos/` y cada archivo, con contención por ruta real); solo guarda registros íntegros con sus artefactos. `plan` puede importarla; ella no importa `plan` ni `audit` | Código padre |
 | `scripts/generar_fixtures_evidencia.py` | Regenera `tests/fixtures/evidencia/` desde originales descargados (requiere PyMuPDF); no corre en CI | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
@@ -70,7 +70,7 @@ del producto.
 | Fixtures de evidencia oficial | `tests/fixtures/evidencia/` | Versionados; texto oficial literal (páginas de LeyesBiblio, renders del SJF) con procedencia en `manifiesto.json`; bytes exactos (`.gitattributes`, sin conversión de fin de línea); cada archivo autorizado en `config/data-policy.json` |
 | Dependencias | `venv/`, `node_modules/` | Local; regenerables |
 
-## Flujo de evidencia de planes (C7 → C9)
+## Flujo de evidencia de planes (C7 → C10)
 
 ```text
 innerText del SJF / PDF de LeyesBiblio (obtenidos por el operador; sin red)
@@ -89,7 +89,8 @@ ledger plan-ledger/1.0  evidencias[]: url + sha256_documento + ubicacion + extra
         |                identificacion_criterio.tipo_fuente: tesis_sjf | sentencia_internacional
         v
 plan_audit.py cotejar --ledger L --paquete DIR      → CONFORME / DISCREPANTE / SIN_EVIDENCIA por par
-plan_audit.py lint --ledger L --paquete DIR         → PL-001…PL-014 + PL-015…PL-019
+plan_audit.py fidelidad --ledger L --paquete DIR    → SENALES / SIN_SENALES_DETECTADAS / NO_COTEJABLE por afirmación
+plan_audit.py lint --ledger L --paquete DIR         → PL-001…PL-014 + PL-015…PL-020
 ```
 
 El cotejo de identidad comprueba, en este orden y fallando cerrado: vínculo (huella del
@@ -167,11 +168,99 @@ nunca crea un CONFORME sobre algo que no se cotejó.
 | PL-017 | BLOQUEANTE si VERIFICADO; ALTA si no | Evidencia CONFORME con advertencias de la fuente sin una decisión con `advertencias_fuente` (evidencia, `sha256_documento` o `huella_registro` vigentes, códigos y resolución) y responsable humano; para VERIFICADO, además APROBADA |
 | PL-018 | ADVERTENCIA (no bloquea) | Afirmación cuyo agregado quedó CONFORME por unas evidencias y cita otras SIN_EVIDENCIA (p. ej. un DOF, tipo no soportado): lo que solo esas sostienen no está cotejado |
 | PL-019 | ADVERTENCIA (no bloquea) | Artículo remitido sin cotejar: eximido como remisión documentada por la fuente (misma ley en el extracto CONFORME, fuera de `referencias`, presentado como remisión) |
+| PL-020 | Señal de precisión `alta`: BLOQUEANTE en VERIFICADO, ALTA en otro estado. Señal `revisar`: ADVERTENCIA ("señal a revisar") en cualquier estado | Señal de fidelidad (`fidelidad.py`) sin una decisión humana con `fidelidad` ligada al plan, la afirmación (`contenido_sha256` vigente), la versión del motor y la huella, el código, la fuente, el artículo y el `sha256_documento` de cada señal; para VERIFICADO, además resolución y APROBADA |
 
 Las reglas del cotejo viven en `REGLAS_COTEJO`, no en `REGLAS`: sin `--paquete` el lint,
 sus hallazgos y el Gold Set de planes son los de PR-1 (el resumen por severidad trae además
 `ADVERTENCIA`, siempre en 0 sin paquete). Ninguna salida de `lint` (`--json`/`--md`) puede
 quedar dentro del paquete.
+
+### Cotejo de fidelidad (C10, PR-4)
+
+Identidad no es fidelidad: un par CONFORME garantiza qué documento, qué versión y qué artículo
+respaldan la afirmación; `itosturre/plan/fidelidad.py` compara después lo que la afirmación
+**afirma** con lo que el artículo **dice**. Es puro (sin red, reloj ni LLM), lee el paquete
+solo a través de `identidad` y **nunca emite CONFORME**: por afirmación da `SENALES`,
+`SIN_SENALES_DETECTADAS` o `NO_COTEJABLE` (con motivo; nunca se lee como inexistencia).
+`SIN_SENALES_DETECTADAS` se rotula siempre "sin señales detectadas por reglas deterministas;
+revisión del abogado obligatoria" (`ETIQUETA_SIN_SENALES`) en la CLI, el JSON y el reporte. No
+aprueba ni cambia estados (D3). Motor `VERSION_MOTOR = "2.0"` (ronda 2, tras la revisión
+externa que rechazó la ronda 1).
+
+- **Alcance:** afirmaciones `texto_normativo`, `inferencia` y `propuesta`; las demás quedan
+  fuera de alcance y una `INEXISTENTE` es NO_COTEJABLE.
+- **Texto oficial:** el artículo completo (`tramo_articulo`) de cada par CONFORME de ley; si
+  la afirmación no tiene ninguno, sus `referencias` "art. N SIGLA" resueltas contra el paquete
+  con el rigor de la identidad (una sola ley del paquete con ese ordenamiento por archivo y
+  título, pasos a–c con relación original–texto, artículo único en el cuerpo; el ordinal no
+  distingue, como en `clave_articulo`). Lo que no se resuelve queda como motivo o nota
+  ("fuentes parciales"): así se cotejan las propuestas e inferencias sin evidencia citada
+  (piloto PEN-01: AF-SCT05-06 y REGLA-SCT05). Identidad y fidelidad comparten la caché de
+  re-extracción (`cotejar_ledger(cache=)`, `consultar_articulo(cache=)`, `ley_registrada`).
+- **Fuente truncada** (el artículo puede continuar en páginas no recibidas, `tramo.truncado`):
+  es fuente incompleta; no se emiten señales que dependan de una ausencia en ella (cifra
+  ausente, modo de procedibilidad distinto, cifras o marcas que faltan en su última oración).
+- **Unidad de comparación:** cláusulas de la afirmación (`;` y fin de oración) frente a
+  oraciones del artículo (sin las notas de reforma, `reformas.extraer_notas`), alineadas por
+  cobertura de raíces de contenido (fracción de las raíces de la cláusula presentes en la
+  oración; el coseno solo desempata), mínimo dos raíces (tres para modal, negación,
+  excepciones, cuantificadores y órgano). Si la cláusula nombra un órgano, solo compiten
+  oraciones compatibles. Las palabras del inicio del cómputo no deciden la alineación; la
+  cifra con su unidad cuenta como una raíz. Las cláusulas que se alinean con la misma
+  oración son hermanas (reordenar o separar una oración no "omite" nada).
+- **Alineación ambigua:** si un rival tiene puntaje cercano (`FRACCION_RIVAL`) o un órgano
+  distinto y cambiaría el resultado, el motor se abstiene y emite `alineacion.ambigua`
+  ("revisar"); nunca sale una señal alta de una alineación ambigua.
+- **Política de precisión** (ronda 2; criterio por defecto pendiente de confirmación del
+  responsable, que puede endurecerlo): cada código tiene una precisión fija en `CODIGOS`.
+  Solo tres son `alta` y bloquean en VERIFICADO: `procedibilidad.modo_distinto` (modo
+  explícito en la fuente no truncada), `plazos_cifras.distinto_misma_condicion` (cada cifra
+  se liga a su condición: "si se tratare de…", "contra…", "tratándose de…", "en los casos
+  de…" o un paréntesis tras la cifra; deben compartir `MINIMO_CONDICION` raíces) e
+  `inicio_computo.distinto` (distinto del de todas las oraciones candidatas con la misma
+  cifra). Todo lo demás —modales, negación, cuantificadores, excepciones y condiciones,
+  órgano, cifras sin condición, montos, cifra ausente y todas las omisiones— es `revisar`:
+  ADVERTENCIA en cualquier estado.
+- **Categorías y códigos** (`CODIGOS`, listas cerradas en el módulo; ampliarlas es decisión del
+  responsable):
+
+  | Categoría | Contradicción | Omisión |
+  |---|---|---|
+  | Procedibilidad (querella, denuncia, de oficio, declaratoria, a petición de parte, SHCP) | modo sin intersección con los del artículo (**alta**); modo que la afirmación niega y el artículo prevé | habla de persecución o procedencia sin el requisito que el artículo impone; requisito de la SHCP sin nombrarla |
+  | Plazos y cifras (número + unidad de tiempo, en dígitos con separador de miles o palabras; hábiles/naturales, "de calendario" = naturales; rangos como par; montos: UMA, pesos, "$", salario mínimo, días multa) | plazo distinto para la misma condición (**alta**); número, unidad, calificador o rango distintos de la oración alineada; cifra ausente del texto oficial (solo con fuentes completas y no truncadas) | — |
+  | Inicio del cómputo (surta efectos, notificación, momento a momento, publicación, entrada en vigor, conocimiento, "siguientes a / a partir de" + suceso) | inicio distinto (**alta**) | plazo coincidente cuya oración fija un inicio que la afirmación no dice |
+  | Modales (deber, facultad, prohibición; "no le está permitido", "le está prohibido", "ninguno … podrá"; mandato implícito del futuro: "se interpondrá", "ordenará") | atenuación, refuerzo o cambio | — |
+  | Negación (paridad de la cadena: "no podrá no admitir" es afirmativo) | el mismo predicado, emparejado por complemento, con polaridad distinta | — |
+  | Excepciones y condiciones (salvo, excepto, con excepción de, a menos que, sino; siempre que, cuando…) | excepción con contenido distinto | presentes en la oración alineada y ausentes en la cláusula y en sus hermanas |
+  | Cuantificadores (universal, negativo, exclusivo) | añadido | omitido uno negativo o exclusivo |
+  | Órgano (familias cerradas: jurisdiccional, Ministerio Público, defensor, policía) | órgano de otra familia | — |
+
+  Equivalencia lógica: "no podrá … salvo/sino …" frente a "solo/únicamente …" (en cualquier
+  sentido) no genera señales de negación, cuantificador, excepción ni modal.
+- **Señal:** código, categoría, severidad (contradicción, omisión o indeterminada), precisión,
+  detalle, tramo literal de la afirmación y tramo literal de la fuente (subcadenas exactas;
+  un tramo largo se recorta a una ventana literal), marcas, descriptor y artículo de la fuente,
+  huellas de los documentos y `huella` (SHA-256 del código, la fuente, el artículo, los
+  documentos y los dos tramos).
+- **Decisión humana** (`decisiones[].fidelidad`, bloque que imprime `plan_audit.py fidelidad`
+  con `plantilla_decision`): `plan`, `afirmacion`, `contenido_sha256` vigente de la afirmación
+  (`plan_audit.py hash`), `version_motor` y `senales` con la `huella`, el `codigo`, la
+  `fuente`, el `articulo` y el `sha256_documento` (texto o lista) de cada señal que atiende,
+  con responsable humano; para una afirmación VERIFICADO, además `resolucion` no vacía y la
+  decisión APROBADA (como PL-017: en otros estados basta la decisión registrada). Si cambia
+  cualquiera de esos datos (otro plan, otro texto, otro artículo del mismo PDF, otros tramos,
+  otra versión de las reglas), deja de valer: una decisión vieja o ajena no atiende una señal
+  nueva.
+- **CLI:** `fidelidad` sale 0 sin señales, 1 con señales **o si nada fue cotejable** (todo
+  NO_COTEJABLE o nada en alcance; `FidelidadLedger.nada_cotejable`) y 2 con entrada inválida.
+- **Limitaciones conocidas** (fijadas por prueba y por los casos `LIM-*` del Gold Set, que no
+  son puerta): sin análisis sintáctico; la procedibilidad se lee por artículo y no por delito
+  (el art. 92 CFF prevé los tres modos: LIM-01); no se señalan enumeraciones incompletas dentro
+  de una excepción (LIM-02), órganos fuera de las familias cerradas (LIM-03), sujeto omitido,
+  generalizaciones de contenido ni la omisión de "todos"; una cifra que aparece en varias
+  oraciones no alineadas no se atribuye; el texto entre corchetes que la fuente declara
+  inválido se coteja como texto; tesis, DOF y Corte IDH no tienen texto de artículo
+  (NO_COTEJABLE).
 
 ## Núcleo VVCA: costuras y pruebas sin corpus (R4a)
 
@@ -503,6 +592,8 @@ ante cualquier ambigüedad.
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
 | Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b; D08, D09, D11 y D12 en R4c; D07, D13 y D14 en R4d; D10 en D10, con `tests.test_vvca_inexistencia`) |
 | Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
+| Gold Set de fidelidad | `python scripts/evaluate_fidelidad_gold_set.py [--paquete DIR]` | Cada push/PR; esquema `fidelidad-gold-set/2.0`: casos sintéticos rotulados contra texto de ley real copiado de los fixtures o del paquete del piloto PEN-01, y pares adversariales contra fuentes `sintetico_adversarial` rotuladas: falla si una categoría o un código de precisión alta no tiene recall 100 %, si un control fiel da señales, si una señal alta aparece donde no se espera (falso bloqueante) o si un texto no es literal (`sha256_texto`; subcadena exacta del fixture en CI; con `--paquete`, del artículo que reconstruye el paquete local). Los casos `LIM-*` (límites documentados) y los 22 candidatos del piloto (`pendiente_responsable`) se miden aparte y no son puerta |
+| Cotejo de fidelidad | `python -m unittest -v tests.test_plan_fidelidad` | Cada push/PR (dentro de la suite); motor con páginas literales de los fixtures (cada oración frente a su página no da señales), política de precisión, pares adversariales de la revisión externa y del coordinador, fuente truncada, alineación ambigua, cotejo del ledger con paquetes temporales (pares CONFORME, referencias, NO_COTEJABLE, ley ambigua, caché compartida; ley sintética rotulada para las señales de precisión alta), PL-020 con decisiones ligadas a la huella de cada señal, reporte, CLI (salida ≠ 0 si nada fue cotejable) y Gold Set |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-019, que el Gold Set no admite porque no tiene paquete, y las correcciones del piloto PEN-01 (clases `Piloto*`, CRLF de `agregar-tesis` y `evidencia articulo`). Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |

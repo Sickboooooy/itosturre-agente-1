@@ -1,0 +1,2382 @@
+{
+  "schema_version": "fidelidad-gold-set/2.0",
+  "version_motor": "2.0",
+  "descripcion": "Gold Set del cotejo de fidelidad determinista (PR-4, ronda 2). Casos sintéticos rotulados (review_status 'sintetico'): afirmaciones sintéticas con un defecto sembrado por categoría y controles fieles, contra texto de ley REAL copiado literalmente (recortado por marcadores) de tests/fixtures/evidencia/ o del paquete del piloto PEN-01, más los pares adversariales de la revisión externa con fuentes sintéticas rotuladas (origen 'sintetico_adversarial'). Son puerta: recall 100 % por categoría y por código de precisión alta, la precisión esperada de cada señal, 0 señales en los controles (0 de precisión alta en los de tolerancia 'sin_bloqueantes') y ninguna señal de precisión alta no esperada en ningún caso. Los casos 'limite_documentado' fijan un falso negativo conocido y no son puerta. Los 22 candidatos del piloto (review_status 'pendiente_responsable') se copian tal cual: se miden aparte y no son puerta hasta que el responsable jurídico los apruebe; su verdad propuesta nunca se reescribe.",
+  "advertencia": "Las afirmaciones de los casos sintéticos y las fuentes 'sintetico_adversarial' son de prueba y no son texto legal ni criterio jurídico. Los textos oficiales se verifican como subcadena exacta del fixture (en CI) o del artículo que reconstruye el paquete del piloto (con --paquete, local); sha256_texto protege contra ediciones.",
+  "categorias": [
+    "procedibilidad",
+    "plazos_cifras",
+    "inicio_computo",
+    "modal",
+    "negacion",
+    "excepcion_condicion",
+    "cuantificador",
+    "sujeto"
+  ],
+  "fuentes": {
+    "FX-CPF-429": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CPF.json",
+      "pagina": 147,
+      "ordenamiento": "CPF",
+      "articulo": "429",
+      "descriptor": "art. 429 CPF",
+      "texto": "Los delitos previstos en este Título se perseguirán de oficio, excepto lo previsto en los \nartículos 424, fracción II, 424 Bis, fracción III y 427.",
+      "sha256_texto": "941e27cfb25a6046420cbc29e9d8b48e8b8857a28fa142e12bfcd67234979a5e"
+    },
+    "FX-CPF-427Q": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CPF.json",
+      "pagina": 147,
+      "ordenamiento": "CPF",
+      "articulo": "427 Quinquies",
+      "descriptor": "art. 427 Quinquies CPF",
+      "texto": "A quien, a sabiendas, sin autorización y con fines de lucro, suprima o altere, \npor sí o por medio de otro, cualquier información sobre gestión de derechos, se le impondrá de seis \nmeses a seis años de prisión y de quinientos a mil días multa.",
+      "sha256_texto": "1b26da849e839fa3e7bc57d4c05618beed72e7cf0580b8a907f7e07c2506c122"
+    },
+    "FX-CNPP-489": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 139,
+      "ordenamiento": "CNPP",
+      "articulo": "489",
+      "descriptor": "art. 489 CNPP",
+      "texto": "Recibida la solicitud, el Tribunal de alzada que corresponda pedirá inmediatamente los registros del \nproceso al juzgado de origen o a la oficina en que se encuentren y, en caso de que el promovente haya \nprotestado exhibir las pruebas, se le otorgará un plazo no mayor de diez días para su recepción. \n \nRecibidos los registros y, en su caso las pruebas del promovente, el Tribunal de alzada citará al \nMinisterio Público, al solicitante y a su Defensor, así como a la víctima u ofendido y a su Asesor jurídico, \na una audiencia que se celebrará dentro de los cinco días siguientes al recibo de los registros y de las \npruebas. En dicha audiencia se desahogarán las pruebas ofrecidas por el promovente y se escuchará a \néste y al Ministerio Público, para que cada uno formule sus alegatos. \n \nDentro de los cinco días siguientes a la formulación de los alegatos y a la conclusión de la audiencia, \nel Tribunal de alzada dictará sentencia. Si se declara fundada la solicitud de reconocimiento de inocencia \no modificación de sentencia, el Tribunal de alzada resolverá anular la sentencia impugnada y dará aviso \nal Tribunal de enjuiciamiento que condenó, para que haga la anotación correspondiente en la sentencia y \npublicará una síntesis del fallo en los estrados del Tribunal; asimismo, informará de esta resolución a la \nautoridad competente encargada de la ejecución penal, para que en su caso sin más trámite ponga en \nlibertad absoluta al sentenciado y haga cesar todos los efectos de la sentencia anulada, o bien registre la \nmodificación de la pena comprendida en la nueva sentencia.",
+      "sha256_texto": "e346c19b081d4fcedda7bf4b90a3ed015f01a7eac49cf30b048b258d6935f069"
+    },
+    "FX-CNPP-TR2": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 139,
+      "ordenamiento": "CNPP",
+      "articulo": "Segundo transitorio",
+      "descriptor": "art. Segundo transitorio CNPP",
+      "texto": "En todos los casos, entre la Declaratoria a que se hace referencia en los párrafos anteriores y la \nentrada en vigor del presente Código deberán mediar sesenta días naturales.",
+      "sha256_texto": "2b6275620a4e3a8752184659d0390b60b41c84cc0ec1e9f57fc6fdf6fe8a6f1e"
+    },
+    "FX-CNPP-167-P1": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 52,
+      "ordenamiento": "CNPP",
+      "articulo": "167",
+      "descriptor": "art. 167 CNPP",
+      "texto": "El Ministerio Público sólo podrá solicitar al Juez de control la prisión preventiva o el resguardo \ndomiciliario cuando otras medidas cautelares no sean suficientes para garantizar la comparecencia del \nimputado en el juicio, el desarrollo de la investigación, la protección de la víctima, de los testigos o de la \ncomunidad así como cuando el imputado esté siendo procesado o haya sido sentenciado previamente \npor la comisión de un delito doloso, siempre y cuando la causa diversa no sea acumulable o conexa en \nlos términos del presente Código.",
+      "sha256_texto": "84c46ec41ec4ee5e827f1a165f837546773b7363eb1eee3d08e0a9abd2897851"
+    },
+    "FX-CNPP-167-SUST": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 54,
+      "ordenamiento": "CNPP",
+      "articulo": "167",
+      "descriptor": "art. 167 CNPP",
+      "texto": "El juez no impondrá la prisión preventiva oficiosa y la sustituirá por otra medida cautelar, únicamente \ncuando lo solicite el Ministerio Público por no resultar proporcional para garantizar la comparecencia del \nimputado en el proceso, el desarrollo de la investigación, la protección de la víctima y de los testigos o de \nla comunidad o bien, cuando exista voluntad de las partes para celebrar un acuerdo reparatorio de \ncumplimiento inmediato, siempre que se trate de alguno de los delitos en los que sea procedente dicha \nforma de solución alterna del procedimiento. La solicitud deberá contar con la autorización del titular de la \nFiscalía o de la persona funcionaria en la cual delegue esa facultad.",
+      "sha256_texto": "71c16934d093110e5365fc0b4e05acca8017e60e3099c89006431035c341be8b"
+    },
+    "FX-CNPP-167-MASC": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 54,
+      "ordenamiento": "CNPP",
+      "articulo": "167",
+      "descriptor": "art. 167 CNPP",
+      "texto": "En los casos en los que la víctima u ofendido y la persona imputada deseen participar en un \nMecanismo Alternativo de Solución de Controversias, y no sea factible modificar la medida cautelar de \nprisión preventiva, por existir riesgo de que el imputado se sustraiga del procedimiento o lo obstaculice, el \no la Juez de Control podrá derivar el asunto al Órgano especializado en la materia, para promover la \nreparación del daño y concretar el acuerdo correspondiente.",
+      "sha256_texto": "cd9e7e22965de2f3877587ac205631c8efa769ce475191456e3ee04b5f517844"
+    },
+    "FX-CNPP-2O": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 1,
+      "ordenamiento": "CNPP",
+      "articulo": "2o.",
+      "descriptor": "art. 2o. CNPP",
+      "texto": "Este Código tiene por objeto establecer las normas que han de observarse en la investigación, el \nprocesamiento y la sanción de los delitos, para esclarecer los hechos, proteger al inocente, procurar que \nel culpable no quede impune y que se repare el daño, y así contribuir a asegurar el acceso a la justicia en \nla aplicación del derecho y resolver el conflicto que surja con motivo de la comisión del delito, en un \nmarco de respeto a los derechos humanos reconocidos en la Constitución y en los Tratados \nInternacionales de los que el Estado mexicano sea parte.",
+      "sha256_texto": "b1e4671ee363d5ac972977506dffdb90746fd836bc77ebc1c34fba2ff569329a"
+    },
+    "FX-CPEUM-28-NORMAS": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CPEUM.json",
+      "pagina": 43,
+      "ordenamiento": "CPEUM",
+      "articulo": "28",
+      "descriptor": "art. 28 CPEUM",
+      "texto": "Las normas generales y actos emitidos en materia de libre competencia y concurrencia, así como en \nmateria de telecomunicaciones y radiodifusión, en cumplimiento de las facultades atribuidas en los \npárrafos décimo quinto al décimo noveno de este artículo, o las omisiones en las que incurran, podrán ser \nimpugnados únicamente mediante el juicio de amparo indirecto y no serán objeto de suspensión.",
+      "sha256_texto": "f578388a4bee3bbcb0290c4cda93e27ae0db882f3fd5716869cede610d621456"
+    },
+    "FX-CPEUM-28-INTRA": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CPEUM.json",
+      "pagina": 43,
+      "ordenamiento": "CPEUM",
+      "articulo": "28",
+      "descriptor": "art. 28 CPEUM",
+      "texto": "En ningún caso se \nadmitirán recursos ordinarios o constitucionales contra actos intraprocesales.",
+      "sha256_texto": "0f2f282b35369d59d2aabfcd27a53aa05f737f8a2a11022b482c7b0fe2ae331b"
+    },
+    "FX-CPEUM-73-EMPRESTITOS": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CPEUM.json",
+      "pagina": 71,
+      "ordenamiento": "CPEUM",
+      "articulo": "73, fracción VIII, numeral 1o.",
+      "descriptor": "art. 73, fracción VIII, numeral 1o. CPEUM",
+      "texto": "Ningún empréstito podrá \ncelebrarse sino para la ejecución de obras que directamente produzcan un \nincremento en los ingresos públicos o, en términos de la ley de la materia, los que \nse realicen con propósitos de regulación monetaria, las operaciones de \nrefinanciamiento o reestructura de deuda que deberán realizarse bajo las mejores \ncondiciones de mercado; así como los que se contraten durante alguna emergencia \ndeclarada por el Presidente de la República en los términos del artículo 29.",
+      "sha256_texto": "a754f28353b1364166baf3e2079878d34370b17b5ada396e1aac76348d78ac8b"
+    },
+    "FX-CFF-3O": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CFF.json",
+      "pagina": 2,
+      "ordenamiento": "CFF",
+      "articulo": "3o.",
+      "descriptor": "art. 3o. CFF",
+      "texto": "Los aprovechamientos por concepto de multas impuestas por infracciones a las disposiciones legales \no reglamentarias que no sean de carácter fiscal, podrán ser destinados a cubrir los gastos de operación e \ninversión de las dependencias encargadas de aplicar o vigilar el cumplimiento de las disposiciones cuya \ninfracción dio lugar a la imposición de la multa, cuando dicho destino específico así lo establezcan las \ndisposiciones jurídicas aplicables.",
+      "sha256_texto": "086d78f19db74ac14d755c7efea87b427a0eca1d63974912fb87a3aa150cbbe9"
+    },
+    "FX-CFF-20-MONEDA": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CFF.json",
+      "pagina": 30,
+      "ordenamiento": "CFF",
+      "articulo": "20",
+      "descriptor": "art. 20 CFF",
+      "texto": "Las contribuciones y sus accesorios se causarán y pagarán en moneda nacional. Los \npagos que deban efectuarse en el extranjero se podrán realizar en la moneda del país de que se trate.",
+      "sha256_texto": "4f3b81c06077c0003cced64efd9b8909f970fc9151ca78ae0058875a013d3391"
+    },
+    "FX-CFF-20-EFECTIVO": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CFF.json",
+      "pagina": 30,
+      "ordenamiento": "CFF",
+      "articulo": "20",
+      "descriptor": "art. 20 CFF",
+      "texto": "Los contribuyentes personas físicas que realicen \nactividades empresariales y que en el ejercicio inmediato anterior hubiesen obtenido ingresos inferiores a \n$2,761,230.00, así como las personas físicas que no realicen actividades empresariales y que hubiesen \nobtenido en dicho ejercicio ingresos inferiores a $473,350.00, efectuarán el pago de sus contribuciones \nen efectivo, transferencia electrónica de fondos a favor de la Tesorería de la Federación, tarjetas de \ncrédito y débito o cheques personales del mismo banco, siempre que en este último caso, se cumplan las \ncondiciones que al efecto establezca el Reglamento de este Código.",
+      "sha256_texto": "bbef3b99909b2a89abeff85b9e3360775b31d923e6cbbb9e811c95433d798cbd"
+    },
+    "PQ-CFF-113BIS": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+      "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+      "ultima_reforma_dof": "2026-04-09",
+      "ordenamiento": "CFF",
+      "articulo": "113 Bis",
+      "completo": true,
+      "descriptor": "art. 113 Bis CFF",
+      "texto": "Artículo 113 Bis.- Se impondrá sanción de dos a nueve años de prisión, al que por sí o por interpósita \npersona, expida, enajene, compre o adquiera comprobantes fiscales que amparen operaciones \ninexistentes, falsas o actos jurídicos simulados. \n \nSe impondrá la sanción descrita en el párrafo que antecede al que, por sí o por interpósita persona, \nexpida, enajene, compre, adquiera o dé efectos fiscales a comprobantes fiscales falsos. \nPárrafo adicionado DOF 07-11-2025 \n \nEste delito se investigará y perseguirá independientemente del estado en que se encuentre el \nprocedimiento administrativo que, en su caso, se haya iniciado.  \nPárrafo adicionado DOF 07-11-2025 \n \nAsimismo, la ejecución de este delito puede dar lugar a la causación de un daño material a la \nHacienda Federal, el cual deberá ser objeto de reparación. \nPárrafo adicionado DOF 07-11-2025 \n \n\nSe sancionará con las mismas penas, a las plataformas de servicios digitales a que se refiere la Ley \ndel Impuesto al Valor Agregado, así como a los titulares de las mismas que permitan la publicación de \nanuncios para la adquisición o enajenación de comprobantes fiscales que amparen operaciones \ninexistentes, falsas, actos jurídicos simulados o comprobantes fiscales falsos, así como al que a \nsabiendas permita o publique a través de dichas plataformas o por cualquier otro medio, los citados \nanuncios. \nPárrafo reformado DOF 07-11-2025 \n \nCuando el delito sea cometido por un servidor público en ejercicio de sus funciones, será destituido \ndel empleo e inhabilitado de uno a diez años para desempeñar cargo o comisión públicos, en adición a la \nagravante señalada en el artículo 97 de este Código. \n \nSe requerirá querella por parte de la Secretaría de Hacienda y Crédito Público, para proceder \npenalmente por este delito. \n \nEl delito previsto en este artículo, así como el dispuesto en el artículo 400 Bis del Código Penal \nFederal, se podrán perseguir simultáneamente. \n ",
+      "sha256_texto": "12d4fef35b39b7c92da2596b0427a02560be45c03846d56dd0862bcfd614861f"
+    },
+    "PQ-CFF-92": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+      "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+      "ultima_reforma_dof": "2026-04-09",
+      "ordenamiento": "CFF",
+      "articulo": "92",
+      "completo": true,
+      "descriptor": "art. 92 CFF",
+      "texto": "Artículo 92.- La Secretaría de Hacienda y Crédito Público tendrá el carácter de víctima u ofendida en \nlos procedimientos penales y juicios relacionados con delitos previstos en este Código. Los abogados \nhacendarios podrán actuar como asesores jurídicos dentro de dichos procedimientos. \n \nPara proceder penalmente por los delitos fiscales previstos en este Capítulo, será necesario que \npreviamente la Secretaría de Hacienda y Crédito Público: \n \nI.  \nFormule querella, tratándose de los previstos en los artículos 105, 108, 109, 110, 111, 112 y 114, \nindependientemente del estado en que se encuentre el procedimiento administrativo que en su \ncaso se tenga iniciado. \n \nII.  Declare que el Fisco Federal ha sufrido o pudo sufrir perjuicio en lo establecido en los artículos \n102, 103 y 115. \n \nIII.  Formule la declaratoria correspondiente, en los casos de contrabando de mercancías por las que \nno deban pagarse impuestos y requieran permiso de autoridad competente, o de mercancías de \ntráfico prohibido. \n \nEn los demás casos no previstos en las fracciones anteriores bastará la denuncia de los hechos ante \nel Ministerio Público Federal. \n \nLos procesos por los delitos fiscales a que se refieren las tres fracciones de este artículo se \nsobreseerán a petición de la Secretaría de Hacienda y Crédito Público, cuando los imputados paguen las \ncontribuciones originadas por los hechos imputados, las sanciones y los recargos respectivos, o bien \nesos créditos fiscales queden garantizados a satisfacción de la propia Secretaría. La petición anterior se \nhará discrecionalmente, antes de que el Ministerio Público Federal y el asesor jurídico formulen el alegato \nde clausura, y surtirá efectos respecto de las personas a que la misma se refiera. \n \nLa Secretaría de Hacienda y Crédito Público, con el fin de formular ante el Ministerio Público el \nrequisito de procedibilidad que corresponda, podrá allegarse de los datos necesarios para documentar \nhechos probablemente constitutivos de delitos fiscales. \n \nEn los delitos fiscales en que sea necesaria querella o declaratoria de perjuicio y el daño o el perjuicio \nsea cuantificable, la Secretaría de Hacienda y Crédito Público hará la cuantificación correspondiente en la \npropia declaratoria o querella. La citada cuantificación sólo surtirá efectos en el procedimiento penal. Para \nconceder la libertad provisional, excepto tratándose de los delitos graves previstos en este Código, para \nefectos de lo previsto en el artículo 194 del Código Federal de Procedimientos Penales, el monto de la \ncaución que fije la autoridad judicial comprenderá, en su caso, la suma de la cuantificación antes \nmencionada y las contribuciones adeudadas, incluyendo actualización y recargos que hubiera \ndeterminado la autoridad fiscal a la fecha en que se promueva la libertad provisional. La caución que se \notorgue en los términos de este párrafo, no sustituye a la garantía del interés fiscal. \n \nAl resolver sobre las providencias precautorias la autoridad competente tomará como base la \ncuantificación anterior, adicionando la actualización y recargos que haya determinado la autoridad fiscal a \nla fecha de que se ordene la providencia. En caso de que el imputado no cuente con bienes suficientes \npara satisfacer la providencia precautoria, el juez fijará en todos los casos una medida cautelar \n\nconsistente en garantía económica por el mismo monto que correspondería a la providencia precautoria. \nEn el caso de que al imputado se le haya impuesto como medida cautelar una garantía económica y, \nexhibida esta sea citado para comparecer ante el juez e incumpla la cita, se requerirá al garante para que \npresente al imputado en un plazo no mayor a ocho días, advertidos, el garante y el imputado, de que si \nno lo hicieren o no justificaren la incomparecencia, se hará efectiva a favor del Fisco Federal. \n \nPara efectos de la condena a la reparación del daño, la autoridad competente deberá considerar la \ncuantificación referida en este artículo, incluyendo la actualización y los recargos que hubiere \ndeterminado la autoridad fiscal a la fecha en la que se dicte dicha condena. \n \nEn caso de que el imputado hubiera pagado el interés fiscal a entera satisfacción de la Secretaría de \nHacienda y Crédito Público, la autoridad judicial, a solicitud del imputado, podrá considerar dicho pago \npara efecto de la determinación de providencias precautorias, la imposición o modificación de las \nmedidas cautelares. \n \nSe consideran mercancías los productos, artículos, efectos y cualesquier otros bienes, aun cuando las \nleyes los consideren inalienables o irreductibles a propiedad particular. \n \nPara fijar la pena de prisión que corresponda a los delitos fiscales conforme a los límites mínimo y \nmáximo del monto de las cantidades que constituyan el perjuicio, cuando éste pueda ser determinado, \nserá conforme al que esté establecido en el momento de efectuar la conducta delictuosa. \n ",
+      "sha256_texto": "7a510e683ded9d23734f6861793ac0d278ab391ad5eaf4fb61f7390e365f9692"
+    },
+    "PQ-CFF-108": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+      "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+      "ultima_reforma_dof": "2026-04-09",
+      "ordenamiento": "CFF",
+      "articulo": "108",
+      "completo": true,
+      "descriptor": "art. 108 CFF",
+      "texto": "Artículo 108.- Comete el delito de defraudación fiscal quien con uso de engaños o aprovechamiento \nde errores, omita total o parcialmente el pago de alguna contribución u obtenga un beneficio indebido con \nperjuicio del fisco federal. \n \nLa omisión total o parcial de alguna contribución a que se refiere el párrafo anterior comprende, \nindistintamente, los pagos provisionales o definitivos o el impuesto del ejercicio en los términos de las \ndisposiciones fiscales. \n \nEl delito de defraudación fiscal y el delito previsto en el artículo 400 Bis del Código Penal Federal, se \npodrán perseguir simultáneamente. Se presume cometido el delito de defraudación fiscal cuando existan \ningresos o recursos que provengan de operaciones con recursos de procedencia ilícita. \n \nEl delito de defraudación fiscal se sancionará con las penas siguientes: \n \nI.  \nCon prisión de tres meses a dos años, cuando el monto de lo defraudado no exceda de \n$2,531,920.00. \nCantidad de la fracción compilada por resolución miscelánea fiscal DOF 05-01-2022. Actualizada DOF 27-12-2022.  \nCompilada DOF 29-12-2023, 30-12-2024. Actualizada DOF 28-12-2025 \n \nII.  Con prisión de dos años a cinco años cuando el monto de lo defraudado exceda de \n$2,531,920.00 pero no de $3,797,870.00. \nCantidades de la fracción compiladas por resolución miscelánea fiscal DOF 05-01-2022. Actualizadas DOF 27-12-2022.  \nCompiladas DOF 29-12-2023, 30-12-2024. Actualizada DOF 28-12-2025 \n \nIII.  Con prisión de tres años a nueve años cuando el monto de lo defraudado fuere mayor de \n$3,797,870.00. \nCantidad de la fracción compilada por resolución miscelánea fiscal DOF 05-01-2022. Actualizada DOF 27-12-2022.  \nCompilada DOF 29-12-2023, 30-12-2024. Actualizada DOF 28-12-2025 \n \nCuando no se pueda determinar la cuantía de lo que se defraudó, la pena será de tres meses a seis \naños de prisión. \n \nSi el monto de lo defraudado es restituido de manera inmediata en una sola exhibición, la pena \naplicable podrá atenuarse hasta en un cincuenta por ciento. \n \n\nEl delito de defraudación fiscal y los previstos en el artículo 109 de este Código, serán calificados \ncuando se originen por: \n \na).-  Usar documentos falsos.  \n \nb).-  Omitir reiteradamente la expedición de comprobantes por las actividades que se realicen, \nsiempre que las disposiciones fiscales establezcan la obligación de expedirlos. Se entiende que \nexiste una conducta reiterada cuando durante un período de cinco años el contribuyente haya \nsido sancionado por esa conducta la segunda o posteriores veces. \n \nc).-  Manifestar datos falsos para obtener de la autoridad fiscal la devolución de contribuciones que no \nle correspondan.  \n \nd).-  No llevar los sistemas o registros contables a que se esté obligado conforme a las disposiciones \nfiscales o asentar datos falsos en dichos sistemas o registros. \n \ne)  Omitir contribuciones retenidas, recaudadas o trasladadas. \n \nf)  \nManifestar datos falsos para realizar la compensación de contribuciones que no le correspondan. \n \ng)  Utilizar datos falsos para acreditar o disminuir contribuciones. \n \nh)  Declarar pérdidas fiscales inexistentes. \n \ni)  \nUtilizar esquemas simulados de prestación de servicios especializados o la ejecución de obras \nespecializadas, descritas en el artículo 15-D, penúltimo párrafo, de este Código, o realizar la \nsubcontratación de personal a que se refiere el primer y segundo párrafos de dicho artículo. \n \nj) \nSimular una prestación de servicios profesionales independientes a que se refiere el Título IV, \nCapítulo II, Sección IV de la Ley del Impuesto sobre la Renta, respecto de sus trabajadores. \nInciso adicionado DOF 12-11-2021 \n \nk) \nDeducir, acreditar, aplicar cualquier estímulo o beneficio fiscal o de cualquier forma obtener un \nbeneficio tributario, respecto de erogaciones que se efectúen en violación de la legislación \nanticorrupción, entre ellos las erogaciones consistentes en dar, por sí o por interpósita persona, \ndinero, bienes o servicios, a servidores públicos o terceros, nacionales o extranjeros, en \ncontravención a las disposiciones legales. \nInciso adicionado DOF 12-11-2021 \n \nCuando los delitos sean calificados, la pena que corresponda se aumentará en una mitad. \n \nNo se formulará querella si quien hubiere omitido el pago total o parcial de alguna contribución u \nobtenido el beneficio indebido conforme a este artículo, lo entera espontáneamente con sus recargos y \nactualización antes de que la autoridad fiscal descubra la omisión o el perjuicio, o medie requerimiento, \norden de visita o cualquier otra gestión notificada por la misma, tendiente a la comprobación del \ncumplimiento de las disposiciones fiscales. \n \nPara los fines de este artículo y del siguiente, se tomará en cuenta el monto de las contribuciones \ndefraudadas en un mismo ejercicio fiscal, aun cuando se trate de contribuciones diferentes y de diversas \nacciones u omisiones. Lo anterior no será aplicable tratándose de pagos provisionales. \n ",
+      "sha256_texto": "c2536e3c78f83d73b890eb7d1eeb27aeb4ed96090351c6935344a728a8c8b51d"
+    },
+    "PQ-CNPP-471": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+      "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+      "ultima_reforma_dof": "2025-11-28",
+      "ordenamiento": "CNPP",
+      "articulo": "471",
+      "completo": true,
+      "descriptor": "art. 471 CNPP",
+      "texto": "Artículo 471. Trámite de la apelación \nEl recurso de apelación contra las resoluciones del Juez de control se interpondrá por escrito ante el \nmismo Juez que dictó la resolución, dentro de los tres días contados a partir de aquel en el que surta \nefectos la notificación si se tratare de auto o cualquier otra providencia y de cinco días si se tratare de \nsentencia definitiva. \n \nEn los casos de apelación sobre el desistimiento de la acción penal por el Ministerio Público se \ninterpondrá ante el Tribunal de enjuiciamiento que dictó la resolución dentro de los tres días contados a \npartir de que surte efectos la notificación. El recurso de apelación en contra de las sentencias definitivas \ndictadas por el Tribunal de enjuiciamiento se interpondrá ante el Tribunal que conoció del juicio, dentro de \n\nlos diez días siguientes a la notificación de la resolución impugnada, mediante escrito en el que se \nprecisarán las disposiciones violadas y los motivos de agravio correspondientes. \n \nEn el escrito de interposición de recurso deberá señalarse el domicilio o autorizar el medio para ser \nnotificado; en caso de que el Tribunal de alzada competente para conocer de la apelación tenga su sede \nen un lugar distinto al del proceso, las partes deberán fijar un nuevo domicilio en la jurisdicción de aquél \npara recibir notificaciones o el medio para recibirlas. \n \nLos agravios deberán expresarse en el mismo escrito de interposición del recurso; el recurrente \ndeberá exhibir una copia para el registro y una para cada una de las otras partes. Si faltan total o \nparcialmente las copias, se le requerirá para que presente las omitidas dentro del término de veinticuatro \nhoras. En caso de que no las exhiba, el Órgano jurisdiccional las tramitará e impondrá al promovente \nmulta de diez a ciento cincuenta días de salario, excepto cuando éste sea el imputado o la víctima u \nofendido. \n \nInterpuesto el recurso, el Órgano jurisdiccional deberá correr traslado del mismo a las partes para que \nse pronuncien en un plazo de tres días respecto de los agravios expuestos y señalen domicilio o medios \nen los términos del segundo párrafo del presente artículo. \n \nAl interponer el recurso, al contestarlo o al adherirse a él, los interesados podrán manifestar en su \nescrito su deseo de exponer oralmente alegatos aclaratorios sobre los agravios ante el Tribunal de \nalzada. \n ",
+      "sha256_texto": "62cc2ff713b0c043b43d7d66b6cca4bad9ed55e18209ba71a24719b394fbf5b5"
+    },
+    "PQ-CNPP-94": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+      "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+      "ultima_reforma_dof": "2025-11-28",
+      "ordenamiento": "CNPP",
+      "articulo": "94",
+      "completo": true,
+      "descriptor": "art. 94 CNPP",
+      "texto": "Artículo 94. Reglas generales \nLos actos procedimentales serán cumplidos en los plazos establecidos, en los términos que este \nCódigo autorice. \n \n\nLos plazos sujetos al arbitrio judicial serán determinados conforme a la naturaleza del procedimiento y \na la importancia de la actividad que se deba de desarrollar, teniendo en cuenta los derechos de las \npartes. \n \nNo se computarán los días sábados, los domingos ni los días que sean determinados inhábiles por los \nordenamientos legales aplicables, salvo que se trate de los actos relativos a providencias precautorias, \npuesta del imputado a disposición del Órgano jurisdiccional, resolver la legalidad de la detención, \nformulación de la imputación, resolver sobre la procedencia de las medidas cautelares en su caso y \ndecidir sobre la procedencia de su vinculación a proceso, para tal efecto todos los días se computarán \ncomo hábiles. \n \nCon la salvedad de la excepción prevista en el párrafo anterior, los demás plazos que venzan en día \ninhábil, se tendrán por prorrogados hasta el día hábil siguiente. \n \nLos plazos establecidos en horas correrán de momento a momento y los establecidos en días a partir \ndel día en que surte efectos la notificación. \n ",
+      "sha256_texto": "9496f2af1120a054bc084923ac015921f4e65354b893ba570ad3de8beaebc77f"
+    },
+    "PQ-CPEUM-1O-P1": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+      "sha256_documento": "ca63a23a4b7444ebdbdad93759fbf46bd14c069e587c5878decf89fc9c12ca8e",
+      "ultima_reforma_dof": "2026-06-02",
+      "ordenamiento": "CPEUM",
+      "articulo": "1o.",
+      "completo": false,
+      "descriptor": "art. 1o. CPEUM",
+      "texto": "En los Estados Unidos Mexicanos todas las personas gozarán de los derechos humanos \nreconocidos en esta Constitución y en los tratados internacionales de los que el Estado Mexicano sea \nparte, así como de las garantías para su protección, cuyo ejercicio no podrá restringirse ni suspenderse, \nsalvo en los casos y bajo las condiciones que esta Constitución establece.",
+      "sha256_texto": "cba0455b6cede0efc60b26bb75e6777c15cce58c7506a31a8c7be81951043456"
+    },
+    "PQ-CPEUM-19-P1": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+      "sha256_documento": "ca63a23a4b7444ebdbdad93759fbf46bd14c069e587c5878decf89fc9c12ca8e",
+      "ultima_reforma_dof": "2026-06-02",
+      "ordenamiento": "CPEUM",
+      "articulo": "19",
+      "completo": false,
+      "descriptor": "art. 19 CPEUM",
+      "texto": "Ninguna detención ante autoridad judicial podrá exceder del plazo de setenta y dos \nhoras, a partir de que el indiciado sea puesto a su disposición, sin que se justifique con un auto de \nvinculación a proceso en el que se expresará: el delito que se impute al acusado; el lugar, tiempo y \ncircunstancias de ejecución, así como los datos que establezcan que se ha cometido un hecho que la ley \nseñale como delito y que exista la probabilidad de que el indiciado lo cometió o participó en su comisión.",
+      "sha256_texto": "2b9bf4616790421f40c3dbfb16da1d7812c263dfcb804663c3bf5770ec603e97"
+    },
+    "PQ-LAMP-217-P1": {
+      "origen": "paquete_piloto",
+      "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf",
+      "sha256_documento": "05560493ac2b17b9e77eeb9741843176ee0fde76f05e75f853465b13621be78d",
+      "ultima_reforma_dof": "2025-10-16",
+      "ordenamiento": "LA",
+      "articulo": "217",
+      "completo": false,
+      "descriptor": "art. 217 LA",
+      "texto": "La jurisprudencia que establezca la Suprema Corte de Justicia de la Nación será \nobligatoria para todas las autoridades jurisdiccionales de la Federación y de las entidades federativas, \ncon excepción de la propia Suprema Corte.",
+      "sha256_texto": "e67fe4e35725b6bfaec5852d71430d9528f55ab2b3b33f2422bdbfe1c1798109"
+    },
+    "SA-RECURSO-HABILES": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-RECURSO-HABILES",
+      "texto": "El recurso se interpone en diez días hábiles.",
+      "sha256_texto": "f3f86df93be8ad893fddc94bf3a9e19616cf1a74b62c04019b74df2b964efd44"
+    },
+    "SA-PRISION-RANGOS": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-PRISION-RANGOS",
+      "texto": "El delito se sanciona con prisión de 3 a 6 años. La reincidencia se sanciona con prisión de 6 a 9 años.",
+      "sha256_texto": "7d7f8d1a3a4390a6790525095ca32ecd793e3bcce61d00b70ba9c4cf4600b5e1"
+    },
+    "SA-MULTA-UMA": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-MULTA-UMA",
+      "texto": "La autoridad impondrá una multa de 100 UMA.",
+      "sha256_texto": "9e2e5f9919a39b41bcf39419e0621d69e24149db94266acfd4bc25055bb25159"
+    },
+    "SA-JUEZ-PODRA": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-JUEZ-PODRA",
+      "texto": "El juez podrá autorizar la intervención telefónica.",
+      "sha256_texto": "e0aa8fc0f7b921d53fbf94761d3cf36a133907919dd8d1342af9bf657e343d79"
+    },
+    "SA-NO-PODRA-NO": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-NO-PODRA-NO",
+      "texto": "El juez no podrá no admitir la prueba documental.",
+      "sha256_texto": "a5acdbd75ff154d51b81c25a6b4c70a8c38926c275c712cd4d58ed1a587eb621"
+    },
+    "SA-SALVO-ILICITA": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-SALVO-ILICITA",
+      "texto": "El tribunal admitirá la prueba documental, salvo si es ilícita.",
+      "sha256_texto": "9b5b06be3d289f634865529fdfc4a5e27596867ad3f3da72127bffc2e053bb77"
+    },
+    "SA-PODRA-ORDENAR": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-PODRA-ORDENAR",
+      "texto": "El juez podrá ordenar la libertad del imputado.",
+      "sha256_texto": "8332460de9efa1659cdee0e80e7bd3ccb315b49a2ae409c23f7cf3a969fce075"
+    },
+    "SA-INTERVENCION": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-INTERVENCION",
+      "texto": "El juez deberá autorizar la intervención telefónica para investigar el delito, proteger a la víctima, localizar al imputado y conservar los registros. El fiscal podrá autorizar la intervención telefónica.",
+      "sha256_texto": "e1d300ca1a47fe121e0d69cf9e602d019c864b155cc9fbeb08efbad218a3f998"
+    },
+    "SA-NO-PODRA-ADMITIR": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-NO-PODRA-ADMITIR",
+      "texto": "El juez no podrá admitir la prueba documental.",
+      "sha256_texto": "d42c03944beb9f31d4c1a326f68badc3b623d45d206e79772d4666d2adbc1697"
+    },
+    "SA-ACEPTAR": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-ACEPTAR",
+      "texto": "La autoridad deberá aceptar la prueba documental y no deberá aceptar la prueba ilícita.",
+      "sha256_texto": "8b768de8afdfe9c04617a7d9193639b72a049e027b2d5ac116edc07e56223cd5"
+    },
+    "SA-MIL-DIAS-MULTA": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-MIL-DIAS-MULTA",
+      "texto": "La autoridad impondrá mil días multa.",
+      "sha256_texto": "45162992dcd06fd50d8f933fbe4d7009601b74a1fa05d5731889d8eb2ce0f141"
+    },
+    "FX-CNPP-489-TRUNCADA": {
+      "origen": "fixture",
+      "archivo": "tests/fixtures/evidencia/leyesbiblio_CNPP.json",
+      "pagina": 139,
+      "ordenamiento": "CNPP",
+      "articulo": "489",
+      "descriptor": "art. 489 CNPP (marcado como truncado)",
+      "texto": "Recibida la solicitud, el Tribunal de alzada que corresponda pedirá inmediatamente los registros del \nproceso al juzgado de origen o a la oficina en que se encuentren y, en caso de que el promovente haya \nprotestado exhibir las pruebas, se le otorgará un plazo no mayor de diez días para su recepción. \n \nRecibidos los registros y, en su caso las pruebas del promovente, el Tribunal de alzada citará al \nMinisterio Público, al solicitante y a su Defensor, así como a la víctima u ofendido y a su Asesor jurídico, \na una audiencia que se celebrará dentro de los cinco días siguientes al recibo de los registros y de las \npruebas. En dicha audiencia se desahogarán las pruebas ofrecidas por el promovente y se escuchará a \néste y al Ministerio Público, para que cada uno formule sus alegatos. \n \nDentro de los cinco días siguientes a la formulación de los alegatos y a la conclusión de la audiencia, \nel Tribunal de alzada dictará sentencia. Si se declara fundada la solicitud de reconocimiento de inocencia \no modificación de sentencia, el Tribunal de alzada resolverá anular la sentencia impugnada y dará aviso \nal Tribunal de enjuiciamiento que condenó, para que haga la anotación correspondiente en la sentencia y \npublicará una síntesis del fallo en los estrados del Tribunal; asimismo, informará de esta resolución a la \nautoridad competente encargada de la ejecución penal, para que en su caso sin más trámite ponga en \nlibertad absoluta al sentenciado y haga cesar todos los efectos de la sentencia anulada, o bien registre la \nmodificación de la pena comprendida en la nueva sentencia.",
+      "sha256_texto": "e346c19b081d4fcedda7bf4b90a3ed015f01a7eac49cf30b048b258d6935f069",
+      "truncado": true
+    },
+    "SA-LEGISLATURAS": {
+      "origen": "sintetico_adversarial",
+      "rotulo": "texto sintético de prueba (par adversarial de la revisión externa de PR-4, ronda 2); no es texto legal ni se cita",
+      "descriptor": "fuente sintética SA-LEGISLATURAS",
+      "texto": "Las legislaturas de las entidades federativas deberán armonizar el marco jurídico.",
+      "sha256_texto": "16c2c729ac3aec04c3f91899a72dafc0ebf03e024c5e4077cf0d79fd34ae9f91"
+    }
+  },
+  "cases": [
+    {
+      "id": "SIN-PROC-01",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "querella donde la fuente dice de oficio",
+      "afirmacion": "Los delitos previstos en este Título del CPF se persiguen por querella.",
+      "fuentes": [
+        "FX-CPF-429"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "procedibilidad.modo_distinto"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PROC-02",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "de oficio donde la fuente exige querella de la SHCP",
+      "afirmacion": "El delito de expedición de comprobantes fiscales que amparan operaciones simuladas (CFF 113 Bis) se persigue de oficio.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "procedibilidad.modo_distinto"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PROC-03",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "denuncia donde la fuente exige querella (el error real del piloto, reformulado)",
+      "afirmacion": "Para proceder penalmente por el delito del CFF 113 Bis basta la denuncia de los hechos ante el Ministerio Público.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "procedibilidad.modo_distinto"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PROC-04",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "niega el requisito de querella que la fuente impone",
+      "afirmacion": "El delito del CFF 113 Bis se persigue sin querella de la Secretaría de Hacienda y Crédito Público.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PROC-05",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "habla de persecución y omite la querella de la SHCP",
+      "afirmacion": "CFF 113 Bis: prisión de dos a nueve años por expedir comprobantes fiscales que amparen operaciones inexistentes; el delito se persigue con independencia del procedimiento administrativo.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PROC-06",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "omite que la querella es de la SHCP",
+      "afirmacion": "Para proceder penalmente por el delito del CFF 113 Bis se requiere querella.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PROC-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "requisito completo",
+      "afirmacion": "Para proceder penalmente por el delito del CFF 113 Bis se requiere querella de la Secretaría de Hacienda y Crédito Público.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PROC-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "modo y excepción conservados ('excepto')",
+      "afirmacion": "Los delitos de este Título se persiguen de oficio, excepto los previstos en los artículos 424, fracción II, 424 Bis, fracción III y 427.",
+      "fuentes": [
+        "FX-CPF-429"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PROC-C3",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "el art. 108 solo menciona la querella negada ('No se formulará querella si…'): no es un requisito omitido",
+      "afirmacion": "La defraudación fiscal y el delito del artículo 400 Bis del CPF se pueden perseguir simultáneamente.",
+      "fuentes": [
+        "PQ-CFF-108"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PROC-C4",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "modo y SHCP conservados",
+      "afirmacion": "Para proceder penalmente por los delitos de la fracción I del CFF 92, la Secretaría de Hacienda y Crédito Público debe formular querella.",
+      "fuentes": [
+        "PQ-CFF-92"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PLAZO-01",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "quince días donde la fuente dice tres o cinco",
+      "afirmacion": "La apelación contra las resoluciones del Juez de control se interpone por escrito ante el mismo Juez dentro de los quince días contados a partir de que surta efectos la notificación.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "plazos_cifras.distinto_misma_condicion"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PLAZO-02",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "días donde la fuente dice horas",
+      "afirmacion": "Ninguna detención ante autoridad judicial podrá exceder del plazo de setenta y dos días a partir de que el indiciado sea puesto a su disposición.",
+      "fuentes": [
+        "PQ-CPEUM-19-P1"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PLAZO-03",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "hábiles donde la fuente dice naturales",
+      "afirmacion": "Entre la Declaratoria y la entrada en vigor del Código deben mediar sesenta días hábiles.",
+      "fuentes": [
+        "FX-CNPP-TR2"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PLAZO-04",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "cifra que no aparece en el artículo",
+      "afirmacion": "El Tribunal de alzada dictará sentencia dentro de las cuarenta y ocho horas siguientes a la formulación de los alegatos.",
+      "fuentes": [
+        "FX-CNPP-489"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PLAZO-05",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "rango de tres a nueve años donde la fuente dice de dos a nueve",
+      "afirmacion": "El CFF 113 Bis sanciona con prisión de tres a nueve años a quien expida comprobantes fiscales que amparen operaciones simuladas.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PLAZO-06",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "dos mil días multa donde la fuente dice mil",
+      "afirmacion": "A quien suprima con fines de lucro información sobre gestión de derechos se le impondrá de seis meses a seis años de prisión y de quinientos a dos mil días multa.",
+      "fuentes": [
+        "FX-CPF-427Q"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-PLAZO-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "dígitos frente a número en palabra",
+      "afirmacion": "La apelación contra las sentencias definitivas del Tribunal de enjuiciamiento se interpone ante el Tribunal que conoció del juicio dentro de los 10 días siguientes a la notificación de la resolución impugnada.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PLAZO-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "rango en dígitos",
+      "afirmacion": "El CFF 113 Bis sanciona con prisión de 2 a 9 años a quien expida comprobantes fiscales que amparen operaciones inexistentes, falsas o actos jurídicos simulados.",
+      "fuentes": [
+        "PQ-CFF-113BIS"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PLAZO-C3",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "rangos y días multa conservados",
+      "afirmacion": "A quien suprima o altere con fines de lucro información sobre gestión de derechos se le impondrá de seis meses a seis años de prisión y de quinientos a mil días multa.",
+      "fuentes": [
+        "FX-CPF-427Q"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-PLAZO-C4",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "cifra, unidad y calificador conservados",
+      "afirmacion": "En todos los casos deben mediar sesenta días naturales entre la Declaratoria y la entrada en vigor del Código.",
+      "fuentes": [
+        "FX-CNPP-TR2"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-INICIO-01",
+      "review_status": "sintetico",
+      "categoria": "inicio_computo",
+      "defecto_sembrado": "'surta efectos' donde la fuente dice 'siguientes a la notificación'",
+      "afirmacion": "La apelación contra las sentencias definitivas del Tribunal de enjuiciamiento se interpone dentro de los diez días contados a partir de que surta efectos la notificación.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": [
+        {
+          "categoria": "inicio_computo",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "inicio_computo.distinto"
+        }
+      ]
+    },
+    {
+      "id": "SIN-INICIO-02",
+      "review_status": "sintetico",
+      "categoria": "inicio_computo",
+      "defecto_sembrado": "desde la notificación donde la fuente dice desde el recibo de los registros",
+      "afirmacion": "La audiencia ante el Tribunal de alzada se celebrará dentro de los cinco días siguientes a la notificación de la solicitud.",
+      "fuentes": [
+        "FX-CNPP-489"
+      ],
+      "esperado": [
+        {
+          "categoria": "inicio_computo",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "inicio_computo.distinto"
+        }
+      ]
+    },
+    {
+      "id": "SIN-INICIO-03",
+      "review_status": "sintetico",
+      "categoria": "inicio_computo",
+      "defecto_sembrado": "omite que los tres días corren desde que surte efectos la notificación",
+      "afirmacion": "En la apelación sobre el desistimiento de la acción penal por el Ministerio Público, el recurso se interpone ante el Tribunal de enjuiciamiento dentro de tres días.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": [
+        {
+          "categoria": "inicio_computo",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-INICIO-04",
+      "review_status": "sintetico",
+      "categoria": "inicio_computo",
+      "defecto_sembrado": "omite que los cinco días corren desde el recibo de los registros y las pruebas",
+      "afirmacion": "Recibidos los registros, el Tribunal de alzada citará a las partes a una audiencia que se celebrará dentro de los cinco días.",
+      "fuentes": [
+        "FX-CNPP-489"
+      ],
+      "esperado": [
+        {
+          "categoria": "inicio_computo",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-INICIO-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "dos inicios conservados",
+      "afirmacion": "Los plazos establecidos en horas corren de momento a momento y los establecidos en días a partir del día en que surte efectos la notificación.",
+      "fuentes": [
+        "PQ-CNPP-94"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-INICIO-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "inicio conservado",
+      "afirmacion": "El Tribunal de alzada dictará sentencia dentro de los cinco días siguientes a la formulación de los alegatos y a la conclusión de la audiencia.",
+      "fuentes": [
+        "FX-CNPP-489"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-MODAL-01",
+      "review_status": "sintetico",
+      "categoria": "modal",
+      "defecto_sembrado": "'podrá' donde la fuente dice 'deberá' (atenuación)",
+      "afirmacion": "La solicitud podrá contar con la autorización del titular de la Fiscalía o de la persona funcionaria en la cual delegue esa facultad.",
+      "fuentes": [
+        "FX-CNPP-167-SUST"
+      ],
+      "esperado": [
+        {
+          "categoria": "modal",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ALIN-01",
+      "review_status": "sintetico",
+      "categoria": "alineacion",
+      "defecto_sembrado": "la cláusula mezcla las dos oraciones del párrafo (sustitución de la PPO y autorización del titular): el motor se abstiene (ronda 1 la daba como atenuación contra la segunda)",
+      "afirmacion": "La solicitud de sustitución de la prisión preventiva oficiosa podrá contar con la autorización del titular de la Fiscalía.",
+      "fuentes": [
+        "FX-CNPP-167-SUST"
+      ],
+      "esperado": [
+        {
+          "categoria": "alineacion",
+          "severidad": "indeterminada",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-MODAL-02",
+      "review_status": "sintetico",
+      "categoria": "modal",
+      "defecto_sembrado": "'deberá' donde la fuente dice 'podrá' (refuerzo)",
+      "afirmacion": "Cuando la víctima y la persona imputada deseen participar en un Mecanismo Alternativo de Solución de Controversias, el Juez de Control deberá derivar el asunto al Órgano especializado.",
+      "fuentes": [
+        "FX-CNPP-167-MASC"
+      ],
+      "esperado": [
+        {
+          "categoria": "modal",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-MODAL-03",
+      "review_status": "sintetico",
+      "categoria": "modal",
+      "defecto_sembrado": "prohibición donde la fuente da una facultad",
+      "afirmacion": "Los pagos que deban efectuarse en el extranjero no podrán realizarse en la moneda del país de que se trate.",
+      "fuentes": [
+        "FX-CFF-20-MONEDA"
+      ],
+      "esperado": [
+        {
+          "categoria": "modal",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-MODAL-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "'pueden' ↔ 'podrán'",
+      "afirmacion": "Los abogados hacendarios pueden actuar como asesores jurídicos en los procedimientos penales por delitos fiscales.",
+      "fuentes": [
+        "PQ-CFF-92"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-MODAL-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "'debe' ↔ 'deberá'",
+      "afirmacion": "La solicitud debe contar con la autorización del titular de la Fiscalía o de la persona en quien delegue esa facultad.",
+      "fuentes": [
+        "FX-CNPP-167-SUST"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-MODAL-C3",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "facultad y condición conservadas",
+      "afirmacion": "Los aprovechamientos por multas no fiscales podrán destinarse a cubrir gastos de operación e inversión de las dependencias encargadas de aplicar las disposiciones, cuando así lo establezcan las disposiciones jurídicas aplicables.",
+      "fuentes": [
+        "FX-CFF-3O"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-NEG-01",
+      "review_status": "sintetico",
+      "categoria": "negacion",
+      "defecto_sembrado": "suprime la negación de 'no quede impune'",
+      "afirmacion": "El Código tiene por objeto procurar que el culpable quede impune y que se repare el daño.",
+      "fuentes": [
+        "FX-CNPP-2O"
+      ],
+      "esperado": [
+        {
+          "categoria": "negacion",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-NEG-02",
+      "review_status": "sintetico",
+      "categoria": "negacion",
+      "defecto_sembrado": "suprime la negación de 'No se computarán'",
+      "afirmacion": "En el cómputo de los plazos se computarán los días sábados, los domingos y los días inhábiles.",
+      "fuentes": [
+        "PQ-CNPP-94"
+      ],
+      "esperado": [
+        {
+          "categoria": "negacion",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-NEG-03",
+      "review_status": "sintetico",
+      "categoria": "negacion",
+      "defecto_sembrado": "suprime 'En ningún caso'",
+      "afirmacion": "Se admitirán recursos ordinarios o constitucionales contra actos intraprocesales.",
+      "fuentes": [
+        "FX-CPEUM-28-INTRA"
+      ],
+      "esperado": [
+        {
+          "categoria": "negacion",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-NEG-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "equivalencia lógica: 'no podrá restringirse… salvo' ↔ 'solo proceden' (piloto PEN-01, CPEUM 1o.)",
+      "afirmacion": "Las restricciones al ejercicio de los derechos humanos solo proceden en los casos y bajo las condiciones que la Constitución establece.",
+      "fuentes": [
+        "PQ-CPEUM-1O-P1"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-NEG-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "equivalencia lógica: 'Ningún empréstito podrá celebrarse sino para' ↔ 'solo podrán celebrarse para'",
+      "afirmacion": "Los empréstitos solo podrán celebrarse para la ejecución de obras que directamente produzcan un incremento en los ingresos públicos.",
+      "fuentes": [
+        "FX-CPEUM-73-EMPRESTITOS"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-NEG-C3",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "equivalencia lógica inversa: 'sólo podrá solicitar… cuando' ↔ 'no podrá solicitar…, salvo cuando'",
+      "afirmacion": "El Ministerio Público no podrá solicitar al Juez de control la prisión preventiva, salvo cuando otras medidas cautelares no sean suficientes para garantizar la comparecencia del imputado en el juicio.",
+      "fuentes": [
+        "FX-CNPP-167-P1"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-NEG-C4",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "negación conservada",
+      "afirmacion": "El Código tiene por objeto procurar que el culpable no quede impune y que se repare el daño.",
+      "fuentes": [
+        "FX-CNPP-2O"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-EXC-01",
+      "review_status": "sintetico",
+      "categoria": "excepcion_condicion",
+      "defecto_sembrado": "omite la excepción de los artículos 424, 424 Bis y 427",
+      "afirmacion": "Los delitos previstos en este Título del CPF se perseguirán de oficio.",
+      "fuentes": [
+        "FX-CPF-429"
+      ],
+      "esperado": [
+        {
+          "categoria": "excepcion_condicion",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-EXC-02",
+      "review_status": "sintetico",
+      "categoria": "excepcion_condicion",
+      "defecto_sembrado": "omite la condición 'cuando dicho destino… así lo establezcan las disposiciones'",
+      "afirmacion": "Los aprovechamientos por multas no fiscales podrán destinarse a cubrir los gastos de operación e inversión de las dependencias encargadas de aplicar o vigilar las disposiciones infringidas.",
+      "fuentes": [
+        "FX-CFF-3O"
+      ],
+      "esperado": [
+        {
+          "categoria": "excepcion_condicion",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-EXC-03",
+      "review_status": "sintetico",
+      "categoria": "excepcion_condicion",
+      "defecto_sembrado": "omite 'siempre que… se cumplan las condiciones que… establezca el Reglamento'",
+      "afirmacion": "Las personas físicas con actividades empresariales e ingresos inferiores al límite pueden pagar sus contribuciones con cheques personales del mismo banco.",
+      "fuentes": [
+        "FX-CFF-20-EFECTIVO"
+      ],
+      "esperado": [
+        {
+          "categoria": "excepcion_condicion",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-EXC-04",
+      "review_status": "sintetico",
+      "categoria": "excepcion_condicion",
+      "defecto_sembrado": "omite 'con excepción de la propia Suprema Corte'",
+      "afirmacion": "La jurisprudencia de la Suprema Corte de Justicia de la Nación es obligatoria para todas las autoridades jurisdiccionales de la Federación y de las entidades federativas.",
+      "fuentes": [
+        "PQ-LAMP-217-P1"
+      ],
+      "esperado": [
+        {
+          "categoria": "excepcion_condicion",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-EXC-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "'salvo' ↔ 'con excepción de'",
+      "afirmacion": "La jurisprudencia de la SCJN obliga a todas las autoridades jurisdiccionales de la Federación y de las entidades federativas, salvo a la propia Suprema Corte.",
+      "fuentes": [
+        "PQ-LAMP-217-P1"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-EXC-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "negación, excepción completa y cuantificador conservados",
+      "afirmacion": "No se computan los sábados, los domingos ni los días inhábiles, salvo que se trate de los actos relativos a providencias precautorias, puesta del imputado a disposición del Órgano jurisdiccional, legalidad de la detención, formulación de la imputación, medidas cautelares y vinculación a proceso; para esos actos todos los días son hábiles.",
+      "fuentes": [
+        "PQ-CNPP-94"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-CUANT-01",
+      "review_status": "sintetico",
+      "categoria": "cuantificador",
+      "defecto_sembrado": "añade 'únicamente'",
+      "afirmacion": "Los procesos por los delitos fiscales de las tres fracciones del artículo 92 se sobreseerán únicamente a petición de la Secretaría de Hacienda y Crédito Público cuando los imputados paguen las contribuciones, las sanciones y los recargos.",
+      "fuentes": [
+        "PQ-CFF-92"
+      ],
+      "esperado": [
+        {
+          "categoria": "cuantificador",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-CUANT-02",
+      "review_status": "sintetico",
+      "categoria": "cuantificador",
+      "defecto_sembrado": "omite 'sólo'",
+      "afirmacion": "El Ministerio Público podrá solicitar al Juez de control la prisión preventiva cuando otras medidas cautelares no sean suficientes para garantizar la comparecencia del imputado en el juicio.",
+      "fuentes": [
+        "FX-CNPP-167-P1"
+      ],
+      "esperado": [
+        {
+          "categoria": "cuantificador",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-CUANT-03",
+      "review_status": "sintetico",
+      "categoria": "cuantificador",
+      "defecto_sembrado": "omite 'En ningún caso'",
+      "afirmacion": "Los actos intraprocesales admiten recursos ordinarios o constitucionales.",
+      "fuentes": [
+        "FX-CPEUM-28-INTRA"
+      ],
+      "esperado": [
+        {
+          "categoria": "cuantificador",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-CUANT-04",
+      "review_status": "sintetico",
+      "categoria": "cuantificador",
+      "defecto_sembrado": "añade 'siempre'",
+      "afirmacion": "Las normas generales y actos en materia de telecomunicaciones y radiodifusión siempre podrán ser impugnados únicamente mediante el juicio de amparo indirecto.",
+      "fuentes": [
+        "FX-CPEUM-28-NORMAS"
+      ],
+      "esperado": [
+        {
+          "categoria": "cuantificador",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-CUANT-05",
+      "review_status": "sintetico",
+      "categoria": "cuantificador",
+      "defecto_sembrado": "'en todos los casos' donde la fuente dice 'en ningún caso'",
+      "afirmacion": "En todos los casos se admitirán recursos ordinarios o constitucionales contra actos intraprocesales.",
+      "fuentes": [
+        "FX-CPEUM-28-INTRA"
+      ],
+      "esperado": [
+        {
+          "categoria": "cuantificador",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "SIN-CUANT-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "'únicamente' y negación conservados",
+      "afirmacion": "Las normas generales y actos en materia de telecomunicaciones y radiodifusión podrán ser impugnados únicamente mediante el juicio de amparo indirecto y no serán objeto de suspensión.",
+      "fuentes": [
+        "FX-CPEUM-28-NORMAS"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-CUANT-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "'en ningún caso' conservado",
+      "afirmacion": "En ningún caso se admitirán recursos ordinarios ni constitucionales contra los actos intraprocesales.",
+      "fuentes": [
+        "FX-CPEUM-28-INTRA"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "SIN-CUANT-C3",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "'sólo' y condición conservados",
+      "afirmacion": "El Ministerio Público sólo puede solicitar al Juez de control la prisión preventiva cuando otras medidas cautelares no sean suficientes para garantizar la comparecencia del imputado en el juicio.",
+      "fuentes": [
+        "FX-CNPP-167-P1"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-FN-01",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "Codex: 'de calendario' (naturales) frente a 'hábiles'",
+      "afirmacion": "El recurso se interpone en diez días de calendario.",
+      "fuentes": [
+        "SA-RECURSO-HABILES"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-02",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "Codex: el rango se compara como par; el 9 de otra oración no lo respalda",
+      "afirmacion": "El delito se sanciona con prisión de 3 a 9 años.",
+      "fuentes": [
+        "SA-PRISION-RANGOS"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-03",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "Codex: montos en UMA",
+      "afirmacion": "La autoridad impondrá una multa de 900 UMA.",
+      "fuentes": [
+        "SA-MULTA-UMA"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-04",
+      "review_status": "sintetico",
+      "categoria": "sujeto",
+      "defecto_sembrado": "Codex: órgano cambiado (fiscal frente a juez)",
+      "afirmacion": "El fiscal podrá autorizar la intervención telefónica.",
+      "fuentes": [
+        "SA-JUEZ-PODRA"
+      ],
+      "esperado": [
+        {
+          "categoria": "sujeto",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-05",
+      "review_status": "sintetico",
+      "categoria": "negacion",
+      "defecto_sembrado": "Codex: negación doble ('no podrá no admitir' manda admitir)",
+      "afirmacion": "El juez no podrá admitir la prueba documental.",
+      "fuentes": [
+        "SA-NO-PODRA-NO"
+      ],
+      "esperado": [
+        {
+          "categoria": "negacion",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-06",
+      "review_status": "sintetico",
+      "categoria": "excepcion_condicion",
+      "defecto_sembrado": "Codex: excepción con contenido distinto",
+      "afirmacion": "El tribunal admitirá la prueba documental, excepto si es extemporánea.",
+      "fuentes": [
+        "SA-SALVO-ILICITA"
+      ],
+      "esperado": [
+        {
+          "categoria": "excepcion_condicion",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-07",
+      "review_status": "sintetico",
+      "categoria": "modal",
+      "defecto_sembrado": "Codex: facultad convertida en mandato ('podrá ordenar' → 'ordenará')",
+      "afirmacion": "El juez ordenará la libertad del imputado.",
+      "fuentes": [
+        "SA-PODRA-ORDENAR"
+      ],
+      "esperado": [
+        {
+          "categoria": "modal",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FN-08",
+      "review_status": "sintetico",
+      "categoria": "modal",
+      "defecto_sembrado": "Codex: alineación con la oración del fiscal; la del juez manda 'deberá'",
+      "afirmacion": "El juez podrá autorizar la intervención telefónica.",
+      "fuentes": [
+        "SA-INTERVENCION"
+      ],
+      "esperado": [
+        {
+          "categoria": "modal",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-FP-01",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "Codex: sinónimo de prohibición ('no le está permitido' = 'no podrá')",
+      "afirmacion": "Al juez no le está permitido admitir la prueba documental.",
+      "fuentes": [
+        "SA-NO-PODRA-ADMITIR"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-FP-02",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "sinónimo de prohibición ('le está prohibido' = 'no podrá')",
+      "afirmacion": "Al juez le está prohibido admitir la prueba documental.",
+      "fuentes": [
+        "SA-NO-PODRA-ADMITIR"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-FP-03",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "Codex: cláusulas reordenadas y separadas; cada predicado conserva su polaridad",
+      "afirmacion": "La autoridad no deberá aceptar la prueba ilícita. La autoridad deberá aceptar la prueba documental.",
+      "fuentes": [
+        "SA-ACEPTAR"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-FP-04",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "Codex: separador de miles ('1,000' = 'mil')",
+      "afirmacion": "La autoridad impondrá 1,000 días multa.",
+      "fuentes": [
+        "SA-MIL-DIAS-MULTA"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-FP-05",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "Codex: artículo de varias oraciones; la afirmación fiel no se compara con la del fiscal",
+      "afirmacion": "El juez deberá autorizar la intervención telefónica.",
+      "fuentes": [
+        "SA-INTERVENCION"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-COORD-01",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "coordinador: cinco días para autos; la fuente fija tres días 'si se tratare de auto' (cinco es para sentencia definitiva)",
+      "afirmacion": "La apelación contra autos del Juez de control se interpone dentro de los cinco días contados a partir de que surta efectos la notificación.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "plazos_cifras.distinto_misma_condicion"
+        }
+      ]
+    },
+    {
+      "id": "ADV-COORD-02",
+      "review_status": "sintetico",
+      "categoria": "modal",
+      "defecto_sembrado": "coordinador: 'podrá interponerse' frente al mandato 'se interpondrá'",
+      "afirmacion": "El recurso de apelación contra las resoluciones del Juez de control podrá interponerse por escrito ante el mismo Juez que dictó la resolución.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": [
+        {
+          "categoria": "modal",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ]
+    },
+    {
+      "id": "ADV-COORD-03",
+      "review_status": "sintetico",
+      "categoria": "plazos_cifras",
+      "defecto_sembrado": "tres días para la sentencia definitiva; la fuente fija cinco 'si se tratare de sentencia definitiva'",
+      "afirmacion": "La apelación contra la sentencia definitiva dictada por el Juez de control se interpone dentro de los tres días contados a partir de que surta efectos la notificación.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": [
+        {
+          "categoria": "plazos_cifras",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "plazos_cifras.distinto_misma_condicion"
+        }
+      ]
+    },
+    {
+      "id": "ADV-COORD-C1",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "cifra ligada a su condición (sentencia definitiva → cinco días)",
+      "afirmacion": "La apelación contra la sentencia definitiva dictada por el Juez de control se interpone dentro de los cinco días contados a partir de que surta efectos la notificación.",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-COORD-C2",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "paráfrasis fiel del piloto (FID-01): cada cifra con su condición entre paréntesis",
+      "afirmacion": "Contra resoluciones del juez de control: 3 días (autos y providencias) y 5 días (sentencia definitiva), desde que surte efectos la notificación, por escrito ante el mismo juez",
+      "fuentes": [
+        "PQ-CNPP-471"
+      ],
+      "esperado": []
+    },
+    {
+      "id": "ADV-TRUNC-01",
+      "review_status": "sintetico",
+      "categoria": "control_fiel",
+      "defecto_sembrado": null,
+      "nota": "Codex: con fuente truncada no hay cifra ausente (sería bloqueante por falta de continuación)",
+      "afirmacion": "El Tribunal de alzada dictará sentencia dentro de las cuarenta y ocho horas siguientes a la formulación de los alegatos.",
+      "fuentes": [
+        "FX-CNPP-489-TRUNCADA"
+      ],
+      "esperado": [],
+      "tolerancia": "sin_bloqueantes",
+      "codigos_prohibidos": [
+        "plazos_cifras.cifra_ausente"
+      ]
+    },
+    {
+      "id": "LIM-01",
+      "review_status": "sintetico",
+      "categoria": "procedibilidad",
+      "defecto_sembrado": "la procedibilidad se lee por artículo, no por delito: el art. 92 prevé querella (fr. I), declaratoria de perjuicio (fr. II, arts. 102, 103 y 115) y denuncia; la afirmación asigna al 102 el modo de otros",
+      "afirmacion": "El delito previsto en el artículo 102 del CFF se persigue por querella de la Secretaría de Hacienda y Crédito Público.",
+      "fuentes": [
+        "PQ-CFF-92"
+      ],
+      "esperado": [
+        {
+          "categoria": "procedibilidad",
+          "severidad": "contradiccion",
+          "precision": "alta",
+          "codigo": "procedibilidad.modo_distinto"
+        }
+      ],
+      "limite_documentado": true
+    },
+    {
+      "id": "LIM-02",
+      "review_status": "sintetico",
+      "categoria": "excepcion_condicion",
+      "defecto_sembrado": "enumeración incompleta dentro de la excepción (omite providencias precautorias y puesta a disposición; piloto FID-04): el contenido de la excepción se solapa y no se señala",
+      "afirmacion": "No se computan los sábados, los domingos ni los días inhábiles, salvo los actos relativos a la detención, la imputación, las medidas cautelares y la vinculación a proceso.",
+      "fuentes": [
+        "PQ-CNPP-94"
+      ],
+      "esperado": [
+        {
+          "categoria": "excepcion_condicion",
+          "severidad": "omision",
+          "precision": "revisar"
+        }
+      ],
+      "limite_documentado": true
+    },
+    {
+      "id": "LIM-03",
+      "review_status": "sintetico",
+      "categoria": "sujeto",
+      "defecto_sembrado": "órgano fuera de las familias cerradas (Congreso frente a legislaturas): el sujeto solo se compara entre jurisdiccional, Ministerio Público, defensor y policía",
+      "afirmacion": "El Congreso de la Unión deberá armonizar el marco jurídico.",
+      "fuentes": [
+        "SA-LEGISLATURAS"
+      ],
+      "esperado": [
+        {
+          "categoria": "sujeto",
+          "severidad": "contradiccion",
+          "precision": "revisar"
+        }
+      ],
+      "limite_documentado": true
+    }
+  ],
+  "candidatos_piloto": {
+    "origen": "Piloto PEN-01 del kit de auditoría de planes (main@6ae8f4d), 2026-10-02",
+    "esquema_original": "fidelidad-candidatos/0.1 (propuesta del piloto)",
+    "advertencia_original": "Propuestas del operador del piloto con la cita literal. La verdad jurídica final la decide el responsable jurídico (review_status = pendiente_responsable). texto_oficial recortado del texto que el kit reconstruye del paquete (leyes) o del HTML descargado del DOF; espacios colapsados.",
+    "candidatos": [
+      {
+        "id": "FID-01",
+        "afirmacion_id": "AF-SCT02-01",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "Contra resoluciones del juez de control: 3 días (autos y providencias) y 5 días (sentencia definitiva), desde que surte efectos la notificación, por escrito ante el mismo juez",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "471",
+          "ubicacion": "Artículo 471, párrafo primero",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "El recurso de apelación contra las resoluciones del Juez de control se interpondrá por escrito ante el mismo Juez que dictó la resolución, dentro de los tres días contados a partir de aquel en el que surta efectos la notificación si se tratare de auto o cualquier otra providencia y de cinco días si se tratare de sentencia definitiva.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CNPP471-P1: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "plazo",
+          "inicio_del_computo",
+          "sujeto",
+          "forma",
+          "organo"
+        ],
+        "propuesta_operador": "fiel",
+        "cambios_detectados": [],
+        "nota": "Control positivo: 3/5 días, 'surta efectos', 'por escrito', 'ante el mismo Juez' se conservan.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-02",
+        "afirmacion_id": "AF-SCT02-02",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "Contra el desistimiento del Ministerio Público: 3 días, ante el tribunal de enjuiciamiento",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "471",
+          "ubicacion": "Artículo 471, párrafo segundo, primera oración",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "En los casos de apelación sobre el desistimiento de la acción penal por el Ministerio Público se interpondrá ante el Tribunal de enjuiciamiento que dictó la resolución dentro de los tres días contados a partir de que surte efectos la notificación.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CNPP471-DES: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "plazo",
+          "inicio_del_computo",
+          "organo"
+        ],
+        "propuesta_operador": "fiel_con_omision",
+        "cambios_detectados": [
+          {
+            "categoria": "inicio_del_computo_omitido",
+            "detalle": "La afirmación no dice desde cuándo corren los 3 días ('a partir de que surte efectos la notificación')."
+          },
+          {
+            "categoria": "objeto_abreviado",
+            "detalle": "'desistimiento del Ministerio Público' por 'desistimiento de la acción penal por el Ministerio Público'."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-03",
+        "afirmacion_id": "AF-SCT02-03",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "Contra la sentencia del tribunal de enjuiciamiento: 10 días siguientes a la notificación",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "471",
+          "ubicacion": "Artículo 471, párrafo segundo, segunda oración",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "El recurso de apelación en contra de las sentencias definitivas dictadas por el Tribunal de enjuiciamiento se interpondrá ante el Tribunal que conoció del juicio, dentro de los diez días siguientes a la notificación de la resolución impugnada, mediante escrito en el que se precisarán las disposiciones violadas y los motivos de agravio correspondientes.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CNPP471-TE: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "plazo",
+          "inicio_del_computo",
+          "forma",
+          "organo"
+        ],
+        "propuesta_operador": "fiel_con_omision",
+        "cambios_detectados": [
+          {
+            "categoria": "forma_omitida",
+            "detalle": "Omite que se interpone 'mediante escrito en el que se precisarán las disposiciones violadas y los motivos de agravio'."
+          },
+          {
+            "categoria": "organo_omitido",
+            "detalle": "Omite 'ante el Tribunal que conoció del juicio'."
+          }
+        ],
+        "nota": "El plazo (10 días siguientes a la notificación) se conserva literalmente; la tensión con el CNPP 94 es CON-03.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-04",
+        "afirmacion_id": "AF-SCT02-04",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "CNPP 94: no se cuentan sábados, domingos ni inhábiles, salvo los actos listados (detención, imputación, cautelares, vinculación); los plazos en días corren desde que surte efectos la notificación; los plazos en horas, de momento a momento",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "94",
+          "ubicacion": "Artículo 94, párrafos tercero a quinto",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "No se computarán los días sábados, los domingos ni los días que sean determinados inhábiles por los ordenamientos legales aplicables, salvo que se trate de los actos relativos a providencias precautorias, puesta del imputado a disposición del Órgano jurisdiccional, resolver la legalidad de la detención, formulación de la imputación, resolver sobre la procedencia de las medidas cautelares en su caso y decidir sobre la procedencia de su vinculación a proceso, para tal efecto todos los días se computarán como hábiles. Con la salvedad de la excepción prevista en el párrafo anterior, los demás plazos que venzan en día inhábil, se tendrán por prorrogados hasta el día hábil siguiente. Los plazos establecidos en horas correrán de momento a momento y los establecidos en días a partir del día en que surte efectos la notificación.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CNPP94-P3: CONFORME",
+            "E-CNPP94-P5: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "excepcion",
+          "enumeracion",
+          "plazo",
+          "inicio_del_computo"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "excepcion_incompleta",
+            "detalle": "El paréntesis '(detención, imputación, cautelares, vinculación)' omite 'providencias precautorias' y 'puesta del imputado a disposición del Órgano jurisdiccional'; 'detención' resume 'resolver la legalidad de la detención'."
+          },
+          {
+            "categoria": "regla_omitida",
+            "detalle": "Omite el párrafo cuarto: los demás plazos que venzan en día inhábil se prorrogan al día hábil siguiente."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-05",
+        "afirmacion_id": "AF-SCT05-01",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "CFF 92: la SHCP es víctima u ofendida, y los abogados hacendarios pueden actuar como asesores jurídicos",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "92",
+          "ubicacion": "Artículo 92, párrafo primero",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "La Secretaría de Hacienda y Crédito Público tendrá el carácter de víctima u ofendida en los procedimientos penales y juicios relacionados con delitos previstos en este Código. Los abogados hacendarios podrán actuar como asesores jurídicos dentro de dichos procedimientos.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CFF92-P1: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "modal",
+          "sujeto"
+        ],
+        "propuesta_operador": "fiel",
+        "cambios_detectados": [],
+        "nota": "Control positivo del modal: 'podrán actuar' → 'pueden actuar'.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-06",
+        "afirmacion_id": "AF-SCT05-02",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "CFF 92: querella para los arts. 105, 108-112 y 114; declaratorias para los arts. 102, 103, 115 y contrabando; \"en los demás casos […] bastará la denuncia\"",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "92",
+          "ubicacion": "Artículo 92, párrafo segundo, fracciones I a III y párrafo tercero",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Para proceder penalmente por los delitos fiscales previstos en este Capítulo, será necesario que previamente la Secretaría de Hacienda y Crédito Público: I. Formule querella, tratándose de los previstos en los artículos 105, 108, 109, 110, 111, 112 y 114, independientemente del estado en que se encuentre el procedimiento administrativo que en su caso se tenga iniciado. II. Declare que el Fisco Federal ha sufrido o pudo sufrir perjuicio en lo establecido en los artículos 102, 103 y 115. III. Formule la declaratoria correspondiente, en los casos de contrabando de mercancías por las que no deban pagarse impuestos y requieran permiso de autoridad competente, o de mercancías de tráfico prohibido. En los demás casos no previstos en las fracciones anteriores bastará la denuncia de los hechos ante el Ministerio Público Federal.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CFF92-FI: CONFORME",
+            "E-CFF92-FII: CONFORME",
+            "E-CFF92-FIII: CONFORME",
+            "E-CFF92-DEN: CONFORME"
+          ],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "enumeracion",
+          "alcance",
+          "requisito_de_procedibilidad"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "generalizacion",
+            "detalle": "'declaratorias para … contrabando': la fracción III solo exige declaratoria 'en los casos de contrabando de mercancías por las que no deban pagarse impuestos y requieran permiso de autoridad competente, o de mercancías de tráfico prohibido'."
+          },
+          {
+            "categoria": "figura_distinta",
+            "detalle": "La fracción II no es una 'declaratoria' genérica sino que la SHCP 'Declare que el Fisco Federal ha sufrido o pudo sufrir perjuicio' (arts. 102, 103 y 115)."
+          }
+        ],
+        "nota": "El rango '108-112' sí equivale a 108, 109, 110, 111 y 112 del texto oficial.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-07",
+        "afirmacion_id": "AF-SCT05-03",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "Sobreseimiento por pago a petición de la SHCP, solo para los delitos de las tres fracciones",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "92",
+          "ubicacion": "Artículo 92, párrafo cuarto",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Los procesos por los delitos fiscales a que se refieren las tres fracciones de este artículo se sobreseerán a petición de la Secretaría de Hacienda y Crédito Público, cuando los imputados paguen las contribuciones originadas por los hechos imputados, las sanciones y los recargos respectivos, o bien esos créditos fiscales queden garantizados a satisfacción de la propia Secretaría. La petición anterior se hará discrecionalmente, antes de que el Ministerio Público Federal y el asesor jurídico formulen el alegato de clausura, y surtirá efectos respecto de las personas a que la misma se refiera.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CFF92-SOB: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "cuantificador",
+          "condicion",
+          "modal",
+          "momento_procesal"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "condicion_omitida",
+            "detalle": "Omite la alternativa 'o bien esos créditos fiscales queden garantizados a satisfacción de la propia Secretaría' (la afirmación dice solo 'por pago')."
+          },
+          {
+            "categoria": "limite_temporal_omitido",
+            "detalle": "Omite que la petición se hace 'antes de que el Ministerio Público Federal y el asesor jurídico formulen el alegato de clausura'."
+          },
+          {
+            "categoria": "modal_omitido",
+            "detalle": "Omite que la petición se hará 'discrecionalmente'."
+          },
+          {
+            "categoria": "cuantificador_añadido",
+            "detalle": "'solo para los delitos de las tres fracciones': el texto dice 'a que se refieren las tres fracciones'; el 'solo' es inferencia del operador del entregable."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-08",
+        "afirmacion_id": "AF-SCT05-04",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "CFF 113 Bis: de 2 a 9 años por comprobantes que amparen operaciones inexistentes, falsas o simuladas; incluye comprobantes falsos, persecución independiente del procedimiento administrativo y daño material a la Hacienda",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "113 Bis",
+          "ubicacion": "Artículo 113 Bis (todos los párrafos)",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Artículo 113 Bis.- Se impondrá sanción de dos a nueve años de prisión, al que por sí o por interpósita persona, expida, enajene, compre o adquiera comprobantes fiscales que amparen operaciones inexistentes, falsas o actos jurídicos simulados. Se impondrá la sanción descrita en el párrafo que antecede al que, por sí o por interpósita persona, expida, enajene, compre, adquiera o dé efectos fiscales a comprobantes fiscales falsos. Párrafo adicionado DOF 07-11-2025 Este delito se investigará y perseguirá independientemente del estado en que se encuentre el procedimiento administrativo que, en su caso, se haya iniciado. Párrafo adicionado DOF 07-11-2025 Asimismo, la ejecución de este delito puede dar lugar a la causación de un daño material a la Hacienda Federal, el cual deberá ser objeto de reparación. Párrafo adicionado DOF 07-11-2025 Se sancionará con las mismas penas, a las plataformas de servicios digitales a que se refiere la Ley del Impuesto al Valor Agregado, así como a los titulares de las mismas que permitan la publicación de anuncios para la adquisición o enajenación de comprobantes fiscales que amparen operaciones inexistentes, falsas, actos jurídicos simulados o comprobantes fiscales falsos, así como al que a sabiendas permita o publique a través de dichas plataformas o por cualquier otro medio, los citados anuncios. Párrafo reformado DOF 07-11-2025 Cuando el delito sea cometido por un servidor público en ejercicio de sus funciones, será destituido del empleo e inhabilitado de uno a diez años para desempeñar cargo o comisión públicos, en adición a la agravante señalada en el artículo 97 de este Código. Se requerirá querella por parte de la Secretaría de Hacienda y Crédito Público, para proceder penalmente por este delito. El delito previsto en este artículo, así como el dispuesto en el artículo 400 Bis del Código Penal Federal, se podrán perseguir simultáneamente.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CFF113B-P1: CONFORME",
+            "E-CFF113B-P2: CONFORME",
+            "E-CFF113B-P3: CONFORME",
+            "E-CFF113B-P4: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "pena",
+          "conductas",
+          "requisito_de_procedibilidad"
+        ],
+        "propuesta_operador": "fiel_con_omision_material",
+        "cambios_detectados": [
+          {
+            "categoria": "requisito_de_procedibilidad_omitido",
+            "detalle": "Omite el párrafo 'Se requerirá querella por parte de la Secretaría de Hacienda y Crédito Público, para proceder penalmente por este delito.' Lo que sí dice (2 a 9 años, comprobantes falsos, persecución independiente, daño material) es literal."
+          },
+          {
+            "categoria": "parrafos_omitidos",
+            "detalle": "Omite también plataformas digitales, servidor público y persecución simultánea con el 400 Bis CPF."
+          }
+        ],
+        "nota": "La omisión es material: AF-SCT05-06 y REGLA-SCT05 infieren 'procedencia por denuncia'.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-09",
+        "afirmacion_id": "AF-SCT05-06",
+        "tipo_afirmacion": "inferencia",
+        "estado_declarado": "REQUIERE DECISIÓN HUMANA",
+        "texto_afirmacion": "Inferencia: el 113 Bis se persigue por denuncia y no admite el sobreseimiento por pago del art. 92",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "113 Bis",
+          "ubicacion": "Artículo 113 Bis, párrafo séptimo; Artículo 92, párrafos segundo a cuarto",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Se requerirá querella por parte de la Secretaría de Hacienda y Crédito Público, para proceder penalmente por este delito.",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "requisito_de_procedibilidad",
+          "negacion"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "contradice_texto",
+            "detalle": "'se persigue por denuncia' frente a 'Se requerirá querella por parte de la Secretaría de Hacienda y Crédito Público, para proceder penalmente por este delito.'"
+          },
+          {
+            "categoria": "segunda_parte",
+            "detalle": "'no admite el sobreseimiento por pago del art. 92': el art. 92 lo limita a 'los delitos fiscales a que se refieren las tres fracciones de este artículo' y el 113 Bis no está en ellas; es lectura literal plausible, sujeta al responsable."
+          }
+        ],
+        "nota": "El entregable no cita evidencia para esta inferencia (REQUIERE DECISIÓN HUMANA); el par lo construyó el operador del piloto. Ni el lint ni el cotejo ni el VVCA lo detectan.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-10",
+        "afirmacion_id": "REGLA-SCT05",
+        "tipo_afirmacion": "propuesta",
+        "estado_declarado": "CANDIDATO",
+        "texto_afirmacion": "Una imputación por comprobantes falsos (CFF 113 Bis) se trata en Penal Federal: PPO del catálogo y procedencia por denuncia, esto último pendiente de DEC. La determinación del crédito se remite al protocolo fiscal.",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "113 Bis",
+          "ubicacion": "Artículo 113 Bis, párrafo séptimo",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Se requerirá querella por parte de la Secretaría de Hacienda y Crédito Público, para proceder penalmente por este delito.",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "requisito_de_procedibilidad"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "contradice_texto",
+            "detalle": "'procedencia por denuncia, esto último pendiente de DEC' frente a la exigencia expresa de querella de la SHCP."
+          }
+        ],
+        "nota": "Regla propuesta (CANDIDATO); el propio entregable la marcó AJUSTAR por otra razón.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-11",
+        "afirmacion_id": "AF-SCT05-07",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "CFF 108: la defraudación y el art. 400 Bis del CPF pueden perseguirse simultáneamente",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CFF",
+          "articulo": "108",
+          "ubicacion": "Artículo 108, párrafo tercero",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CFF.pdf",
+          "sha256_documento": "be7427b20d3552775ab42018f8f87578078770095bf8cf46322c25e36ee3aa7d",
+          "ultima_reforma_dof": "2026-04-09",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "El delito de defraudación fiscal y el delito previsto en el artículo 400 Bis del Código Penal Federal, se podrán perseguir simultáneamente.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CFF108-P3: CONFORME"
+          ],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "modal",
+          "remision"
+        ],
+        "propuesta_operador": "fiel",
+        "cambios_detectados": [],
+        "nota": "Control positivo; el cotejo lo bloqueó por la remisión al 400 Bis CPF (falso positivo PL-016).",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-12",
+        "afirmacion_id": "AF-SCT03-06",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "Ley de Amparo, art. 217, párr. 1: la jurisprudencia de la SCJN obliga a todas las autoridades jurisdiccionales, salvo a la propia SCJN",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "LAmp",
+          "articulo": "217",
+          "ubicacion": "Artículo 217, párrafo primero",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/LAmp.pdf",
+          "sha256_documento": "05560493ac2b17b9e77eeb9741843176ee0fde76f05e75f853465b13621be78d",
+          "ultima_reforma_dof": "2025-10-16",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "La jurisprudencia que establezca la Suprema Corte de Justicia de la Nación será obligatoria para todas las autoridades jurisdiccionales de la Federación y de las entidades federativas, con excepción de la propia Suprema Corte.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-LAMP217-P1: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "cuantificador",
+          "excepcion",
+          "sujeto"
+        ],
+        "propuesta_operador": "fiel",
+        "cambios_detectados": [
+          {
+            "categoria": "cuantificador_abreviado",
+            "detalle": "'todas las autoridades jurisdiccionales' omite 'de la Federación y de las entidades federativas' (no cambia el alcance)."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-13",
+        "afirmacion_id": "AF-SCT04-04",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "CPEUM 1º, párr. 1: las restricciones solo proceden en los casos y condiciones que fija la Constitución; párr. 2: interpretación pro persona",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CPEUM",
+          "articulo": "1o.",
+          "ubicacion": "Artículo 1o., párrafos primero y segundo",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+          "sha256_documento": "ca63a23a4b7444ebdbdad93759fbf46bd14c069e587c5878decf89fc9c12ca8e",
+          "ultima_reforma_dof": "2026-06-02",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "En los Estados Unidos Mexicanos todas las personas gozarán de los derechos humanos reconocidos en esta Constitución y en los tratados internacionales de los que el Estado Mexicano sea parte, así como de las garantías para su protección, cuyo ejercicio no podrá restringirse ni suspenderse, salvo en los casos y bajo las condiciones que esta Constitución establece. Párrafo reformado DOF 10-06-2011 Las normas relativas a los derechos humanos se interpretarán de conformidad con esta Constitución y con los tratados internacionales de la materia favoreciendo en todo tiempo a las personas la protección más amplia.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CPEUM1-P1: CONFORME",
+            "E-CPEUM1-P2: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "negacion",
+          "excepcion",
+          "cuantificador",
+          "etiqueta_doctrinal"
+        ],
+        "propuesta_operador": "fiel",
+        "cambios_detectados": [
+          {
+            "categoria": "transformacion_logica",
+            "detalle": "'no podrá restringirse ni suspenderse, salvo en los casos y bajo las condiciones…' → 'las restricciones solo proceden en los casos y condiciones…' (negación + excepción ≡ 'solo'); omite 'suspenderse'."
+          },
+          {
+            "categoria": "etiqueta_doctrinal",
+            "detalle": "'interpretación pro persona' resume 'favoreciendo en todo tiempo a las personas la protección más amplia'."
+          }
+        ],
+        "nota": "Caso útil para el Gold Set: equivalencia lógica que un comparador ingenuo marcaría como negación perdida.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-14",
+        "afirmacion_id": "AF-SCT01-01",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "El catálogo vigente incluye extorsión, fentanilo, contrabando y \"falsos comprobantes fiscales\"",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CPEUM",
+          "articulo": "19",
+          "ubicacion": "Artículo 19, párrafo segundo",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+          "sha256_documento": "ca63a23a4b7444ebdbdad93759fbf46bd14c069e587c5878decf89fc9c12ca8e",
+          "ultima_reforma_dof": "2026-06-02",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "El juez ordenará la prisión preventiva oficiosamente, en los casos de abuso o violencia sexual contra menores, delincuencia organizada, extorsión, delitos previstos en las leyes aplicables cometidos para la ilegal introducción y desvío, producción, preparación, enajenación, adquisición, importación, exportación, transportación, almacenamiento y distribución de precursores químicos y sustancias químicas esenciales, drogas sintéticas, fentanilo y derivados, homicidio doloso, feminicidio, violación, secuestro, trata de personas, robo de casa habitación, uso de programas sociales con fines electorales, corrupción tratándose de los delitos de enriquecimiento ilícito y ejercicio abusivo de funciones, robo al transporte de carga en cualquiera de sus modalidades, delitos en materia de hidrocarburos, petrolíferos o petroquímicos, delitos en materia de desaparición forzada de personas y desaparición cometida por particulares, delitos cometidos con medios violentos como armas y explosivos, delitos en materia de armas de fuego y explosivos de uso exclusivo del Ejército, la Armada y la Fuerza Aérea, delito de terrorismo y de los delitos graves que determine la ley en contra de la seguridad de la nación, de la salud, del libre desarrollo de la personalidad, contrabando y cualquier actividad relacionada con falsos comprobantes fiscales, en los términos fijados por la ley.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CPEUM19-A: CONFORME",
+            "E-CPEUM19-B: CONFORME",
+            "E-CPEUM19-C: CONFORME"
+          ],
+          "agregado": "CONFORME"
+        },
+        "dimensiones_revisadas": [
+          "enumeracion",
+          "remision"
+        ],
+        "propuesta_operador": "fiel",
+        "cambios_detectados": [
+          {
+            "categoria": "remision_omitida",
+            "detalle": "Omite 'en los términos fijados por la ley' (irrelevante para la afirmación de inclusión en el catálogo)."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-15",
+        "afirmacion_id": "REGLA-SCT01",
+        "tipo_afirmacion": "propuesta",
+        "estado_declarado": "CANDIDATO",
+        "texto_afirmacion": "Si la imputación es por un delito del catálogo del art. 19, párr. 2, CPEUM, la PPO procede de oficio; contrastar con el CNPP 167 y la ley especial.",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CPEUM",
+          "articulo": "19",
+          "ubicacion": "Artículo 19, párrafo segundo",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+          "sha256_documento": "ca63a23a4b7444ebdbdad93759fbf46bd14c069e587c5878decf89fc9c12ca8e",
+          "ultima_reforma_dof": "2026-06-02",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "El juez ordenará la prisión preventiva oficiosamente, en los casos de abuso o violencia sexual contra menores, delincuencia organizada, extorsión, delitos previstos en las leyes aplicables cometidos para la ilegal introducción y desvío, producción, preparación, enajenación, adquisición, importación, exportación, transportación, almacenamiento y distribución de precursores químicos y sustancias químicas esenciales, drogas sintéticas, fentanilo y derivados, homicidio doloso, feminicidio, violación, secuestro, trata de personas, robo de casa habitación, uso de programas sociales con fines electorales, corrupción tratándose de los delitos de enriquecimiento ilícito y ejercicio abusivo de funciones, robo al transporte de carga en cualquiera de sus modalidades, delitos en materia de hidrocarburos, petrolíferos o petroquímicos, delitos en materia de desaparición forzada de personas y desaparición cometida por particulares, delitos cometidos con medios violentos como armas y explosivos, delitos en materia de armas de fuego y explosivos de uso exclusivo del Ejército, la Armada y la Fuerza Aérea, delito de terrorismo y de los delitos graves que determine la ley en contra de la seguridad de la nación, de la salud, del libre desarrollo de la personalidad, contrabando y cualquier actividad relacionada con falsos comprobantes fiscales, en los términos fijados por la ley.",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "remision",
+          "sujeto",
+          "modal"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "remision_omitida",
+            "detalle": "'la PPO procede de oficio' omite 'en los términos fijados por la ley'."
+          },
+          {
+            "categoria": "sujeto_y_modal",
+            "detalle": "'El juez ordenará' (deber del juez) → 'procede' (impersonal)."
+          }
+        ],
+        "nota": "Coincide con el cotejo de fidelidad del propio entregable (AJUSTAR).",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-16",
+        "afirmacion_id": "AF-SCT01-07",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "El CNPP 167, párr. 3 (reformado el DOF 28-11-2025), recoge los nuevos delitos pero no el supuesto del art. 40",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "167",
+          "ubicacion": "Artículo 167, párrafo tercero",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "La Persona Juzgadora de control en el ámbito de su competencia, ordenará la prisión preventiva oficiosamente en los casos de abuso o violencia sexual contra menores, delincuencia organizada, extorsión, delitos previstos en las leyes aplicables cometidos para la ilegal introducción y desvío, producción, preparación, enajenación, adquisición, importación, exportación, transportación, almacenamiento y distribución de precursores químicos y sustancias químicas esenciales, drogas sintéticas, fentanilo y derivados, homicidio doloso, feminicidio, violación, secuestro, trata de personas, robo de casa habitación, uso de programas sociales con fines electorales, corrupción tratándose de los delitos de enriquecimiento ilícito y ejercicio abusivo de funciones, robo al transporte de carga en cualquiera de sus modalidades, delitos en materia de hidrocarburos, petrolíferos o petroquímicos, delitos en materia de desaparición forzada de personas y desaparición cometida por particulares, delitos cometidos con medios violentos como armas y explosivos, delitos en materia de armas de fuego y explosivos de uso exclusivo del Ejército, la Armada y la Fuerza Aérea, así como los delitos graves que determine la ley en contra de la seguridad de la nación, el libre desarrollo de la personalidad y de la salud, así como contrabando y cualquier actividad relacionada con falsos comprobantes fiscales. Párrafo reformado DOF 19-02-2021, 28-11-2025",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-CNPP167-P3A: CONFORME",
+            "E-CNPP167-P3B: CONFORME",
+            "E-DOF-5774377: SIN_EVIDENCIA"
+          ],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "cuantificador",
+          "enumeracion"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "generalizacion",
+            "detalle": "'recoge los nuevos delitos': el párrafo tercero no menciona el 'delito de terrorismo' que el CPEUM 19, párr. 2, incorporó el 01-04-2025 (DOF 5753797). El terrorismo sí figura en la fracción VI de la lista del CPF del mismo artículo 167 (texto anterior, DOF 08-11-2019)."
+          }
+        ],
+        "nota": "El cotejo lo bloqueó, pero por la mención del art. 40 y el DOF no soportado: hallazgo correcto por el motivo equivocado.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-17",
+        "afirmacion_id": "AF-DEL07-03",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "SIN ESTADO DECLARADO",
+        "texto_afirmacion": "Persona detenida: activa plazos en horas y el cómputo en días naturales (CNPP 94)",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "94",
+          "ubicacion": "Artículo 94, párrafos tercero y quinto",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "No se computarán los días sábados, los domingos ni los días que sean determinados inhábiles por los ordenamientos legales aplicables, salvo que se trate de los actos relativos a providencias precautorias, puesta del imputado a disposición del Órgano jurisdiccional, resolver la legalidad de la detención, formulación de la imputación, resolver sobre la procedencia de las medidas cautelares en su caso y decidir sobre la procedencia de su vinculación a proceso, para tal efecto todos los días se computarán como hábiles. Con la salvedad de la excepción prevista en el párrafo anterior, los demás plazos que venzan en día inhábil, se tendrán por prorrogados hasta el día hábil siguiente. Los plazos establecidos en horas correrán de momento a momento y los establecidos en días a partir del día en que surte efectos la notificación.",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "sujeto",
+          "condicion",
+          "plazo"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "efecto_no_previsto",
+            "detalle": "'Persona detenida: activa plazos en horas' no está en el CNPP 94, que solo dice que los plazos en horas corren 'de momento a momento'."
+          },
+          {
+            "categoria": "equivalencia",
+            "detalle": "'cómputo en días naturales' equivale en efecto a 'todos los días se computarán como hábiles' para los actos listados."
+          }
+        ],
+        "nota": "DEL-07 no declara estado ni cita evidencia.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-18",
+        "afirmacion_id": "REGLA-SCT02",
+        "tipo_afirmacion": "propuesta",
+        "estado_declarado": "CANDIDATO",
+        "texto_afirmacion": "El plazo de apelación depende del órgano y de la resolución: 3 o 5 días ante el juez de control; 3 o 10 días ante el tribunal de enjuiciamiento; días hábiles según el CNPP 94.",
+        "fuente": {
+          "tipo": "ley_leyesbiblio",
+          "ordenamiento": "CNPP",
+          "articulo": "471",
+          "ubicacion": "Artículos 471, párrafos primero y segundo, y 94",
+          "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+          "sha256_documento": "7ceb0682c948d7d945e7e68b8d8699ceb795fc9a491aa62325db91ccf2309904",
+          "ultima_reforma_dof": "2025-11-28",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "El recurso de apelación contra las resoluciones del Juez de control se interpondrá por escrito ante el mismo Juez que dictó la resolución, dentro de los tres días contados a partir de aquel en el que surta efectos la notificación si se tratare de auto o cualquier otra providencia y de cinco días si se tratare de sentencia definitiva. En los casos de apelación sobre el desistimiento de la acción penal por el Ministerio Público se interpondrá ante el Tribunal de enjuiciamiento que dictó la resolución dentro de los tres días contados a partir de que surte efectos la notificación. El recurso de apelación en contra de las sentencias definitivas dictadas por el Tribunal de enjuiciamiento se interpondrá ante el Tribunal que conoció del juicio, dentro de los diez días siguientes a la notificación de la resolución impugnada, mediante escrito en el que se precisarán las disposiciones violadas y los motivos de agravio correspondientes.",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "plazo",
+          "inicio_del_computo",
+          "organo",
+          "inferencia"
+        ],
+        "propuesta_operador": "fiel_con_omision",
+        "cambios_detectados": [
+          {
+            "categoria": "cifras",
+            "detalle": "3 o 5 días (juez de control) y 3 o 10 días (tribunal de enjuiciamiento) coinciden con el texto."
+          },
+          {
+            "categoria": "inicio_del_computo_omitido",
+            "detalle": "No distingue 'surta efectos la notificación' (3 y 5 días; desistimiento) de 'siguientes a la notificación' (10 días)."
+          },
+          {
+            "categoria": "inferencia",
+            "detalle": "'días hábiles según el CNPP 94' es inferencia (la apelación no está entre los actos exceptuados)."
+          }
+        ],
+        "nota": "Coincide con el cotejo de fidelidad del propio entregable (AJUSTAR).",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-19",
+        "afirmacion_id": "REGLA-SCT03",
+        "tipo_afirmacion": "propuesta",
+        "estado_declarado": "CANDIDATO",
+        "texto_afirmacion": "Los derechos humanos de fuente constitucional y convencional integran el parámetro de control; ante una restricción expresa en la Constitución, P./J. 20/2014 indica estar al texto constitucional.",
+        "fuente": {
+          "tipo": "tesis_sjf",
+          "registro": "2006224",
+          "clave": "P./J. 20/2014 (10a.)",
+          "url": "https://sjf2.scjn.gob.mx/detalle/tesis/2006224",
+          "sha256_documento": "6adc1838474dc02470dcff94190ac8bde3fd0622fd0c24938f6ea4895ae2e50b",
+          "fecha_consulta": "2026-10-01",
+          "ubicacion": "rubro"
+        },
+        "texto_oficial": "DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS TRATADOS INTERNACIONALES. CONSTITUYEN EL PARÁMETRO DE CONTROL DE REGULARIDAD CONSTITUCIONAL, PERO CUANDO EN LA CONSTITUCIÓN HAYA UNA RESTRICCIÓN EXPRESA AL EJERCICIO DE AQUÉLLOS, SE DEBE ESTAR A LO QUE ESTABLECE EL TEXTO CONSTITUCIONAL.",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "modal",
+          "cuantificador"
+        ],
+        "propuesta_operador": "fiel_con_atenuacion",
+        "cambios_detectados": [
+          {
+            "categoria": "modal_atenuado",
+            "detalle": "'SE DEBE ESTAR A LO QUE ESTABLECE EL TEXTO CONSTITUCIONAL' (deber) → 'P./J. 20/2014 indica estar al texto constitucional' (descriptivo)."
+          }
+        ],
+        "nota": "El entregable la declaró CONFORME en su cotejo de fidelidad.",
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-20",
+        "afirmacion_id": "AF-SCT01-04",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "Decreto del 31-12-2024: vigencia al día siguiente; deroga disposiciones opuestas; 180 días para armonizar",
+        "fuente": {
+          "tipo": "dof_nota (no soportado)",
+          "url": "https://dof.gob.mx/nota_detalle.php?codigo=5746525&fecha=01/01/2000",
+          "sha256_documento": "92256d872fd409539925f8cf739786a917bea2978b7e5105db1625e07f38a398",
+          "ubicacion": "Transitorios Primero a Cuarto",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Primero.- El presente Decreto entrará en vigor el día siguiente al de su publicación en el Diario Oficial de la Federación. Segundo.- A partir de la entrada en vigor de este Decreto, se derogan todas las disposiciones que se opongan al contenido, previstas en leyes secundarias, reglamentos, acuerdos y cualquier otro ordenamiento normativo de carácter administrativo. Tercero.- El Congreso de la Unión, en un plazo de ciento ochenta días, contado a partir de la entrada en vigor de este Decreto, deberá armonizar el marco jurídico de las leyes en las materias con el contenido del presente Decreto. Cuarto.- Las legislaturas de las entidades federativas deben realizar las adecuaciones normativas necesarias para cumplir con lo previsto en el presente Decreto, dentro de los trescientos sesenta y cinco días naturales siguientes a la publicación de este ordenamiento.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-DOF-5746525: SIN_EVIDENCIA"
+          ],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "plazo",
+          "sujeto",
+          "inicio_del_computo"
+        ],
+        "propuesta_operador": "fiel_con_omision",
+        "cambios_detectados": [
+          {
+            "categoria": "sujeto_omitido",
+            "detalle": "'180 días para armonizar' es del Congreso de la Unión; omite el plazo de 365 días naturales de las legislaturas (Transitorio Cuarto)."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-21",
+        "afirmacion_id": "AF-SCT01-06",
+        "tipo_afirmacion": "texto_normativo",
+        "estado_declarado": "VERIFICADO",
+        "texto_afirmacion": "El decreto del 01-04-2025 añade \"terrorismo\" y el supuesto de armas y extranjeros (art. 40); vigencia al día siguiente; 180 días naturales",
+        "fuente": {
+          "tipo": "dof_nota (no soportado)",
+          "url": "https://dof.gob.mx/nota_detalle.php?codigo=5753797&fecha=01/01/2000",
+          "sha256_documento": "54e73b8708d7e6fac17a229154427c9f5a6a98bed6d52afc8d3001464618d2d7",
+          "ubicacion": "Transitorios Primero y Segundo",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "Primero.- El presente Decreto entrará en vigor el día siguiente al de su publicación en el Diario Oficial de la Federación. Segundo.- El Congreso de la Unión y las legislaturas de las entidades federativas deberán hacer las adecuaciones normativas que deriven de la presente reforma en un plazo no mayor a ciento ochenta días naturales, contados a partir del día siguiente de la entrada en vigor del presente Decreto.",
+        "identidad_en_el_piloto": {
+          "pares": [
+            "E-DOF-5753797: SIN_EVIDENCIA"
+          ],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "plazo",
+          "inicio_del_computo",
+          "cuantificador"
+        ],
+        "propuesta_operador": "fiel_con_omision",
+        "cambios_detectados": [
+          {
+            "categoria": "inicio_del_computo_omitido",
+            "detalle": "'180 días naturales' omite 'no mayor a' y 'contados a partir del día siguiente de la entrada en vigor' (dato del que depende el cómputo de CON-02)."
+          },
+          {
+            "categoria": "sujeto_omitido",
+            "detalle": "El plazo obliga al Congreso de la Unión y a las legislaturas de las entidades federativas."
+          }
+        ],
+        "nota": null,
+        "review_status": "pendiente_responsable"
+      },
+      {
+        "id": "FID-22",
+        "afirmacion_id": "AF-FTE11",
+        "tipo_afirmacion": "hecho_aportado",
+        "estado_declarado": "CANDIDATO",
+        "texto_afirmacion": "Ley General contra la Extorsión — Tipo piloto posible — Título en DOF 28-11-2025 (código 5774377)",
+        "fuente": {
+          "tipo": "dof_nota (no soportado)",
+          "url": "https://dof.gob.mx/nota_detalle.php?codigo=5774377&fecha=01/01/2000",
+          "sha256_documento": "b7589ff0ea0e134350f8077049bad28f58c030908baa424d794eb709b70e4362",
+          "ubicacion": "Título del decreto",
+          "fecha_consulta": "2026-10-01"
+        },
+        "texto_oficial": "DECRETO por el que se expide la Ley General para Prevenir, Investigar y Sancionar los Delitos en Materia de Extorsión",
+        "identidad_en_el_piloto": {
+          "pares": [],
+          "agregado": "SIN_EVIDENCIA"
+        },
+        "dimensiones_revisadas": [
+          "denominacion"
+        ],
+        "propuesta_operador": "cambia",
+        "cambios_detectados": [
+          {
+            "categoria": "denominacion_inexacta",
+            "detalle": "'Ley General contra la Extorsión' no es la denominación oficial: 'Ley General para Prevenir, Investigar y Sancionar los Delitos en Materia de Extorsión'."
+          }
+        ],
+        "nota": "FTE-11 está en CANDIDATO ('texto no leído'); el kit no lo ve porque no hay evidencia citada.",
+        "review_status": "pendiente_responsable"
+      }
+    ]
+  }
+}

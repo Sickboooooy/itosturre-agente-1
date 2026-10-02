@@ -3,7 +3,8 @@
 Separado de ``itosturre.audit`` (VVCA): aquí no se consulta corpus, SJF ni LLM. Se
 validan reglas observables sobre un ledger de afirmaciones, evidencias,
 contradicciones y decisiones, la cobertura de las menciones de un documento y, con un
-paquete de evidencia, el cotejo de identidad de cada evidencia citada (``identidad``).
+paquete de evidencia, el cotejo de identidad de cada evidencia citada (``identidad``) y el
+cotejo de fidelidad determinista (``fidelidad``, PR-4: señales, nunca CONFORME).
 """
 
 from .estados import (
@@ -16,6 +17,17 @@ from .estados import (
     problema_persona,
     problemas_aprobacion,
     responsable_no_humano,
+)
+from .fidelidad import (
+    NO_COTEJABLE as FIDELIDAD_NO_COTEJABLE,
+    SENALES,
+    SIN_SENALES_DETECTADAS,
+    FidelidadLedger,
+    FuenteTexto,
+    ResultadoFidelidad,
+    Senal,
+    comparar,
+    cotejar_fidelidad,
 )
 from .identidad import (
     CONFORME,
@@ -49,21 +61,30 @@ __all__ = [
     "DISCREPANTE",
     "ESTADOS_VERIFICACION",
     "ESTADO_SOSTENIBLE",
+    "FIDELIDAD_NO_COTEJABLE",
     "HOSTS_OFICIALES",
     "NO_COTEJADO",
     "REGLAS",
     "REGLAS_COTEJO",
     "SCHEMA_VERSION",
+    "SENALES",
     "SIN_EVIDENCIA",
+    "SIN_SENALES_DETECTADAS",
     "CotejoLedger",
     "Extractor",
+    "FidelidadLedger",
+    "FuenteTexto",
     "LedgerInvalido",
     "Mencion",
     "ResultadoAfirmacion",
+    "ResultadoFidelidad",
     "ResultadoPar",
+    "Senal",
     "aprobacion_valida",
     "cargar_ledger",
+    "comparar",
     "contenido_sha256",
+    "cotejar_fidelidad",
     "cotejar_ledger",
     "huella_ledger",
     "esta_bloqueado",
