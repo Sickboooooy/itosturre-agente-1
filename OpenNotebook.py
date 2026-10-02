@@ -2,6 +2,23 @@
 OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
+Cambios R4d (jurisprudencia determinista; itosturre/audit/jurisprudence.py):
+  ✅ Registros sin distinguir mayúsculas ("REGISTRO DIGITAL: …", "Registro Digital …",
+     "registro IUS"; "Registro:", "Reg." o "IUS" solo con contexto de tesis) y sin números
+     que no son registros ("2006224/2026", 8 dígitos): una tesis invocada ya no desaparece
+     (R4-D07). Enumeraciones (",", "y", "o", "y/o", "/"): una tesis por número; un conector
+     no reconocido deja 🟡 COBERTURA INCOMPLETA. El contexto no cruza el registro anterior.
+  ✅ Cotejo del rubro: se extrae el rubro invocado (tras "rubro:"/"título y subtítulo:",
+     entre comillas o en mayúsculas junto al registro) y se compara normalizado (NFKD sin
+     acentos, casefold, sin puntuación no numérica; R4-D13). 🟢 solo con igualdad literal sin
+     marca de supresión ni texto omitido tras el marcador; truncado → 🟡 RUBRO PARCIAL;
+     polaridad invertida ("NO ES…", "IMPROCEDENTE"…) → 🔴 (R4-D14); otra diferencia → 🟡 o
+     🔴 (< 40 %); sin rubro invocado o con asociación incierta → 🟡, solo acredita el registro.
+  ✅ Vigencia nunca "vigente" sin fuente: ``no_consultada``/``no_reconocida`` como aviso
+     informativo (``avisos``, fuera de ``alerts``) sin cambiar el semáforo; una pérdida
+     registrada en cualquier campo prevalece; campos en conflicto → 🟡.
+  ✅ La retención transitoria del 🟢 de "solo tesis" se mantiene (adjudicación del 2-oct-2026).
+
 Cambios R4c (veredicto honesto):
   ✅ Precepto derogado ("Artículo 64.- (Se deroga).") → 🟡 PRECEPTO DEROGADO, nunca 🟢
      (criterio por defecto; el responsable puede endurecerlo).
@@ -96,12 +113,31 @@ from itosturre.audit.referencias import (
     ultima_mencion,
 )
 from itosturre.audit.jurisprudence import (
+    ESTADOS_VIGENCIA,
+    RUBRO_BLOQUEANTE,
+    RUBRO_COINCIDE,
+    RUBRO_INVERTIDO,
+    RUBRO_NO_ASOCIADO,
+    RUBRO_NO_LITERAL,
+    RUBRO_PARCIAL,
+    RUBRO_SIN_COTEJO,
+    RUBRO_SIN_FUENTE,
+    RUBRO_SIN_INVOCADO,
+    UMBRAL_TRASLAPE_RUBRO,
+    VIGENCIA_EN_CONFLICTO,
+    VIGENCIA_NO_CONSULTADA,
+    VIGENCIA_PERDIDA,
     classify_fuerza_vinculante,
-    rubro_keywords as _rubro_keywords,
+    cotejar_rubro,
+    extraer_rubro_invocado,
+    extraer_rubro_posterior,
+    normalizar_vigencia,
 )
 from itosturre.audit.policy import (
     ALCANCE_JURISPRUDENCIA,
+    ALCANCE_JURISPRUDENCIA_SIN_RUBRO,
     ALCANCE_NORMATIVA,
+    alcance_jurisprudencia,
     disclaimer_graduado,
     semaforo_dimension,
     vvca_score,
@@ -928,6 +964,44 @@ def resolve_law_source_backward(context_before: str) -> Tuple[Optional[str], Opt
     return ultima_mencion(context_before or "", _catalogo())
 
 
+# R4d (R4-D07) — Registro de una tesis, en cualquier caja: "Registro digital: 2006224",
+# "REGISTRO DIGITAL: 0000001", "Registro Digital 0000002", "Registro: 2019456", "registro IUS
+# 2019456", "IUS: 2019456", "Reg. 2028965", "registro número 2006224". En plural o en
+# enumeración ("registros digitales 2006224 y 2006225", "2006224 / 2032506", "2006224 y/o
+# 2032506") cada número es una tesis. Antes solo "Registro"/"registro" (con "digital" en
+# minúscula) y un número: el resto desaparecía de la auditoría.
+# Ronda 2: el número es de 6 o 7 dígitos (los registros digitales del SJF); no lo es un número
+# de 8 dígitos ("20261002", forma de fecha o folio) ni el de "N/AAAA" ("2006224/2026", un
+# expediente). "registro digital" y "registro IUS" bastan; "Registro", "Reg." o "IUS" solos
+# exigen contexto de tesis en el párrafo (``_CONTEXTO_TESIS_RE``).
+_NUMERO_REGISTRO = r"\d{6,7}(?!\d|[/\-]\d{1,5}(?!\d))"
+REGISTRO_TESIS_RE = re.compile(
+    r"\b(?P<cabeza>registros?(?:\s+(?:digital(?:es)?|ius))?"
+    r"|regs?\.(?:\s*(?:digital(?:es)?|ius))?|ius)"
+    r"(?:\s*(?:n[úu]m(?:eros?|s?\.)|nos?\.|n\.?\s*[°º]s?\.?))?"
+    r"\s*[:.]?\s*"
+    rf"(?P<numeros>(?<![\d/]){_NUMERO_REGISTRO}"
+    rf"(?:\s*(?:,|;|y/o|/|\b(?:y|e|o|u|ó)\b)\s*{_NUMERO_REGISTRO})*)",
+    re.IGNORECASE,
+)
+_NUMERO_REGISTRO_RE = re.compile(r"\d{6,7}")
+# Un número suelto de registro tras la enumeración, con un conector no reconocido ("2006224
+# así como 2032506"): no se omite en silencio, queda como cobertura incompleta.
+_NUMERO_SUELTO_RE = re.compile(rf"(?<![\d/]){_NUMERO_REGISTRO}")
+# Contexto de tesis para las cabezas ambiguas ("Registro:", "Reg.", "IUS"): mención de tesis,
+# jurisprudencia, rubro, título y subtítulo, Semanario, Gaceta, época o una clave ("P./J.",
+# "J/7", "(10a.)").
+_CONTEXTO_TESIS_RE = re.compile(
+    r"\b(?:tesis|jurisprudencias?|rubros?|t[íi]tulo\s+y\s+subt[íi]tulo|semanario|gaceta"
+    r"|sjf|[ée]poca|ejecutorias?|precedentes?)\b|\b(?:\d{1,2}a|P|PR|PC)\.\s*/\s*J\."
+    r"|\bJ/\d|\(\d{1,2}a\.\)",
+    re.IGNORECASE,
+)
+# Texto previo a cada registro donde se busca el rubro invocado (antes, 400 caracteres que
+# podían incluir el rubro de la tesis anterior).
+VENTANA_RUBRO = 1500
+
+
 def extract_references(text: str) -> List[Dict]:
     """Extrae referencias a artículos y jurisprudencias del borrador.
 
@@ -943,24 +1017,86 @@ def extract_references(text: str) -> List[Dict]:
     queda como referencia de cobertura incompleta (``coverage_gap``). Campos añadidos:
     ``law_method``, ``law_unidentified_reason``, ``group_raw``,
     ``law_requires_confirmation`` y ``coverage_gap``.
+
+    Tesis (R4d, R4-D07): una referencia por cada registro, en cualquier caja
+    (``REGISTRO_TESIS_RE``). ``ctx_invocado`` es el texto previo (a lo sumo
+    ``VENTANA_RUBRO`` caracteres) donde ``build_vvca_tesis`` busca el rubro invocado; nunca
+    cruza el registro anterior, para no atribuirle a una tesis el rubro de otra. Campos
+    opcionales (solo cuando aplican): ``ctx_recortado=True`` si la ventana se recortó antes de
+    llegar al inicio o al registro anterior; ``registro_en_enumeracion=True`` en "registros
+    digitales 1 y 2" (``ctx_invocado`` vacío: el rubro de cada una no se asocia con certeza);
+    ``ctx_posterior`` con el marcador y el rubro PEGADOS a la derecha del registro
+    ("registro digital 164618, de rubro y texto: «…»"), que prevalece sobre el contexto previo.
+    Lo consumido así ya no cuenta como contexto de la tesis siguiente. Ronda 2: un número de
+    registro tras la enumeración con un conector no reconocido queda como referencia de
+    cobertura incompleta (``coverage_gap``), y "Registro"/"Reg."/"IUS" sin contexto de tesis
+    en el párrafo no son una tesis.
     """
     refs = extraer_articulos(text, _catalogo())
 
-    # Registros digitales SJF — captura "Registro: 2019456", "Registro 2019456",
-    # "Registro digital: 2019456", "registro digital 2019456"
-    reg_pattern = re.compile(r'[Rr]egistro(?:\s+digital)?[:\s]+(\d{6,8})')
-    for m in reg_pattern.finditer(text):
-        # Captura hasta 400 chars antes del registro para incluir el rubro invocado
-        ctx_start = max(0, m.start() - 400)
-        ctx_invocado = text[ctx_start: m.start()].strip()
-        refs.append({
-            "type": "jurisprudencia",
-            "registro": m.group(1),
-            "raw": m.group(0).strip(),
-            "ctx_invocado": ctx_invocado,
-        })
+    coincidencias = [m for m in REGISTRO_TESIS_RE.finditer(text) if _es_registro_de_tesis(text, m)]
+    fin_anterior = 0
+    for indice, m in enumerate(coincidencias):
+        numeros = list(_NUMERO_REGISTRO_RE.finditer(text, m.start("numeros"), m.end()))
+        inicio_ventana = m.start() - VENTANA_RUBRO
+        siguiente = (coincidencias[indice + 1].start() if indice + 1 < len(coincidencias)
+                     else len(text))
+        posterior = (extraer_rubro_posterior(text[m.end(): siguiente])
+                     if len(numeros) == 1 else None)
+        for numero in numeros:
+            ref = {
+                "type": "jurisprudencia",
+                "registro": numero.group(),
+                "raw": text[m.start(): numero.end()].strip(),
+                "ctx_invocado": (
+                    "" if len(numeros) > 1
+                    else text[max(0, fin_anterior, inicio_ventana): m.start()].strip()
+                ),
+            }
+            if len(numeros) > 1:
+                ref["registro_en_enumeracion"] = True
+            elif inicio_ventana > fin_anterior:
+                ref["ctx_recortado"] = True
+            if posterior:
+                ref["ctx_posterior"] = text[m.end(): m.end() + posterior["fin"]]
+            refs.append(ref)
+        fin_anterior = m.end() + (posterior["fin"] if posterior else 0)
+        # Ronda 2: nunca "solo el primero en silencio". Un número de registro pegado a la
+        # enumeración con un conector no reconocido queda como cobertura incompleta.
+        if not posterior:
+            cola = re.split(r"\n|\.\s|[\"“«]", text[m.end(): min(m.end() + 40, siguiente)])[0]
+            suelto = _NUMERO_SUELTO_RE.search(cola)
+            if suelto:
+                conector = " ".join(cola[:suelto.start()].split()) or "sin conector"
+                refs.append({
+                    "type": "jurisprudencia",
+                    "registro": suelto.group(),
+                    "raw": text[m.start(): m.end() + suelto.end()].strip(),
+                    "ctx_invocado": "",
+                    "coverage_gap": (
+                        f"número junto al registro con un conector no reconocido («{conector}»): "
+                        f"no se extrajo con certeza como registro de una tesis"
+                    ),
+                })
 
     return refs
+
+
+def _es_registro_de_tesis(text: str, m: "re.Match") -> bool:
+    """¿La coincidencia de ``REGISTRO_TESIS_RE`` es el registro de una tesis? (ronda 2, D07).
+
+    "registro digital" y "registro IUS" bastan. "Registro", "Reg." o "IUS" solos exigen
+    contexto de tesis en el mismo párrafo (hasta 400 caracteres antes y 250 después): así
+    "expediente Reg. 2006224/2026", "Registro 1234567 de la oficialía" o un inventario "IUS
+    1234567" no se toman como tesis."""
+    cabeza = re.sub(r"\s+", " ", m.group("cabeza").lower())
+    if re.search(r"digital|ius", cabeza) and cabeza != "ius":
+        return True
+    inicio = max(0, m.start() - 400, text.rfind("\n\n", 0, m.start()) + 1)
+    fin_parrafo = text.find("\n\n", m.end())
+    fin = min(len(text), m.end() + 250, fin_parrafo if fin_parrafo >= 0 else len(text))
+    entorno = text[inicio:m.start()] + " " + text[m.end():fin]
+    return bool(_CONTEXTO_TESIS_RE.search(entorno))
 
 
 def _article_candidates(article: str) -> List[str]:
@@ -1167,37 +1303,80 @@ def build_vvca(
     }
 
 
+MOTIVO_ENUMERACION = (
+    "registro citado en una enumeración (\"registros digitales … y …\"): el rubro de cada "
+    "tesis no se asocia con certeza; no hubo cotejo del rubro y la tesis solo acredita la "
+    "existencia del registro"
+)
+
+
 def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
-    tipo    = item.get("tipo_tesis", "")
+    """Semáforo de una tesis localizada en el corpus local (R4d: cotejo determinista del rubro).
+
+    El puntaje base es el de siempre: 95 jurisprudencia, 72 aislada. El rubro invocado se
+    extrae de ``ctx_invocado`` (``extraer_rubro_invocado``) y se coteja con el real
+    (``cotejar_rubro``):
+      - coincide (igualdad literal normalizada) → puntaje base (🟢 si es jurisprudencia);
+      - discrepante o con el sentido invertido → 0 (🔴 bloqueante: un registro real con rubro
+        falso es más peligroso que uno inexistente);
+      - parcial, no literal, sin rubro invocado o sin rubro en la fuente → a lo sumo 84 (🟡,
+        traza ``partial``): ningún heurístico de traslape concede 🟢.
+    La vigencia nunca se asume: sin dato es ``no_consultada`` (``normalizar_vigencia``) y no
+    cambia el puntaje; superada/interrumpida/sustituida bloquean en el veredicto, como antes.
+    """
+    tipo    = item.get("tipo_tesis", "") or ""
     sala    = item.get("sala", "")
     epoca   = item.get("epoca", "")
     materia = item.get("materia", "")
     numero  = item.get("numero_tesis", "")
     registro = ref.get("registro", "?")
-    rubro_real = item.get("rubro", "")
+    # Rubro original (con acentos) para mostrarlo; la comparación lo normaliza.
+    rubro_real = " ".join(str(item.get("rubro") or "").split())
 
-    # Validación semántica: ¿el rubro del corpus coincide con lo invocado en el doc?
-    # ctx_invocado trae hasta 400 chars previos (contiene el rubro si está en el texto)
-    rubro_invocado = ref.get("ctx_invocado", ref.get("raw", ""))
-    rubro_mismatch = False
-    overlap = None
-    if rubro_real and rubro_invocado:
-        kw_real     = _rubro_keywords(rubro_real)
-        kw_invocado = _rubro_keywords(rubro_invocado)
-        if kw_real and kw_invocado:
-            overlap = len(kw_real & kw_invocado) / min(len(kw_real), len(kw_invocado))
-            rubro_mismatch = overlap < 0.40  # < 40% de palabras en común → tesis equivocada
+    # Rubro invocado: nunca el de otra tesis (en una enumeración no se asocia ninguno). El
+    # marcador pegado a la derecha del registro ("…, de rubro: «…»") prevalece.
+    if ref.get("registro_en_enumeracion"):
+        invocado = None
+    elif ref.get("ctx_posterior"):
+        invocado = extraer_rubro_posterior(ref["ctx_posterior"])
+    else:
+        invocado = extraer_rubro_invocado(
+            ref.get("ctx_invocado") or "", recortado=bool(ref.get("ctx_recortado"))
+        )
+    cotejo = cotejar_rubro(invocado, rubro_real)
+    resultado = cotejo["resultado"]
+    motivo = cotejo["motivo"]
+    if resultado == RUBRO_SIN_INVOCADO and ref.get("registro_en_enumeracion"):
+        motivo = MOTIVO_ENUMERACION
+    rubro_invocado = invocado["texto"] if invocado else ""
+    overlap = cotejo["traslape"]
 
+    es_jurisprudencia = bool(re.search(r"jurisprudencia", tipo, re.I))
+    base = 95 if es_jurisprudencia else 72
+    rubro_mismatch = resultado in RUBRO_BLOQUEANTE
     if rubro_mismatch:
         score = 0  # Registro real con rubro falso es más peligroso que uno inexistente
         verificacion = (
             f"⚠️ DISCREPANCIA: Reg. {registro} existe en corpus pero su rubro real "
-            f"NO coincide con lo invocado en el documento. "
-            f"Rubro real: '{rubro_real[:120]}...'"
+            f"NO coincide con lo invocado en el documento ({motivo}). "
+            f"Rubro invocado: '{rubro_invocado}'. Rubro real: '{rubro_real}'."
         )
     else:
-        score = 95 if re.search(r"jurisprudencia", tipo, re.I) else 72
-        verificacion = f"Registro {registro} encontrado en corpus SJF local"
+        # Solo la igualdad literal conserva el puntaje base: lo demás queda en 🟡 (≤ 84).
+        score = base if resultado == RUBRO_COINCIDE else min(base, 84)
+        verificacion = f"Registro {registro} encontrado en corpus SJF local; {motivo}"
+
+    # Estado de vigencia (R4d): solo el que registró el corpus o el scraper, leyendo todos los
+    # campos. Sin dato → "no_consultada" (antes se asumía "vigente"); un valor desconocido →
+    # "no_reconocida". Una pérdida registrada en cualquier campo prevalece y bloquea en el
+    # veredicto (falso verde), como antes; campos en conflicto sin pérdida → 🟡 (ronda 2).
+    vigencia = normalizar_vigencia(item)
+    estado_vigencia = vigencia["estado"]
+    if estado_vigencia == VIGENCIA_EN_CONFLICTO and not rubro_mismatch:
+        score = min(score, 84)
+        verificacion += (
+            f"; vigencia en conflicto entre los campos de la fuente ({vigencia['registrado']})"
+        )
 
     semaforo = vvca_semaforo(score)
 
@@ -1213,32 +1392,40 @@ def build_vvca_tesis(ref: Dict, item: Dict, source_file: str) -> Dict:
     # Fuerza vinculante ([J]/[PR]/[PC]/[TCC]/[SCJN-P]/[TA]) desde la clave.
     fuerza = classify_fuerza_vinculante(numero, tipo)
 
-    # Estado de vigencia: por defecto "vigente". Solo si el corpus/scraper marcó el
-    # criterio como superado/interrumpido/sustituido dispara el bloqueo (falso verde).
-    _estado_raw = item.get("estado_vigencia") or item.get("vigencia") or "vigente"
-    estado_vigencia = str(_estado_raw).strip().lower()
-    if estado_vigencia not in ("vigente", "superada", "interrumpida", "sustituida"):
-        estado_vigencia = "vigente"
-
     return {
         "score": score,
         "semaforo": semaforo,
         "rubro_mismatch": rubro_mismatch,
+        # R4d (campo añadido): resultado del cotejo del rubro (``RUBRO_*``).
+        "cotejo_rubro": resultado,
         "fuerza_vinculante": fuerza,
         "estado_vigencia": estado_vigencia,
         "V_verificacion": verificacion,
         "V_validacion": tipo_label,
         "C_contextualizacion": contexto,
         "A_auditabilidad": f"{numero} · Reg. {registro} · {sala} · {source_file}",
-        # Traza reproducible por cita (explicabilidad).
+        # Traza reproducible por cita (explicabilidad). R4d: rubros completos y originales
+        # (antes, 160 caracteres; el "invocado" era el contexto previo, no el rubro).
         "explicabilidad": {
             "registro": registro,
             "overlap_rubro": round(overlap, 3) if overlap is not None else None,
-            "umbral_mismatch": 0.40,
-            "rubro_real": rubro_real[:160],
-            "rubro_invocado": (rubro_invocado or "")[:160],
+            "umbral_mismatch": UMBRAL_TRASLAPE_RUBRO,
+            "rubro_real": rubro_real,
+            "rubro_invocado": rubro_invocado,
             "estado_vigencia": estado_vigencia,
             "fuente": source_file,
+            # R4d (campos añadidos).
+            "cotejo_rubro": resultado,
+            "motivo_cotejo": motivo,
+            "rubro_invocado_metodo": invocado["metodo"] if invocado else None,
+            "rubro_truncado": bool(invocado and invocado["truncado"]),
+            "polaridad": cotejo["polaridad"],
+            "vigencia_registrada": vigencia["registrado"],
+            # Ronda 2: campos de vigencia con dato y si discrepan.
+            "vigencia_campos": vigencia["valores"],
+            "vigencia_en_conflicto": vigencia["conflicto"],
+            "texto_omitido": (invocado or {}).get("texto_omitido"),
+            "asociacion_incierta": (invocado or {}).get("asociacion_incierta"),
         },
     }
 
@@ -1296,6 +1483,101 @@ def _resumen_sjf(score: Optional[float], semaforo: str, total: int, ok: int,
         + (f" — {discrepantes} rubro discrepante" if discrepantes else "")
         + (f", {no_encontradas} no encontradas" if no_encontradas else "")
         + (f", {_plural(parciales, 'parcial', 'parciales')}" if parciales else "")
+    )
+
+
+def _oracion(texto: str) -> str:
+    """Primera letra en mayúscula (para encadenar el motivo del cotejo en una alerta)."""
+    return texto[:1].upper() + texto[1:] if texto else texto
+
+
+def _alerta_rubro(registro: str, vvca: Dict) -> Optional[str]:
+    """Alerta del cotejo del rubro de una tesis localizada (R4d), con los rubros ORIGINALES
+    (acentos incluidos; Regla 1). Sin alerta cuando el rubro coincide literalmente."""
+    cotejo = vvca.get("cotejo_rubro")
+    explicabilidad = vvca.get("explicabilidad") or {}
+    real = explicabilidad.get("rubro_real") or ""
+    invocado = explicabilidad.get("rubro_invocado") or ""
+    motivo = _oracion(explicabilidad.get("motivo_cotejo") or "")
+    if cotejo == RUBRO_INVERTIDO:
+        polaridad = "; ".join(explicabilidad.get("polaridad") or [])
+        return (
+            f"🔴 RUBRO DISCREPANTE — SENTIDO INVERTIDO: Registro digital {registro}. "
+            f"Diferencia de polaridad: {polaridad}. Rubro invocado: «{invocado}». Rubro real: "
+            f"«{real}». USO PROCESAL PROHIBIDO: corregir o sustituir la cita."
+        )
+    if cotejo in RUBRO_BLOQUEANTE:
+        return (
+            f"🔴 RUBRO DISCREPANTE: Registro digital {registro} existe en el corpus local, "
+            f"pero {explicabilidad.get('motivo_cotejo') or 'su rubro no coincide'}. "
+            f"Rubro invocado: «{invocado}». Rubro real: «{real}». USO PROCESAL PROHIBIDO: "
+            f"sustituir la cita."
+        )
+    if cotejo == RUBRO_PARCIAL:
+        return (
+            f"🟡 RUBRO PARCIAL: Registro digital {registro} — {motivo}. Rubro invocado: "
+            f"«{invocado}». Rubro real: «{real}». Cotejar el rubro completo en "
+            f"sjf2.scjn.gob.mx antes de citar."
+        )
+    if cotejo == RUBRO_NO_LITERAL:
+        return (
+            f"🟡 RUBRO NO COINCIDE LITERALMENTE: Registro digital {registro} — {motivo}. "
+            f"Rubro invocado: «{invocado}». Rubro real: «{real}». Cotejar en "
+            f"sjf2.scjn.gob.mx antes de citar."
+        )
+    if cotejo == RUBRO_SIN_INVOCADO:
+        return (
+            f"🟡 SIN RUBRO INVOCADO: Registro digital {registro} — {motivo}. Rubro real: "
+            f"«{real}». Cotejar que el criterio respalde lo afirmado antes de citar."
+        )
+    if cotejo == RUBRO_SIN_FUENTE:
+        return (
+            f"🟡 RUBRO NO DISPONIBLE: Registro digital {registro} — {motivo}. Verificar el "
+            f"rubro en sjf2.scjn.gob.mx antes de citar."
+        )
+    if cotejo == RUBRO_NO_ASOCIADO:
+        return (
+            f"🟡 RUBRO NO ASOCIADO CON CERTEZA: Registro digital {registro} — {motivo}. Texto "
+            f"tomado como rubro: «{invocado}». Rubro real: «{real}». Precisar qué tesis se "
+            f"invoca antes de citar."
+        )
+    return None
+
+
+def _alerta_vigencia(registro: str, vvca: Dict) -> Optional[str]:
+    """Alerta (no aviso) de vigencia en conflicto entre los campos de la fuente (ronda 2): sí
+    cambia el semáforo (🟡 mínimo). Una pérdida registrada ya bloquea en el veredicto."""
+    if vvca.get("estado_vigencia") != VIGENCIA_EN_CONFLICTO or vvca.get("rubro_mismatch"):
+        return None
+    registrada = (vvca.get("explicabilidad") or {}).get("vigencia_registrada")
+    return (
+        f"🟡 VIGENCIA EN CONFLICTO: Registro digital {registro} — la fuente registra valores "
+        f"distintos («{registrada}»). Verificar la vigencia en sjf2.scjn.gob.mx antes de citar."
+    )
+
+
+def _aviso_vigencia(registro: str, vvca: Dict) -> Optional[str]:
+    """Aviso informativo (ℹ️) de una tesis localizada cuya vigencia nadie registró (R4d).
+
+    Criterio por defecto: no cambia el semáforo. Sin aviso si la fuente registra un estado
+    conocido (vigente, o perdido, que ya bloquea en el veredicto) o si la cita ya está
+    bloqueada por su rubro (hay que sustituirla de todos modos)."""
+    estado = vvca.get("estado_vigencia")
+    if (estado in ESTADOS_VIGENCIA or estado == VIGENCIA_EN_CONFLICTO
+            or vvca.get("rubro_mismatch")):
+        return None
+    if estado == VIGENCIA_NO_CONSULTADA:
+        return (
+            f"ℹ️ VIGENCIA NO CONSULTADA: Registro digital {registro} — ni el corpus local ni el "
+            f"scraper registran la vigencia del criterio; no se asume vigente. No cambia el "
+            f"semáforo: verificar en sjf2.scjn.gob.mx (notas y ejecutorias) que no esté "
+            f"superado, interrumpido o sustituido."
+        )
+    registrada = (vvca.get("explicabilidad") or {}).get("vigencia_registrada")
+    return (
+        f"ℹ️ VIGENCIA NO RECONOCIDA: Registro digital {registro} — la fuente registra "
+        f"«{registrada}», que no es un estado reconocido ({', '.join(ESTADOS_VIGENCIA)}). No "
+        f"cambia el semáforo: verificar la vigencia en sjf2.scjn.gob.mx."
     )
 
 
@@ -1420,6 +1702,9 @@ def audit(
 
     refs = extract_references(text)
     alerts = []
+    # R4d: avisos informativos de vigencia (ℹ️). Ronda 2: van en ``avisos`` (con
+    # ``avisos_count``), no en ``alerts``: ``alerts_count`` conserva su significado anterior.
+    avisos_vigencia: List[str] = []
     retrieved_sources = []
     verification_traces = []
     verified_count = 0
@@ -1914,6 +2199,25 @@ def audit(
                 ))
 
         elif ref["type"] == "jurisprudencia":
+            # R4d (ronda 2): número de registro no extraído con certeza (conector no
+            # reconocido): cobertura incompleta, como en los artículos (R4b). No se busca.
+            if ref.get("coverage_gap"):
+                alerts.append(
+                    f"🟡 COBERTURA INCOMPLETA: '{ref['raw']}' — {ref['coverage_gap']}. "
+                    f"Auditar el registro {ref['registro']} por separado o verificarlo en "
+                    f"sjf2.scjn.gob.mx antes de citar."
+                )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="jurisprudencia",
+                    status="not_verifiable",
+                    method="cobertura_extraccion",
+                    reason=f"Cobertura incompleta: {ref['coverage_gap']}",
+                    semaforo="🟡",
+                    locator=f"Registro digital {ref['registro']}",
+                    metadata={"cobertura_incompleta": True},
+                ))
+                continue
             tesis_path = Path(JURISPRUDENCIA_PATH)
             found_in_tesis = False
             if tesis_path.exists():
@@ -1925,7 +2229,6 @@ def audit(
                             # Bug fix (Sonnet): substring match causaba false positives
                             # "2031" matcheaba con "20319", "203112", etc.
                             if str(ref["registro"]) == str(item.get("registro", "")):
-                                found_in_tesis = True
                                 # Bug fix: el scraper guarda 'texto', no 'texto_completo'
                                 texto = (
                                     item.get("texto_completo")
@@ -1948,6 +2251,15 @@ def audit(
                                     evidence_text=texto,
                                     metadata=vvca.get("explicabilidad", {}),
                                 )
+                                # R4d: alerta del cotejo del rubro (con los rubros originales)
+                                # y aviso informativo de vigencia no consultada.
+                                alerta_rubro = _alerta_rubro(ref["registro"], vvca)
+                                alerta_vigencia = _alerta_vigencia(ref["registro"], vvca)
+                                aviso_vigencia = _aviso_vigencia(ref["registro"], vvca)
+                                # R4d: todo se registra junto y solo entonces cuenta como
+                                # localizada. Antes ``found_in_tesis`` se marcaba primero y un
+                                # error al construir el semáforo hacía desaparecer la tesis sin
+                                # traza; ahora queda 🟡 NO VERIFICABLE.
                                 verification_traces.append(trace)
                                 retrieved_sources.append({
                                     "reference": ref["raw"],
@@ -1959,8 +2271,20 @@ def audit(
                                     "vvca": vvca,
                                     "trace_id": trace["trace_id"],
                                     # R4c: qué acredita (y qué no) el semáforo de la tesis.
-                                    "alcance_verificacion": ALCANCE_JURISPRUDENCIA,
+                                    # R4d: sin cotejo del rubro, solo el registro.
+                                    "alcance_verificacion": (
+                                        ALCANCE_JURISPRUDENCIA_SIN_RUBRO
+                                        if vvca.get("cotejo_rubro") in RUBRO_SIN_COTEJO
+                                        else ALCANCE_JURISPRUDENCIA
+                                    ),
                                 })
+                                if alerta_rubro:
+                                    alerts.append(alerta_rubro)
+                                if alerta_vigencia:
+                                    alerts.append(alerta_vigencia)
+                                if aviso_vigencia:
+                                    avisos_vigencia.append(aviso_vigencia)
+                                found_in_tesis = True
                                 if trace["verification"]["status"] == "verified":
                                     verified_count += 1
                                 break
@@ -2033,7 +2357,7 @@ def audit(
     tesis_superadas = sum(
         1 for s in retrieved_sources
         if s.get("ref_type") == "jurisprudencia"
-        and s.get("vvca", {}).get("estado_vigencia") in ("superada", "interrumpida", "sustituida")
+        and s.get("vvca", {}).get("estado_vigencia") in VIGENCIA_PERDIDA
     )
 
     # El veredicto global respeta la peor traza normativa. El score promedio se
@@ -2059,6 +2383,21 @@ def audit(
             sello = s.get("vvca", {}).get("fuerza_vinculante", {}).get("sello")
             if sello:
                 tesis_por_fuerza[sello] = tesis_por_fuerza.get(sello, 0) + 1
+
+    # R4d: conteo de tesis localizadas por resultado del cotejo del rubro y por estado de
+    # vigencia (``no_consultada`` = nadie la registró; nunca se asume "vigente").
+    tesis_por_cotejo_rubro: Dict[str, int] = {}
+    tesis_por_vigencia: Dict[str, int] = {}
+    for s in retrieved_sources:
+        if s.get("ref_type") == "jurisprudencia":
+            vvca_tesis = s.get("vvca", {})
+            cotejo = vvca_tesis.get("cotejo_rubro")
+            if cotejo:
+                tesis_por_cotejo_rubro[cotejo] = tesis_por_cotejo_rubro.get(cotejo, 0) + 1
+            estado = vvca_tesis.get("estado_vigencia")
+            if estado:
+                tesis_por_vigencia[estado] = tesis_por_vigencia.get(estado, 0) + 1
+    tesis_sin_cotejo_rubro = sum(tesis_por_cotejo_rubro.get(c, 0) for c in RUBRO_SIN_COTEJO)
 
     # ── Veredicto binario — las tesis rojas son bloqueantes por sí solas
     # R4c: con ``articulos_total`` el veredicto distingue "sin artículos" de "artículos con
@@ -2096,6 +2435,10 @@ def audit(
         "total_references_found": len(refs),
         "verified": verified_count,
         "alerts_count": len(alerts),
+        # R4d (ronda 2, campos añadidos): avisos informativos (ℹ️ vigencia no consultada o no
+        # reconocida). No cambian el semáforo y no cuentan en ``alerts_count``.
+        "avisos": avisos_vigencia,
+        "avisos_count": len(avisos_vigencia),
         "cosine_threshold": COSINE_THRESHOLD,
         "vvca_summary": {
             "score_rag":           score_rag,
@@ -2129,7 +2472,11 @@ def audit(
             "rag_sin_citas": articulos_total == 0,
             "sjf_sin_citas": tesis_total_invocadas == 0,
             "alcance_verificacion": ALCANCE_NORMATIVA,
-            "alcance_verificacion_tesis": ALCANCE_JURISPRUDENCIA,
+            # R4d: si alguna tesis localizada quedó sin cotejo del rubro, lo dice.
+            "alcance_verificacion_tesis": alcance_jurisprudencia(tesis_sin_cotejo_rubro),
+            # R4d (campos añadidos): tesis localizadas por cotejo del rubro y por vigencia.
+            "tesis_por_cotejo_rubro": tesis_por_cotejo_rubro,
+            "tesis_por_vigencia": tesis_por_vigencia,
         },
         "alerts": alerts,
         "retrieved_sources": retrieved_sources,
@@ -2248,16 +2595,45 @@ def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json_ou
     return notebook.query(text, n=n, law=law, json_output=json_output, verbose=verbose)
 
 
+# Telegram admite 4 096 caracteres por mensaje; se deja margen.
+LIMITE_TELEGRAM = 3800
+
+
+def _avisos_telegram(avisos: List[str]) -> List[str]:
+    """Avisos informativos (ℹ️) agrupados por tipo, con TODOS sus registros (R4d, ronda 2)."""
+    grupos: Dict[str, List[str]] = {}
+    for aviso in avisos:
+        etiqueta = aviso.split(":", 1)[0]
+        registro = re.search(r"Registro digital (\d+)", aviso)
+        grupos.setdefault(etiqueta, []).append(registro.group(1) if registro else "?")
+    return [
+        f"{etiqueta} (no cambia el semáforo; verificar en sjf2.scjn.gob.mx): Reg. "
+        f"{', '.join(registros)}"
+        for etiqueta, registros in grupos.items()
+    ]
+
+
 def formato_telegram(result: Dict) -> str:
-    """Bloque de texto de ``audit --format telegram`` (función aparte para probarla)."""
+    """Bloque de texto de ``audit --format telegram`` (función aparte para probarla).
+
+    R4d (ronda 2): las alertas van completas (con los rubros), todas las que quepan en
+    ``LIMITE_TELEGRAM``; si no caben, "… y N alerta(s) más" remite al JSON (``alerts``). Los
+    avisos informativos (``avisos``) se cuentan aparte y se agrupan por tipo con todos sus
+    registros. Antes: tres alertas recortadas a 120 caracteres, avisos incluidos."""
     vs = result["vvca_summary"]
     # R4c (R4-D12): una dimensión sin citas se muestra como tal, no como "0.0 🔴".
     rag = ("sin citas" if vs.get("rag_sin_citas")
            else f"{_puntaje(vs['score_rag'])} {vs['semaforo_rag']}")
     sjf = ("sin citas" if vs.get("sjf_sin_citas")
            else f"{_puntaje(vs['score_sjf'])} {vs['semaforo_sjf']}")
+    avisos = result.get("avisos") or []
+    encabezado = (
+        f"📋 <b>Auditoría VVCA</b> · {result['total_references_found']} refs · "
+        f"{result['alerts_count']} alertas"
+        + (f" · {len(avisos)} avisos" if avisos else "")
+    )
     lines = [
-        f"📋 <b>Auditoría VVCA</b> · {result['total_references_found']} refs · {result['alerts_count']} alertas",
+        encabezado,
         f"RAG: {rag} · SJF: {sjf}"
         f"  🟢{vs['verdes']} 🟡{vs['amarillos']} 🔴{vs['rojos']}"
         f"  · Veredicto: {vs['veredicto']['semaforo']} {vs['veredicto']['razon']}",
@@ -2279,16 +2655,28 @@ def formato_telegram(result: Dict) -> str:
         ref = s.get("reference", "?")[:40]
         ctx = v.get("C_contextualizacion", "")[:50]
         lines.append(f"{sem} <b>{score}</b> · {ref} · {ctx}")
-    if result["alerts"]:
-        lines.append("")
-        for a in result["alerts"][:3]:
-            lines.append(f"⚠️ {a[:120]}")
+    cola = []
+    if avisos:
+        cola += [""] + _avisos_telegram(avisos)
     if result.get("corpus_warning"):
+        cola += ["", f"⚠️ {result['corpus_warning']}"]
+    cola += ["", "🔗 Fuentes: sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx"]
+    alertas = result["alerts"]
+    if alertas:
         lines.append("")
-        lines.append(f"⚠️ {result['corpus_warning']}")
-    lines.append("")
-    lines.append("🔗 Fuentes: sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx")
-    return "\n".join(lines)
+        # Espacio ya usado (cabecera, fuentes, avisos, pie) más el aviso de truncado.
+        usado = len("\n".join(lines + cola)) + 160
+        for indice, alerta in enumerate(alertas):
+            linea = f"⚠️ {alerta}"
+            if usado + len(linea) + 1 > LIMITE_TELEGRAM:
+                lines.append(
+                    f"… y {len(alertas) - indice} alerta(s) más: el texto completo, con los "
+                    f"rubros, está en el JSON de la auditoría (\"alerts\")."
+                )
+                break
+            lines.append(linea)
+            usado += len(linea) + 1
+    return "\n".join(lines + cola)
 
 
 def main():

@@ -14,7 +14,8 @@ El veredicto global es una decisión binaria con razón explícita,
 no un número compuesto.
 
 Distinción crítica entre tipos de problema en tesis:
-  - tesis_discrepantes: tesis encontradas pero con rubro que no coincide → 🔴 BLOQUEANTE
+  - tesis_discrepantes: tesis encontradas pero con rubro que no coincide o con el sentido
+    invertido (R4d: cotejo literal normalizado y polaridad) → 🔴 BLOQUEANTE
     (indica alucinación o cita maliciosa — USO PROCESAL PROHIBIDO)
   - tesis_no_encontradas: tesis no localizadas en el corpus local → 🟡 ADVERTENCIA
     (el corpus puede estar incompleto, no necesariamente es una cita falsa)
@@ -24,10 +25,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-# R4c (ronda 2) — TRANSITORIO hasta R4d. El cotejo del rubro es léxico (R4-D13, R4-D14: un
-# rubro con el sentido invertido coincide al 100 %). Mientras R4d no lo corrija, un escrito
-# que SOLO cita tesis (sin artículos) no puede salir 🟢: su único sustento sería ese cotejo.
-# R4d lo pondrá en False al corregir D13/D14 (y lo dirá en DEFECTOS_CONOCIDOS).
+# R4c (ronda 2) introdujo esta retención TRANSITORIA: con el cotejo léxico del rubro (R4-D13,
+# R4-D14: un rubro con el sentido invertido coincidía al 100 %), un escrito que SOLO cita tesis
+# no podía salir 🟢. R4d corrigió D13/D14 (cotejo literal normalizado y polaridad), pero la
+# retención SE MANTIENE (adjudicación del 2-oct-2026): el cotejo se validó contra un corpus de
+# solo 10 tesis; se reconsiderará con un corpus mayor. Mientras sea True, un escrito con solo
+# tesis queda 🟡 aunque cada rubro coincida literalmente.
 RETENER_VERDE_SOLO_TESIS = True
 
 
@@ -58,8 +61,9 @@ def veredicto_global(
          aplica si ``articulos_total == 0``: una dimensión sin citas no es insuficiente
          (R4-D12, R4c)
       7. Sin artículos ni tesis  → AMARILLO (no hubo citas que verificar; R4c)
-      7b. Solo tesis, sin artículos → AMARILLO transitorio hasta R4d
-         (``RETENER_VERDE_SOLO_TESIS``): el cotejo del rubro aún es léxico (D13/D14)
+      7b. Solo tesis, sin artículos → AMARILLO transitorio mientras
+         ``RETENER_VERDE_SOLO_TESIS`` (se mantiene tras R4d hasta validar el cotejo del rubro
+         con un corpus de tesis mayor)
       8. Sin problemas           → VERDE, con una razón que enuncia solo lo verificado
          ("Normativa verificada; sin tesis citadas"; R4-D11, R4c)
 
@@ -180,13 +184,16 @@ def veredicto_global(
             ),
         }
 
-    # R4c (ronda 2) — TRANSITORIO hasta R4d: solo tesis y todas localizadas con rubro
-    # coincidente. El 🟢 dependería solo del cotejo léxico del rubro (D13/D14): se retiene 🟡.
+    # R4c (ronda 2) — TRANSITORIO: solo tesis y todas verificadas. R4d corrigió el cotejo del
+    # rubro, pero la retención se mantiene hasta validarlo con un corpus de tesis mayor.
     if sin_articulos and RETENER_VERDE_SOLO_TESIS:
         return {
             "apto": False,
             "semaforo": "🟡",
-            "razon": "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)",
+            "razon": (
+                "Jurisprudencia localizada; 🟢 de solo tesis retenido (transitorio) hasta "
+                "validar el cotejo del rubro con un corpus de tesis mayor"
+            ),
             "accion": (
                 "Cotejar en el SJF que el rubro y el criterio de cada tesis respalden lo "
                 "afirmado antes de uso procesal"

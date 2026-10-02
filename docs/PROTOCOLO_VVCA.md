@@ -53,10 +53,10 @@ considera verificado; por encima se levanta alerta de coincidencia débil. El va
 Reglas en orden de precedencia:
 
 1. `tesis_discrepantes > 0` → **🔴 bloqueante** — registro real con rubro que NO coincide con
-   el invocado (alucinación o cita maliciosa). USO PROCESAL PROHIBIDO.
-   *Criterio:* se marca discrepante cuando el solapamiento de palabras clave (>4 chars) entre
-   el rubro real y el invocado es **< 40%** (`OpenNotebook.py`, `build_vvca_tesis`). Es el
-   umbral del 🔴 bloqueante — el más fuerte del sistema; ajustarlo con cuidado.
+   el invocado o con el sentido invertido (alucinación o cita maliciosa). USO PROCESAL
+   PROHIBIDO. *Criterio (R4d):* cotejo determinista del rubro (§3 bis): traslape de palabras
+   normalizado **< 40 %** o polaridad distinta ("NO ES…", "IMPROCEDENTE"…). El umbral del
+   40 % no cambió; es el del 🔴 bloqueante — el más fuerte del sistema; ajustarlo con cuidado.
 2. `tesis_superadas > 0` → **🔴 bloqueante** — la cita existe, pero el criterio ya no
    está vigente.
 3. `normativa_refutada > 0` → **🔴 bloqueante** — al menos una cita normativa quedó
@@ -74,8 +74,9 @@ Reglas en orden de precedencia:
    no es una dimensión insuficiente.
 8. sin artículos ni tesis → **🟡** "Sin citas detectadas: no hay normativa ni jurisprudencia
    que verificar" (R4c). Un 🟢 sería vacío; la extracción automática puede omitir un formato.
-9. solo tesis, sin artículos → **🟡** "Jurisprudencia localizada; cotejo de sentido del rubro
-   pendiente (R4d)". **Transitorio** (ver abajo).
+9. solo tesis, sin artículos → **🟡** "Jurisprudencia localizada; 🟢 de solo tesis retenido
+   (transitorio) hasta validar el cotejo del rubro con un corpus de tesis mayor". **Transitorio**
+   (ver abajo).
 10. en otro caso → **🟢**, con una razón que enuncia solo lo verificado (R4c, R4-D11):
    "Normativa y jurisprudencia verificadas" o "Normativa verificada; sin tesis citadas".
 
@@ -84,15 +85,17 @@ real (`audit()`) los pasa siempre; sin `articulos_total` —llamadas anteriores 
 Gold Set v1— no se distingue "sin artículos" de "artículos con 0 puntos" y la regla 7 se aplica
 como antes.
 
-**Retención transitoria del 🟢 de "solo tesis" (R4c, ronda 2; condicionada por R4-D14).** Un
-escrito que solo cita tesis, todas localizadas con rubro coincidente, ya no sale "Artículos con
-verificación insuficiente (RAG: 0.0)", pero tampoco 🟢: su único sustento sería el cotejo del
-rubro, que hoy es léxico y deja pasar un rubro con el sentido invertido (R4-D13, R4-D14). Queda
-🟡 "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)" mientras
-`scoring_vvca.RETENER_VERDE_SOLO_TESIS` sea `True`. R4d la pondrá en `False` al corregir D13/D14
-(lo registra `DEFECTOS_CONOCIDOS["R4-D14"]["condiciona"]`); entonces la razón será
-"Jurisprudencia verificada; sin artículos citados". Con esta retención R4c no produce ningún 🟢
-nuevo.
+**Retención transitoria del 🟢 de "solo tesis" (R4c, ronda 2; se mantiene tras R4d).** R4c
+retuvo como 🟡 el 🟢 de un escrito que solo cita tesis, porque su único sustento era un cotejo
+léxico del rubro que dejaba pasar el sentido invertido (R4-D13, R4-D14). R4d corrigió ambos
+(§3 bis), pero por adjudicación del 2-oct-2026 (Codex y coordinador) la retención **se
+mantiene**: `scoring_vvca.RETENER_VERDE_SOLO_TESIS = True` hasta validar el cotejo con un corpus
+de tesis mayor que las 10 actuales (lo registra `DEFECTOS_CONOCIDOS["R4-D14"]["condiciona"]`).
+Mientras tanto, un escrito con solo tesis, aunque cada rubro coincida literalmente, queda 🟡
+"Jurisprudencia localizada; 🟢 de solo tesis retenido (transitorio) hasta validar el cotejo del
+rubro con un corpus de tesis mayor". Con la bandera en `False` la razón sería "Jurisprudencia
+verificada; sin artículos citados". Un escrito con artículos verificados y tesis con rubro
+literal sí puede ser 🟢.
 
 La distinción entre una cita refutada y una no verificable es crítica: "rubro discrepante"
 o "fuente incorrecta" (peligroso) ≠ "no encontrada"
@@ -104,18 +107,171 @@ bloquea y una sola cita amarilla impide declarar el documento apto, aunque el pr
 ### Alcance del 🟢 (R4c)
 
 Un 🟢 acredita **existencia y ubicación del precepto en el corpus local** (en tesis: el registro
-existe en el corpus local de jurisprudencia y el rubro invocado coincide léxicamente). **No**
+existe en el corpus local de jurisprudencia y el rubro invocado coincide literalmente, una vez
+normalizado; R4d). **No**
 significa que el precepto diga lo que el escrito afirma ni que sea pertinente al caso (Capa 2).
 El resultado lo dice en tres lugares: `alcance_verificacion` en cada referencia de
 `retrieved_sources` y en `vvca_summary` (más `alcance_verificacion_tesis`), y el texto del
 `disclaimer` 🟢 que se muestra al abogado ("Alcance del 🟢: existencia y ubicación del precepto
-en el corpus local (en tesis, registro y rubro); no significa que lo citado diga lo que el
-escrito afirma"). Cuando el veredicto es 🟢, la salida `--format telegram` añade "Alcance
-(normas): …" si hay artículos y "Alcance (tesis): …" si hay tesis (ambas si hay ambos).
+en el corpus local (en tesis, registro y rubro literal); no significa que lo citado diga lo que
+el escrito afirma"). Si alguna tesis localizada quedó sin cotejo del rubro (no se transcribió o
+la fuente no lo registra), `alcance_verificacion_tesis` lo dice ("N tesis sin cotejo del rubro:
+solo existencia del registro") y el `alcance_verificacion` de esa tesis es
+`ALCANCE_JURISPRUDENCIA_SIN_RUBRO`. Cuando el veredicto es 🟢, la salida `--format telegram`
+añade "Alcance (normas): …" si hay artículos y "Alcance (tesis): …" si hay tesis (ambas si hay
+ambos).
 
 Si la cita designa una **unidad** del precepto (fracción, inciso, párrafo…), el 🟢 exige además
 haber cotejado esa unidad en el texto (ver §4, "Unidad citada"): el encabezado del artículo no
 basta.
+
+## 3 bis. Jurisprudencia determinista (R4d)
+
+Funciones puras en `itosturre/audit/jurisprudence.py`; `OpenNotebook.build_vvca_tesis` las
+aplica a cada tesis localizada en el corpus local de jurisprudencia. Ronda 2 (rechazo de Codex
+y del coordinador): se cerraron cuatro falsos verdes reproducidos con el rubro real de 2006224
+(negación antes del rubro, marca de supresión, identificadores, rubro de otra tesis) y la
+vigencia en conflicto; ver "Qué cambia para el abogado (R4d)".
+
+**Detección del registro (R4-D07).** En cualquier caja: "Registro digital: N", "REGISTRO
+DIGITAL: N", "Registro Digital N" (con o sin dos puntos), "registro IUS N", y, solo con contexto
+de tesis en el párrafo (tesis, jurisprudencia, rubro, título y subtítulo, Semanario, Gaceta,
+época o una clave "P./J.", "J/7", "(10a.)"), "Registro: N", "Reg. N", "registro número N" o "IUS
+N" (`OpenNotebook.REGISTRO_TESIS_RE` y `_es_registro_de_tesis`). El número tiene 6 o 7 dígitos
+(los registros digitales del SJF): no lo son un número de 8 dígitos ("Registro: 20261002 de la
+oficialía", forma de fecha o folio) ni el de un expediente "N/AAAA" ("Reg. 2006224/2026").
+Antes "REGISTRO DIGITAL: …" y "Registro Digital: …" no se detectaban y la tesis desaparecía de la
+auditoría. En plural o en enumeración ("registros digitales N y M", "N / M", "N/M", "N y/o M",
+"N o M") cada número es una tesis; como no se puede saber qué rubro corresponde a cada una,
+ninguna recibe rubro (🟡 sin cotejo del rubro). Un número de registro pegado a la enumeración
+con un conector no reconocido ("N así como M") no se omite: queda `🟡 COBERTURA INCOMPLETA`
+(traza `not_verifiable`, método `cobertura_extraccion`, que `vvca_full.py` lista en
+`cobertura_pendiente`).
+
+**Rubro invocado** (`extraer_rubro_invocado`). Se busca en el párrafo del registro, en el texto
+que lo precede (hasta 1 500 caracteres, sin cruzar el registro anterior: antes eran 400
+caracteres que podían contener el rubro de otra tesis):
+
+1. tras el último marcador explícito ("de rubro:", "cuyo rubro es", "de título y subtítulo:",
+   "lleva por título", "bajo el epígrafe", "intitulada"; "RUBRO" en mayúsculas solo con dos
+   puntos), el primer texto entre comillas o en negritas (en cualquier caja) o la primera corrida
+   de mayúsculas;
+2. sin marcador, el texto entre comillas o negritas en mayúsculas, o la corrida de mayúsculas
+   (tres o más palabras, quince o más letras) más cercana al registro, sin la clave ni la época
+   ("P./J. 3/2019", "(10a.)"). No cuentan la línea de un encabezado ("III. …", "## …") ni un
+   texto hecho solo de palabras de órganos, publicaciones o encabezados (lista cerrada:
+   "SUPREMA CORTE DE JUSTICIA DE LA NACIÓN", "PRIMER TRIBUNAL COLEGIADO EN MATERIA PENAL DEL
+   TERCER CIRCUITO", "JURISPRUDENCIA APLICABLE AL CASO CONCRETO").
+
+Entre el marcador y el rubro solo puede mediar una **fórmula introductoria** de la lista cerrada
+`FORMULAS_INTRODUCTORIAS` ("y texto", "y texto siguientes", "es", "que dice", "que a la letra
+dice", "del tenor siguiente", "literal"…). Cualquier otro texto omitido ("de rubro: no es cierto
+que «…»") queda en `texto_omitido` e impide "coincide" (🟡). Si entre el rubro y el registro hay
+**otra mención de tesis**, jurisprudencia, criterio, precedente o ejecutoria que no sea la
+etiqueta de la clave ("tesis 2a./J. 58/2010", "Tesis: P./J. 20/2014"), la del tipo ("Tipo:
+Jurisprudencia") ni vaya seguida solo de calificativos ("jurisprudencia obligatoria"), o el
+párrafo invoca varios rubros ("de rubros «A» y «B»"), la asociación es incierta
+(`asociacion_incierta`): 🟡 `rubro_no_asociado`, nunca 🟢 ni 🔴. Consecuencia: en el formato de
+bloque (rubro, texto de la tesis, registro) el texto suele mencionar "tesis" o "criterio" y la
+tesis queda 🟡.
+
+Un marcador **pegado a la derecha** del registro ("registro digital 164618, de rubro y texto:
+«…»") prevalece (`extraer_rubro_posterior`, con la misma regla de fórmulas), y lo consumido ya
+no es contexto de la tesis siguiente. Un texto entre comillas en minúsculas sin marcador **no**
+se toma como rubro (suele citar el texto de la tesis o de una norma).
+
+**Cotejo** (`cotejar_rubro`), en este orden; la comparación normaliza (`normalizar_rubro`: NFKD
+sin acentos —NFD más la descomposición de compatibilidad, para que "1º" sea "1o"—, casefold,
+sin puntuación **no numérica**, espacios colapsados; Regla 1 de `CLAUDE.md`). El separador que
+toca un dígito se conserva: "REGLA 1.4.14." y "1/4/14." no son iguales, ni "69-B" y "69 B". Las
+alertas y el reporte muestran siempre el rubro **original**, con acentos:
+
+| Resultado (`cotejo_rubro`) | Condición | Semáforo de la tesis |
+|---|---|---|
+| `rubro_no_asociado` | asociación incierta con el registro (arriba) | 🟡 a lo sumo 84, "RUBRO NO ASOCIADO CON CERTEZA"; solo acredita el registro |
+| `parcial` | marca de supresión ("…", "...", "[…]", "(…)", o la ventana recortada) y lo transcrito aparece en el real en orden y solo con huecos donde está la marca ("ES COMPUTABLE…" debe ser el inicio del real). Con marca **nunca** hay "coincide", aunque lo transcrito sea todo el rubro | 🟡 a lo sumo 84, "RUBRO PARCIAL" |
+| `coincide` | igualdad normalizada, sin marca de supresión ni texto omitido tras el marcador | 95 jurisprudencia 🟢 / 72 aislada 🟡 |
+| `discrepante` | traslape de palabras normalizado < 40 % (sobre el texto con menos palabras; las palabras cortas cuentan, salvo una lista cerrada de palabras vacías: artículos, preposiciones, conjunciones) | 🔴 0, bloqueante |
+| `invertido` | traslape ≥ 40 % y polaridad distinta (lista cerrada, abajo) | 🔴 0, bloqueante ("SENTIDO INVERTIDO") |
+| `no_literal` | cualquier otra diferencia; también la igualdad con texto omitido tras el marcador | 🟡 a lo sumo 84, "RUBRO NO COINCIDE LITERALMENTE" |
+| `sin_rubro_invocado` | el escrito no transcribe un rubro identificable | 🟡 a lo sumo 84: la tesis solo acredita la existencia del registro |
+| `sin_rubro_fuente` | la fuente local no registra el rubro | 🟡 a lo sumo 84 |
+
+Ningún heurístico de traslape concede 🟢: solo la igualdad literal normalizada. Si el rubro se
+tomó sin marcador (comillas o mayúsculas) y su traslape es < 40 %, antes del 🔴 se mira el
+párrafo de la cita: si comparte 40 % o más de las palabras del real, el texto tomado como rubro
+pudo no serlo y la tesis queda 🟡 `no_literal`.
+
+**Polaridad (lista cerrada; ampliarla es decisión del responsable).** Hay inversión si difiere:
+
+- el total de negaciones: *no, ni, sin, nunca, jamás, tampoco, ningún, ninguno, ninguna, nadie,
+  nada* ("NO … NI …" y "NO … NO …" tienen la misma polaridad);
+- por par, la forma negativa de un antónimo por prefijo: *improcedente/improcedencia*
+  (procedente), *ilegal/ilegalidad* (legal), *inconstitucional/inconstitucionalidad*
+  (constitucional), *inaplicable* (aplicable), *inválido/invalidez* (válido), *ilícito/
+  ilicitud* (lícito), *incompetente/incompetencia* (competente), *infundado* (fundado),
+  *inoperante* (operante), *ineficaz* (eficaz), *inexistente/inexistencia* (existente),
+  *imprescriptible* (prescriptible), *inadmisible* (admisible), *injustificado*
+  (justificado), *innecesario* (necesario), *inexigible* (exigible), *insuficiente*
+  (suficiente), *inimputable* (imputable), con sus plurales;
+- en un par simétrico mencionado por ambos rubros, el lado usado: *conceder/otorgar* ↔
+  *negar/denegar*, *oportuno* ↔ *extemporáneo*, *permitir* ↔ *prohibir*, *obligatorio* ↔
+  *optativo/potestativo*.
+
+Consecuencia deliberada: un tramo del rubro transcrito **sin** marca de supresión que omite una
+negación del real se trata como sentido invertido (🔴); para citar parte de un rubro hay que
+marcar la supresión con "…" (🟡 RUBRO PARCIAL). Y un antónimo fuera de la lista ("INCOMPUTABLE")
+no se detecta como inversión, pero tampoco es 🟢 (queda 🟡 no literal).
+
+**Vigencia (criterio por defecto, no decisión del responsable).** `normalizar_vigencia` lee
+**todos** los campos de vigencia del corpus (`estado_vigencia`, `vigencia`). `estado_vigencia`
+solo vale "vigente", "superada", "interrumpida" o "sustituida" si el corpus o el scraper lo
+registraron. Una pérdida registrada en **cualquier** campo prevalece sobre "no consultada" o un
+valor desconocido y bloquea como antes (regla 2); también cuenta como pérdida un valor cuya
+primera palabra lo es ("superada por contradicción"). Dos campos con dato y valores distintos son
+un conflicto (`vigencia_en_conflicto`): si alguno es pérdida, bloquea; si no, el estado es
+`en_conflicto` (🟡, puntaje a lo sumo 84, alerta "🟡 VIGENCIA EN CONFLICTO"). Sin dato vale
+`no_consultada` (antes se asumía "vigente") y un valor desconocido, `no_reconocida` (se conserva
+el original en `vigencia_registrada`). Ninguno de los dos cambia el semáforo: la auditoría añade
+un **aviso** informativo ("ℹ️ VIGENCIA NO CONSULTADA" / "ℹ️ VIGENCIA NO RECONOCIDA") en
+`avisos` (con `avisos_count`), no en `alerts`: `alerts_count` conserva su significado anterior.
+`scripts/promover_tesis.py` ya no escribe "vigente" por defecto al promover tesis del scraper.
+
+**Alertas por tesis localizada** (antes solo la traza decía la discrepancia): "🔴 RUBRO
+DISCREPANTE — SENTIDO INVERTIDO", "🔴 RUBRO DISCREPANTE", "🟡 RUBRO PARCIAL", "🟡 RUBRO NO
+COINCIDE LITERALMENTE", "🟡 RUBRO NO ASOCIADO CON CERTEZA", "🟡 SIN RUBRO INVOCADO", "🟡 RUBRO NO
+DISPONIBLE", "🟡 VIGENCIA EN CONFLICTO", cada una con el rubro invocado y el real originales.
+La salida `--format telegram` muestra todas las alertas completas que quepan en el mensaje (si
+no, "… y N alerta(s) más" remite al JSON) y agrupa los avisos por tipo con todos sus registros.
+Campos añadidos: `avisos`, `avisos_count`; `vvca.cotejo_rubro`; en la explicabilidad,
+`cotejo_rubro`, `motivo_cotejo`, `rubro_invocado_metodo`, `rubro_truncado`, `polaridad`,
+`texto_omitido`, `asociacion_incierta`, `vigencia_registrada`, `vigencia_campos` y
+`vigencia_en_conflicto` (`rubro_real` y `rubro_invocado` ahora completos; `rubro_invocado` es el
+rubro extraído, no el contexto); en `vvca_summary`, `tesis_por_cotejo_rubro` y
+`tesis_por_vigencia`. La memoria contextual (`itosturre/memoria/puente.py`) solo registra una
+cita bloqueada por vigencia si es superada, interrumpida o sustituida, y distingue el rubro con
+el sentido invertido.
+
+### Qué cambia para el abogado (R4d)
+
+| Antes | Después |
+|---|---|
+| "REGISTRO DIGITAL: …" o "Registro Digital: …": la tesis no se auditaba | Se audita como cualquier otra (también "registro IUS"; "IUS", "Reg." o "Registro" solos, con contexto de tesis) |
+| "Registro: 20261002 de la oficialía" se auditaba como tesis | No es un registro (8 dígitos, sin contexto de tesis); tampoco "Reg. 2006224/2026" |
+| "registros digitales N y M", "N / M": solo se detectaba el primero (o ninguno) | Una tesis por número; un conector no reconocido deja 🟡 COBERTURA INCOMPLETA |
+| El mismo rubro sin acentos: 🔴 discrepante (falso rojo) | 🟢 si coincide literalmente |
+| Rubro con el sentido invertido ("NO ES COMPUTABLE"): 🟢 | 🔴 RUBRO DISCREPANTE — SENTIDO INVERTIDO |
+| "de rubro: no es cierto que «…»" con el rubro exacto: 🟢 | 🟡 RUBRO NO COINCIDE LITERALMENTE (texto omitido) |
+| Rubro completo seguido de "…": 🟢 | 🟡 RUBRO PARCIAL |
+| "1.4.14." en lugar de "1/4/14.", "69 B" en lugar de "69-B": 🟢 | 🟡 RUBRO NO COINCIDE LITERALMENTE |
+| Rubro de otra tesis antes del registro ("…; se invoca otra tesis con registro …"): 🟢 | 🟡 RUBRO NO ASOCIADO CON CERTEZA |
+| Rubro truncado o parafraseado con 40 % de palabras comunes: 🟢 | 🟡 RUBRO PARCIAL / RUBRO NO COINCIDE LITERALMENTE |
+| Registro sin rubro transcrito: 🟢 o 🔴 según las palabras del párrafo | 🟡 SIN RUBRO INVOCADO (solo acredita el registro) |
+| Encabezado u órgano en mayúsculas junto al registro: 🔴 falso | 🟡 sin rubro invocado |
+| Segunda tesis sin rubro tras otra con rubro: heredaba el contexto (🔴 falso) | 🟡 sin rubro invocado |
+| Vigencia sin dato: "vigente" | "no_consultada" con aviso ℹ️ aparte (sin cambiar el semáforo) |
+| `estado_vigencia: no_consultada` y `vigencia: superada`: no bloqueaba | 🔴 vigencia perdida (cualquier campo) |
+| Solo tesis con rubro literal: 🟡 transitorio (R4c) | Sigue 🟡 transitorio (retención mantenida, ver §3) |
 
 ## 4. Guards de resolución de artículos (anti-falso-veredicto)
 
@@ -322,7 +478,7 @@ Comportamiento al auditar (`audit()`):
 | Si el filtro por fuente fallaba, el artículo de otra ley salía 🟢 "Fuente correcta" | 🟡 EVIDENCIA DE OTRO ORDENAMIENTO ("Fuente distinta") o la evidencia de la ley citada |
 | 🟢 "Normativa y jurisprudencia verificadas" sin tesis citadas | 🟢 "Normativa verificada; sin tesis citadas" |
 | "SJF 0.0 🔴 (0/0 tesis ok)"; "RAG 0.0 🔴" con todas las normas no verificables | "SJF sin citas"; "RAG — 🟡 (N arts; N no verificables)" |
-| Solo tesis verificadas: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)" (transitorio) |
+| Solo tesis verificadas: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Jurisprudencia localizada; …" (transitorio; R4d lo mantiene) |
 | Sin ninguna cita: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar" |
 | El 🟢 no decía qué acreditaba | "Alcance del 🟢: existencia y ubicación del precepto en el corpus local; no significa que lo citado diga lo que el escrito afirma" |
 

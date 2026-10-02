@@ -218,6 +218,60 @@ class PuenteVVCA(unittest.TestCase):
         self.assertEqual(len(eventos), 1)
         self.assertIn("superada", eventos[0]["summary"])
 
+    def test_vigencia_sin_dato_o_en_conflicto_no_es_bloqueo(self) -> None:
+        """R4d: "no_consultada", "no_reconocida" y "en_conflicto" no son vigencia perdida.
+
+        Antes el puente bloqueaba todo lo que no fuera "vigente": una tesis 🟢 sin dato de
+        vigencia habría quedado en la memoria como cita bloqueada."""
+        for estado in ("no_consultada", "no_reconocida", "en_conflicto"):
+            with self.subTest(estado=estado):
+                auditoria = {
+                    "vvca_summary": {},
+                    "retrieved_sources": [
+                        {"ref_type": "jurisprudencia", "reference": "Reg. 111",
+                         "vvca": {"rubro_mismatch": False, "estado_vigencia": estado,
+                                  "explicabilidad": {"registro": "111"}}},
+                    ],
+                }
+                self.assertEqual(eventos_desde_auditoria(auditoria), [])
+
+    def test_toda_vigencia_perdida_bloquea(self) -> None:
+        for estado in ("superada", "interrumpida", "sustituida"):
+            with self.subTest(estado=estado):
+                auditoria = {
+                    "vvca_summary": {},
+                    "retrieved_sources": [
+                        {"ref_type": "jurisprudencia", "reference": "Reg. 111",
+                         "vvca": {"rubro_mismatch": False, "estado_vigencia": estado,
+                                  "explicabilidad": {"registro": "111"}}},
+                    ],
+                }
+                (evento,) = eventos_desde_auditoria(auditoria)
+                self.assertEqual(evento["event_type"], "cita_bloqueada")
+                self.assertIn(f"criterio {estado}", evento["summary"])
+
+    def test_rubro_con_sentido_invertido_se_registra_con_su_motivo(self) -> None:
+        """R4d: el cotejo distingue el sentido invertido y el puente lo conserva."""
+        auditoria = {
+            "vvca_summary": {},
+            "retrieved_sources": [
+                {"ref_type": "jurisprudencia", "reference": "Reg. 111",
+                 "vvca": {"rubro_mismatch": True, "cotejo_rubro": "invertido",
+                          "estado_vigencia": "no_consultada",
+                          "explicabilidad": {
+                              "registro": "111", "rubro_real": "EL PLAZO ES COMPUTABLE",
+                              "rubro_invocado": "EL PLAZO NO ES COMPUTABLE",
+                              "motivo_cotejo": "sentido invertido: negaciones",
+                              "polaridad": ["negaciones: 1 en el invocado y 0 en el real"]}}},
+            ],
+        }
+        (evento,) = eventos_desde_auditoria(auditoria)
+        self.assertEqual(evento["event_type"], "cita_bloqueada")
+        self.assertIn("rubro discrepante (sentido invertido)", evento["summary"])
+        self.assertEqual(evento["details"]["cotejo_rubro"], "invertido")
+        self.assertEqual(evento["details"]["polaridad"],
+                         ["negaciones: 1 en el invocado y 0 en el real"])
+
     def test_hueco_de_corpus_no_es_bloqueo(self) -> None:
         """Regla 7 VVCA: falta de índice no es defecto del argumento."""
         eventos = eventos_desde_auditoria(

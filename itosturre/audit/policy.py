@@ -6,12 +6,29 @@ from typing import Optional
 # R4c — Alcance explícito de la verificación automatizada (Capa 1). Un 🟢 acredita SOLO esto:
 # no que el precepto diga lo que el escrito afirma ni que sea pertinente al caso (Capa 2).
 ALCANCE_NORMATIVA = "existencia y ubicación del precepto en el corpus local"
+# R4d: el rubro ya no se coteja por coincidencia léxica sino por igualdad literal normalizada
+# (NFKD sin acentos, mayúsculas ni signos). Sin rubro invocado no hay cotejo del rubro.
 ALCANCE_JURISPRUDENCIA = (
-    "existencia del registro en el corpus local de jurisprudencia y coincidencia léxica del "
-    "rubro invocado"
+    "existencia del registro en el corpus local de jurisprudencia y coincidencia literal "
+    "(normalizada) del rubro invocado"
+)
+ALCANCE_JURISPRUDENCIA_SIN_RUBRO = (
+    "existencia del registro en el corpus local de jurisprudencia; sin cotejo del rubro (el "
+    "escrito no lo transcribe o la fuente no lo registra)"
 )
 # R4c (R4-D12) — Semáforo neutro de una dimensión sin citas: ni 🟢 ni 🔴 (no hubo qué verificar).
 SEMAFORO_SIN_CITAS = "⚪"
+
+
+def alcance_jurisprudencia(sin_cotejo_rubro: int = 0) -> str:
+    """Alcance de la verificación de tesis del resumen (R4d): el de siempre o, si alguna tesis
+    localizada quedó sin cotejo del rubro, cuántas solo acreditan la existencia del registro."""
+    if not sin_cotejo_rubro:
+        return ALCANCE_JURISPRUDENCIA
+    return (
+        f"{ALCANCE_JURISPRUDENCIA}; {sin_cotejo_rubro} tesis sin cotejo del rubro: solo "
+        f"existencia del registro"
+    )
 
 
 def vvca_score(distance: float, source_match: bool, has_source_file: bool) -> int:
@@ -79,7 +96,7 @@ def disclaimer_graduado(veredicto: dict) -> dict:
         "encabezado": "✅ CITAS VERIFICADAS (Capa 1) — PENDIENTE PERTINENCIA (Capa 2)",
         "texto": (
             f"Verificación automatizada sin discrepancias{detalle}. Alcance del 🟢: "
-            f"{ALCANCE_NORMATIVA} (en tesis, registro y rubro); no significa que lo citado "
+            f"{ALCANCE_NORMATIVA} (en tesis, registro y rubro literal); no significa que lo citado "
             f"diga lo que el escrito afirma. {base}"
         ),
         "requiere_acuse": False,

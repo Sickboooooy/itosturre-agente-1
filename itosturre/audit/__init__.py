@@ -9,11 +9,22 @@ from .evidence import (
     precepto_derogado,
     select_article_evidence,
 )
-from .jurisprudence import classify_fuerza_vinculante, rubro_keywords
+from .jurisprudence import (
+    classify_fuerza_vinculante,
+    cotejar_rubro,
+    diferencias_polaridad,
+    extraer_rubro_invocado,
+    extraer_rubro_posterior,
+    normalizar_rubro,
+    normalizar_vigencia,
+    rubro_keywords,
+)
 from .policy import (
     ALCANCE_JURISPRUDENCIA,
+    ALCANCE_JURISPRUDENCIA_SIN_RUBRO,
     ALCANCE_NORMATIVA,
     SEMAFORO_SIN_CITAS,
+    alcance_jurisprudencia,
     disclaimer_graduado,
     semaforo_dimension,
     vvca_score,
@@ -23,14 +34,22 @@ from .traceability import build_trace_record, traceability_bundle
 
 __all__ = [
     "ALCANCE_JURISPRUDENCIA",
+    "ALCANCE_JURISPRUDENCIA_SIN_RUBRO",
     "ALCANCE_NORMATIVA",
     "SEMAFORO_SIN_CITAS",
+    "alcance_jurisprudencia",
     "clasificar_derogacion",
     "classify_fuerza_vinculante",
+    "cotejar_rubro",
     "cotejar_precepto",
+    "diferencias_polaridad",
     "disclaimer_graduado",
+    "extraer_rubro_invocado",
+    "extraer_rubro_posterior",
     "has_exact_article_heading",
     "has_suffixed_variant_heading",
+    "normalizar_rubro",
+    "normalizar_vigencia",
     "precepto_derogado",
     "rubro_keywords",
     "select_article_evidence",
