@@ -2,6 +2,17 @@
 OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
+Cambios R4b (extracción de referencias y resolución de ley; itosturre/audit/referencias.py):
+  ✅ Designación con sufijo ("247 Ter", "4o.-A", "32-B Quáter") y una referencia por
+     artículo en enumeraciones y rangos ("arts. 14, 16 y 19", "467 a 471").
+  ✅ Ley solo por vínculo sintáctico (pegada a la derecha del precepto, pegada o posesiva a
+     la izquierda; varias leyes solo con "respectivamente"; conflicto → no identificada),
+     por palabra completa; "constitución" sola no es la CPEUM; claves estatales con entidad.
+  ✅ Ley no identificada → 🟡 NO VERIFICABLE con motivo (sin buscar el número en todo el
+     corpus); precepto con sufijo sin encabezado exacto → 🟡 NO VERIFICABLE; rango recortado
+     o número no extraído con certeza → 🟡 COBERTURA INCOMPLETA; ley inferida de otro
+     párrafo → 🟡 LEY POR CONFIRMAR.
+
 Cambios v4.0:
   ✅ Embeddings: migración multilingual-e5-small (384d) → multilingual-e5-large (1024d)
      Encoding asimétrico e5 vía prefijos de texto: "passage: " al indexar (ingest),
@@ -50,6 +61,20 @@ from typing import Callable, Optional, Tuple, Dict, List
 
 from itosturre.audit.context import vvca_contextualizacion
 from itosturre.audit.evidence import select_article_evidence
+from itosturre.audit.referencias import (
+    ARTICULO_RE,
+    MOTIVO_CONFIRMAR,
+    CatalogoLeyes,
+    articulo_con_sufijo,
+    construir_catalogo,
+    designaciones_articulo,
+    extraer_articulos,
+    partes_articulo,
+    patron_articulo,
+    primera_mencion,
+    sin_acentos,
+    ultima_mencion,
+)
 from itosturre.audit.jurisprudence import (
     classify_fuerza_vinculante,
     rubro_keywords as _rubro_keywords,
@@ -184,26 +209,24 @@ EXCLUDE_PATTERNS = [
 # corte calibrado; 0.50 era laxo (aceptaba similitud 0.50 = texto mediocre).
 COSINE_THRESHOLD = float(os.getenv("COSINE_THRESHOLD", "0.25"))
 
-# Regex robusto para artículos legales. Captura:
-#   Art. 247  /  artículo 247  /  arts. 247-250  /  Art. 247 Bis
-#   Art. 247 fr. III  /  Art. 247, fracción IV  /  Art. 259°
-ARTICLE_RE = re.compile(
-    r'[Aa]rt[íi]?(?:culo)?s?\.?\s*'
-    r'(\d+[\w\-]*(?:\s+[Bb]is|[Tt]er|[Qq]u[áa]ter)?)'
-    r'(?:[°º])?'
-    r'(?:'
-        r'\s*[,;]?\s*'
-        r'(?:fr(?:acci[oó]n)?\.?|frac\.?)\s*'
-        r'([\w\.]+)'
-    r')?',
-    re.IGNORECASE
-)
+# Regex de una referencia a artículo (cabeza + PRIMER artículo + fracción). Captura:
+#   Art. 247  /  artículo 247  /  Art. 247 Bis  /  artículo 247 Ter  /  2o. Bis  /  4o.-A
+#   29-A  /  32-B Quáter  /  Art. 247 fr. III  /  Art. 247, fracción IV  /  Art. 259°
+# Grupo 1 = designación con sus sufijos (R4-D01: antes "247 Ter" → "247" y "4o.-A" → "4o");
+# grupo 2 = fracción. Se conserva por compatibilidad: ``extract_references`` ya no la usa
+# directamente, sino ``itosturre.audit.referencias.extraer_articulos``, que además lee las
+# enumeraciones y los rangos completos ("arts. 14, 16 y 19", "467 a 471"; R4-D02).
+ARTICLE_RE = ARTICULO_RE
 
 # Abreviaciones → nombre normalizado del ordenamiento.
+# Desde R4b, "Constitución" y "Constitucional" no se buscan como mención libre (R4-D04): la
+# primera es genérica y la segunda solo cuenta junto al precepto ("artículo 16 constitucional").
+# Se conservan aquí como datos del catálogo. Ver itosturre/audit/referencias.py.
 LAW_ALIASES = {
     # Constitución
     "CPEUM": "Constitución Política de los Estados Unidos Mexicanos",
     "Constitución": "Constitución Política de los Estados Unidos Mexicanos",
+    "Constitución Federal": "Constitución Política de los Estados Unidos Mexicanos",
     "Carta Magna": "Constitución Política de los Estados Unidos Mexicanos",
     "Constitucional": "Constitución Política de los Estados Unidos Mexicanos",
     # Penal federal
@@ -294,7 +317,11 @@ LAW_ALIASES = {
     "Derechos del Contribuyente": "Ley Federal de los Derechos del Contribuyente",
 }
 
-# Mapeo de palabras clave de ley (minúsculas) → nombre exacto del archivo en ChromaDB
+# Mapeo de palabras clave de ley (minúsculas) → nombre exacto del archivo en ChromaDB.
+# Desde R4b cada clave se busca como palabra o abreviatura completa ("Olivares" ya no es
+# "liva"; R4-D03), sin distinguir mayúsculas y admitiendo cualquier blanco entre palabras.
+# "constitución" y "constitucional" son claves contextuales (ver LAW_ALIASES): sirven para
+# --law y para el precepto "artículo N constitucional", nunca como mención libre.
 LAW_SOURCE_MAP = {
     "código federal de procedimientos civiles": "Código Federal de Procedimientos Civiles 2026.pdf",
     "código nacional de procedimientos civiles": "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf",
@@ -304,8 +331,14 @@ LAW_SOURCE_MAP = {
     "código de procedimientos civiles del estado de jalisco": "CodigoProcedimientosCivilesEstadoJalisco.pdf",
     "código fiscal de la federación": "CODIGO FISCAL DE LA FEDERACION 2026.pdf",
     "código fiscal del estado de jalisco": "CODIGO FISCAL DEL ESTADO DE JALISCO 2026.pdf",
-    "código penal para el estado": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+    # Ordenamientos estatales: la clave exige la entidad completa (R4b, ronda 2). Antes
+    # "código penal para el estado" llevaba el Código Penal del Estado de México a Jalisco.
+    "código penal para el estado libre y soberano de jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+    "código penal para el estado de jalisco": "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
     "constitución política de los estados unidos": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    # Denominaciones de la CPEUM (R4b): "constitución" sola ya no la identifica.
+    "constitución federal": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+    "constitución general de la república": "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
     "constitución política del estado de jalisco": "Constitución Politica del Estado de Jalisco 2026.pdf",
     "ley de amparo": "LEY DE AMPARO.pdf",
     "ley del seguro social": "LEY DEL SEGURO SOCIAL.pdf",
@@ -315,8 +348,12 @@ LAW_SOURCE_MAP = {
     "ley federal de procedimiento administrativo": "Ley Federal de Procedimiento Administrativo 2026.pdf",
     "ley federal de procedimiento contencioso": "Ley Federal de Procedimiento Contencioso Administrativo 2026.pdf",
     "ley orgánica del poder judicial federal": "Ley Orgánica del Poder Judicial Federal 2026.pdf",
+    # Denominación oficial (R4b): la clave anterior solo cubre "…Poder Judicial Federal"; sin
+    # esta, "de la Ley Orgánica del Poder Judicial de la Federación" sería un ordenamiento no
+    # reconocido (🟡 ley no identificada) ahora que la ley se resuelve por palabra completa.
+    "ley orgánica del poder judicial de la federación": "Ley Orgánica del Poder Judicial Federal 2026.pdf",
     "ley de hacienda del estado de jalisco": "Ley de Hacienda del Estado de Jalisco -160424 2026.pdf",
-    "ley de movilidad y transporte": "Ley de Movilidad y Transporte del Estado de Jalisco_2 2026.pdf",
+    "ley de movilidad y transporte del estado de jalisco": "Ley de Movilidad y Transporte del Estado de Jalisco_2 2026.pdf",
     "ley del impuesto al valor agregado": "Ley del Impuesto al Valor Agregado 2026.pdf",
     "ley del impuesto sobre la renta": "Ley del Impuesto sobre la Renta 2026.pdf",
     "ley del notariado del estado de jalisco": "Ley del Notariado del Estado de Jalisco 2026.pdf",
@@ -324,8 +361,12 @@ LAW_SOURCE_MAP = {
     "ley de justicia administrativa del estado de jalisco": "LeydeJusticiaAdministrativadelEstadodeJalisco 2026.pdf",
     "ley del registro civil del estado de jalisco": "ley_del_registro_civil_del_estado_de_jalisco 2026.pdf",
     "reglamento de la ley federal de protección al consumidor": "REGLAMENTO DE LA LEY FEDERAL DE PROTECCIÓN AL CONSUMIDOR Reg_LFPC_191219.pdf",
-    "reglamento de movilidad": "RegMovilidadTransporteSeguridadVialGuadalajara 2026.pdf",
-    "reglamento orgánico del poder judicial": "Reglamento organico poder judicial de la federación 2026.pdf",
+    # Título del PDF municipal: "Reglamento de Movilidad, Transporte y Seguridad Vial de
+    # Guadalajara" (antes bastaba "reglamento de movilidad", de cualquier municipio).
+    "reglamento de movilidad, transporte y seguridad vial de guadalajara": "RegMovilidadTransporteSeguridadVialGuadalajara 2026.pdf",
+    # Ojo: el texto indexado de este PDF es la Ley Orgánica del Poder Judicial de la
+    # Federación (verificado en el corpus el 1-oct-2026); la clave exige "de la federación".
+    "reglamento orgánico del poder judicial de la federación": "Reglamento organico poder judicial de la federación 2026.pdf",
     # Abreviaciones
     "cfpc": "Código Federal de Procedimientos Civiles 2026.pdf",
     "cnpcf": "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf",
@@ -400,6 +441,8 @@ LAW_SOURCE_MAP = {
     "cadh": "Convencion Americana sobre Derechos Humanos.pdf",
     "pacto de san josé": "Convencion Americana sobre Derechos Humanos.pdf",
     "ley federal de delincuencia organizada": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
+    # Denominación oficial (título del PDF del corpus).
+    "ley federal contra la delincuencia organizada": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
     "lfdo": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
     "delincuencia organizada": "LEY FEDERAL DE DELINCUENCIA ORGANIZADA 2026.pdf",
     "ley nacional de extinción de dominio": "LEY NACIONAL EXTINCION DE DOMINIO 2026.pdf",
@@ -771,28 +814,27 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
 # AUDITORÍA
 # ─────────────────────────────────────────
 
+_CATALOGO_CACHE: Optional[Tuple[tuple, CatalogoLeyes]] = None
+
+
+def _catalogo() -> CatalogoLeyes:
+    """Catálogo de menciones de ley (patrones por palabra completa) de LAW_SOURCE_MAP y
+    LAW_ALIASES. Se reconstruye si alguno de los dos diccionarios cambió."""
+    global _CATALOGO_CACHE
+    firma = (tuple(LAW_SOURCE_MAP.items()), tuple(LAW_ALIASES.items()))
+    if _CATALOGO_CACHE is None or _CATALOGO_CACHE[0] != firma:
+        _CATALOGO_CACHE = (firma, construir_catalogo(LAW_SOURCE_MAP, LAW_ALIASES))
+    return _CATALOGO_CACHE[1]
+
+
 def resolve_law_source(context: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Busca en el contexto el alias de ley que aparece más pronto.
-    Ventana expandida: busca en hasta 200 caracteres (antes: 65).
+    Busca en el contexto la clave de ley (LAW_SOURCE_MAP) que aparece más pronto; a igual
+    posición gana la más larga. Desde R4b la coincidencia es por palabra o abreviatura
+    completa (R4-D03: "olivares" ya no contiene "liva") y "constitución"/"constitucional"
+    sueltas no identifican la CPEUM (R4-D04). Devuelve (clave, archivo) o (None, None).
     """
-    ctx = context.lower()
-    best_key = None
-    best_file = None
-    best_pos = len(ctx) + 1
-    best_len = 0
-
-    for key, source_file in LAW_SOURCE_MAP.items():
-        pos = ctx.find(key)
-        if pos == -1:
-            continue
-        if pos < best_pos or (pos == best_pos and len(key) > best_len):
-            best_pos = pos
-            best_len = len(key)
-            best_key = key
-            best_file = source_file
-
-    return (best_key, best_file)
+    return primera_mencion(context or "", _catalogo())
 
 
 def resolve_law_alias(law: str) -> str:
@@ -813,18 +855,11 @@ def resolve_law_alias(law: str) -> str:
     return resolved or law
 
 
-_ARTICLE_NUM_RE = re.compile(r"art[íi]culo\s+(\d{1,4})|art\.\s*(\d{1,4})\b", re.IGNORECASE)
-
-
 def extract_article_numbers(text: str) -> List[str]:
-    """Extrae números de artículo mencionados explícitamente en `text` (p. ej.
-    'artículo 294' o 'art. 294')."""
-    nums = []
-    for m in _ARTICLE_NUM_RE.finditer(text):
-        n = m.group(1) or m.group(2)
-        if n not in nums:
-            nums.append(n)
-    return nums
+    """Extrae las designaciones de artículo mencionadas explícitamente en `text`, sin
+    repetir: 'artículo 294', 'art. 294', 'arts. 14, 16 y 19' (cada uno; R4-D02) y con su
+    sufijo ('artículo 247 Ter' → '247 Ter'; R4-D01)."""
+    return designaciones_articulo(text, _catalogo())
 
 
 def exact_article_chunks(collection, source: str, article_num: str) -> List[Dict]:
@@ -834,12 +869,18 @@ def exact_article_chunks(collection, source: str, article_num: str) -> List[Dict
     score con vecinos y quedar fuera del top-N sin que exista ningún hueco de
     indexación (caso real: art. 294 CPCJ, auditoría VVCA 07-jul-2026 — el chunk
     existía en el corpus pero no rankeó dentro de n=4 resultados semánticos).
+
+    Desde R4b la designación se compara completa: '4o' no coincide con 'Artículo 4o.-A.'
+    ni '247' con 'Artículo 247 Bis.', y '247 Ter' exige el sufijo.
     """
     res = collection.get(where={"source": source}, include=["documents", "metadatas"])
-    pattern = re.compile(rf"art[íi]culo\s+{re.escape(article_num)}\s*\.", re.IGNORECASE)
+    designacion = patron_articulo(article_num, espacio=r"\s") or re.escape(
+        sin_acentos(article_num)
+    )
+    pattern = re.compile(rf"articulo\s+{designacion}\s*\.", re.IGNORECASE)
     hits = []
     for doc, meta in zip(res.get("documents") or [], res.get("metadatas") or []):
-        if pattern.search(doc):
+        if pattern.search(sin_acentos(doc)):
             hits.append({"source": meta.get("source", "?"), "page": meta.get("page", "?"), "snippet": doc.strip()})
     return hits
 
@@ -853,78 +894,30 @@ def resolve_law_source_backward(context_before: str) -> Tuple[Optional[str], Opt
         - Art. 19 — ...
 
     donde la ley vive en el encabezado, fuera de la ventana local del artículo.
-    A igualdad de posición gana el alias más largo (más específico).
+    A igualdad de posición gana el alias más largo (más específico). Desde R4b la
+    coincidencia es por palabra completa y una clave contenida en otra mayor ("delincuencia
+    organizada" dentro de "Ley Federal de Delincuencia Organizada") no cuenta aparte.
     """
-    ctx = context_before.lower()
-    best_key = None
-    best_file = None
-    best_pos = -1
-    for key, source_file in LAW_SOURCE_MAP.items():
-        pos = ctx.rfind(key)
-        if pos == -1:
-            continue
-        if pos > best_pos or (pos == best_pos and len(key) > (len(best_key or ""))):
-            best_pos = pos
-            best_key = key
-            best_file = source_file
-    return (best_key, best_file)
+    return ultima_mencion(context_before or "", _catalogo())
 
 
 def extract_references(text: str) -> List[Dict]:
-    """Extrae referencias a artículos y jurisprudencias del borrador."""
-    refs = []
+    """Extrae referencias a artículos y jurisprudencias del borrador.
 
-    for m in ARTICLE_RE.finditer(text):
-        art_num = m.group(1).strip()
-        frac = (m.group(2) or "").strip()
-
-        # Estrategia de ventana mejorada (ahora: 30 → 100 → amplia)
-        line_start = text.rfind('\n', 0, m.start()) + 1
-        line_end = text.find('\n', m.end())
-        if line_end == -1:
-            line_end = len(text)
-
-        right_ctx = text[m.end(): min(len(text), m.end() + 100)]  # Ampliado de 30 a 100
-        line_ctx = text[line_start:line_end]
-        wide_ctx = text[max(0, m.start() - 100): min(len(text), m.end() + 150)]  # Ampliado
-
-        # 1. LAW_SOURCE_MAP — prioridad: derecha → línea → wide
-        law_name, source_file = resolve_law_source(right_ctx)
-        if not law_name:
-            law_name, source_file = resolve_law_source(line_ctx)
-        if not law_name:
-            law_name, source_file = resolve_law_source(wide_ctx)
-
-        # 2. Fallback alias (case-sensitive)
-        if not law_name:
-            for ctx in (right_ctx, line_ctx, wide_ctx):
-                for alias, full_name in sorted(LAW_ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
-                    if alias in ctx:
-                        law_name = full_name
-                        _, source_file = resolve_law_source(alias.lower())
-                        break
-                if law_name:
-                    break
-
-        # 3. Sticky-law (último recurso): artículo agrupado bajo un encabezado de ley.
-        #    Busca la ley del encabezado más cercano hacia atrás (≤600 chars). Se marca
-        #    law_inferred=True para auditabilidad — resuelve por sección, no por adyacencia.
-        law_inferred = False
-        if not law_name:
-            before_ctx = text[max(0, m.start() - 600): m.start()]
-            law_name, source_file = resolve_law_source_backward(before_ctx)
-            if law_name:
-                law_inferred = True
-
-        refs.append({
-            "type": "article",
-            "article": art_num,
-            "fraction": frac,
-            "law": law_name or "desconocido",
-            "source_file": source_file,
-            "law_inferred": law_inferred,
-            "raw": m.group(0).strip()
-        })
+    Artículos (R4b, ``itosturre.audit.referencias``): una referencia por artículo, también
+    en enumeraciones, rangos y segmentos con leyes intercaladas ("arts. 14, 16 y 19",
+    "467 a 471", "14 de la CPEUM y 42 del CFF"), con su sufijo ("247 Ter", "4o.-A"). La ley
+    solo se asocia por vínculo sintáctico (pegada a la derecha del precepto, pegada o
+    posesiva a la izquierda) y, como último recurso, por el contexto previo de oraciones
+    anteriores (``law_inferred=True``; desde otro párrafo sin encabezado inequívoco,
+    ``law_requires_confirmation=True``). Si no se identifica de forma inequívoca:
+    ``law="desconocido"``, ``source_file=None`` y el motivo en ``law_unidentified_reason``
+    (``audit`` la reporta 🟡 NO VERIFICABLE, nunca 🔴). Lo que no se extrae con certeza
+    queda como referencia de cobertura incompleta (``coverage_gap``). Campos añadidos:
+    ``law_method``, ``law_unidentified_reason``, ``group_raw``,
+    ``law_requires_confirmation`` y ``coverage_gap``.
+    """
+    refs = extraer_articulos(text, _catalogo())
 
     # Registros digitales SJF — captura "Registro: 2019456", "Registro 2019456",
     # "Registro digital: 2019456", "registro digital 2019456"
@@ -985,6 +978,12 @@ def build_vvca(
     # distancia alta conserva el piso 🟡: la pertinencia del texto aún requiere cotejo.
     if metadata_verificado:
         score = max(score, 70)
+    # R4b: ley inferida de otro párrafo (no de un encabezado inequívoco). El cotejo se hizo
+    # contra una ley que el abogado debe confirmar: el semáforo se limita a 🟡 en ambos
+    # sentidos (ni 🟢 ni 🔴 por una ley supuesta). Mínimo necesario; el resto es R4c.
+    por_confirmar = bool(ref.get("law_requires_confirmation"))
+    if por_confirmar:
+        score = max(60, min(score, 84))
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
     art = ref.get("article", "?")
@@ -1013,9 +1012,25 @@ def build_vvca(
         if source_match
         else f"Fuente distinta: se encontró en '{source_file}', se esperaba '{ref.get('source_file')}'"
     )
+    if por_confirmar:
+        v_verificacion = f"Ley inferida de otro párrafo (confirmar el ordenamiento); {v_verificacion}"
     c_contextualizacion = vvca_contextualizacion(source_file)
     a_auditabilidad = f"{art_label} · {law} · pág. {page} · corpus: {source_file}"
 
+    # Traza reproducible del veredicto por cita (explicabilidad — no caja negra).
+    explicabilidad = {
+        "coseno": round(distance, 4),
+        "umbral": COSINE_THRESHOLD,
+        "aprobado_umbral": distance <= COSINE_THRESHOLD,
+        "match_metadata": metadata_verificado,
+        "encabezado_articulo": article_heading_verified,
+        "coincide_fuente": source_match,
+        "fuente_encontrada": source_file,
+        "fuente_esperada": ref.get("source_file"),
+        "ley_inferida": bool(ref.get("law_inferred")),
+    }
+    if por_confirmar:
+        explicabilidad["ley_por_confirmar"] = True
     return {
         "score": score,
         "semaforo": semaforo,
@@ -1023,18 +1038,7 @@ def build_vvca(
         "V_validacion": v_validacion,
         "C_contextualizacion": c_contextualizacion,
         "A_auditabilidad": a_auditabilidad,
-        # Traza reproducible del veredicto por cita (explicabilidad — no caja negra).
-        "explicabilidad": {
-            "coseno": round(distance, 4),
-            "umbral": COSINE_THRESHOLD,
-            "aprobado_umbral": distance <= COSINE_THRESHOLD,
-            "match_metadata": metadata_verificado,
-            "encabezado_articulo": article_heading_verified,
-            "coincide_fuente": source_match,
-            "fuente_encontrada": source_file,
-            "fuente_esperada": ref.get("source_file"),
-            "ley_inferida": bool(ref.get("law_inferred")),
-        },
+        "explicabilidad": explicabilidad,
     }
 
 
@@ -1129,6 +1133,71 @@ def check_corpus_coverage(refs: List[Dict], collection) -> List[str]:
         except Exception:
             missing.append(source_file)
     return sorted(missing)
+
+
+def _motivo_ley_no_identificada(ref: Dict) -> str:
+    """Motivo, para el abogado, de que una referencia no tenga ley verificable."""
+    if ref.get("law_unidentified_reason"):
+        return ref["law_unidentified_reason"]
+    law = ref.get("law") or "desconocido"
+    if law != "desconocido":
+        # Alias reconocido sin archivo asociado en LAW_SOURCE_MAP (p. ej. "Ejecución Penal").
+        return f"el ordenamiento '{law}' no tiene fuente asociada en el corpus (LAW_SOURCE_MAP)"
+    return "el texto no nombra el ordenamiento del artículo"
+
+
+def _registrar_sin_encabezado_exacto(
+    ref: Dict,
+    selected: Dict,
+    best_source: str,
+    expected_source: Optional[str],
+    sufijo_pedido: bool,
+    metadata_candidate_found: bool,
+    alerts: List[str],
+    verification_traces: List[Dict],
+) -> None:
+    """🟡 NO VERIFICABLE para un precepto que el índice no localiza con su encabezado exacto
+    porque agrupa las variantes con letra o sufijo bajo el número base (R4b)."""
+    partes = partes_articulo(ref["article"])
+    base = partes.base if partes else ref["article"]
+    page = selected["metadata"].get("page", "?")
+    if sufijo_pedido:
+        detalle = (
+            f"el artículo {ref['article']} no aparece con su encabezado exacto en la evidencia "
+            f"recuperada de '{best_source}' (el índice agrupa los preceptos con letra o sufijo "
+            f"bajo el número base '{base}')"
+        )
+    else:
+        detalle = (
+            f"en '{best_source}' solo se localizaron variantes con letra o sufijo del artículo "
+            f"{ref['article']} (p. ej. '{base}-A' o '{base} Bis'), no su encabezado exacto"
+        )
+    alerts.append(
+        f"🟡 NO VERIFICABLE: '{ref['raw']}' — {detalle}. NO es alucinación: el corpus no "
+        f"permite localizar el precepto. Cotejarlo en la fuente oficial antes de citar."
+    )
+    verification_traces.append(build_trace_record(
+        reference=ref["raw"],
+        ref_type="normativa",
+        status="not_verifiable",
+        method="corpus_metadata" if metadata_candidate_found else "corpus_semantic",
+        reason=f"Precepto no localizado con su encabezado exacto: {detalle}",
+        semaforo="🟡",
+        source_file=best_source,
+        locator=f"página {page} · artículo {ref['article']}",
+        evidence_text=selected["document"],
+        metadata={
+            "encabezado_articulo": False,
+            "sufijo_solicitado": sufijo_pedido,
+            "variante_con_sufijo": bool(selected.get("variant_heading")),
+            "candidatos_metadata": metadata_candidate_found,
+            "coseno": round(selected["distance"], 4),
+            "umbral": COSINE_THRESHOLD,
+            "fuente_encontrada": best_source,
+            "fuente_esperada": expected_source,
+            "ley_inferida": bool(ref.get("law_inferred")),
+        },
+    ))
 
 
 def audit(
@@ -1234,6 +1303,63 @@ def audit(
 
     for ref in refs:
         if ref["type"] == "article":
+            # R4b — Cobertura incompleta de la extracción: un rango de más de MAX_RANGO
+            # artículos (solo se auditaron sus extremos) o un número ligado a una ley que no
+            # se extrajo con certeza de la enumeración. Nada desaparece en silencio: cuenta
+            # como no verificable, así que el veredicto global no puede ser 🟢.
+            if ref.get("coverage_gap"):
+                alerts.append(
+                    f"🟡 COBERTURA INCOMPLETA: '{ref['raw']}' — {ref['coverage_gap']}. "
+                    f"Auditar esos artículos por separado o verificarlos en fuente oficial "
+                    f"antes de citar."
+                )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="normativa",
+                    status="not_verifiable",
+                    method="cobertura_extraccion",
+                    reason=f"Cobertura incompleta: {ref['coverage_gap']}",
+                    semaforo="🟡",
+                    source_file=ref.get("source_file"),
+                    locator=f"artículos {ref['article']}",
+                    metadata={
+                        "cobertura_incompleta": True,
+                        "law": ref.get("law", "desconocido"),
+                        "law_method": ref.get("law_method"),
+                    },
+                ))
+                continue
+
+            # R4b — Ley no identificada (o sin fuente en el corpus): 🟡 NO VERIFICABLE con su
+            # motivo, por el mismo camino que la "ley no indexada" (Guard P0): sin un
+            # ordenamiento identificado no hay contra qué cotejar el precepto, y buscarlo por
+            # número en todo el corpus sería adivinar la ley. Nunca 🔴 ni 🟢 (Regla 4 de
+            # CLAUDE.md; "🟡 NO VERIFICABLE no es 🔴").
+            if not ref.get("source_file"):
+                motivo = _motivo_ley_no_identificada(ref)
+                alerts.append(
+                    f"🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: '{ref['raw']}' (artículo "
+                    f"{ref['article']}) — {motivo}. NO es alucinación: sin el ordenamiento no "
+                    f"se puede cotejar el precepto. Precisar la ley junto al artículo o "
+                    f"verificar en fuente oficial antes de citar."
+                )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="normativa",
+                    status="not_verifiable",
+                    method="resolucion_ley",
+                    reason=f"Ley no identificada: {motivo}",
+                    semaforo="🟡",
+                    locator=f"artículo {ref['article']}",
+                    metadata={
+                        "ley_no_identificada": True,
+                        "motivo": motivo,
+                        "law": ref.get("law", "desconocido"),
+                        "law_method": ref.get("law_method"),
+                    },
+                ))
+                continue
+
             query_raw = f"Artículo {ref['article']}"
             if ref["fraction"]:
                 query_raw += f" fracción {ref['fraction']}"
@@ -1333,6 +1459,21 @@ def audit(
                 metadata_hit = metadata_candidate_found and article_heading_verified
                 source_match = (not expected_source) or (best_source == expected_source)
 
+                # R4b — El chunker etiqueta "4o.-A", "247 Bis" o "29-A Bis" con el número
+                # base, así que la búsqueda por metadata devuelve el artículo base y sus
+                # variantes. Si el precepto pedido trae sufijo, o el índice solo ofreció
+                # variantes con sufijo del número pedido, y ningún fragmento muestra el
+                # encabezado exacto, el corpus no permite localizarlo: 🟡 NO VERIFICABLE.
+                # Nunca 🟢 contra el artículo base (R4-D01/D06) ni 🔴: no se acreditó que
+                # el precepto no exista. (Una re-ingesta con etiqueta completa lo evitaría.)
+                sufijo_pedido = articulo_con_sufijo(ref["article"])
+                if not article_heading_verified and (sufijo_pedido or selected["variant_heading"]):
+                    _registrar_sin_encabezado_exacto(
+                        ref, selected, best_source, expected_source, sufijo_pedido,
+                        metadata_candidate_found, alerts, verification_traces,
+                    )
+                    continue
+
                 vvca = build_vvca(
                     ref=ref,
                     distance=best_distance,
@@ -1352,6 +1493,10 @@ def audit(
                     "page": best_meta.get("page", "?"),
                     "expected_source": expected_source,
                     "law_inferred": ref.get("law_inferred", False),
+                    # R4b (campos añadidos): cómo se resolvió la ley de la cita y si es una
+                    # ley inferida de otro párrafo que el abogado debe confirmar.
+                    "law_method": ref.get("law_method"),
+                    "law_requires_confirmation": bool(ref.get("law_requires_confirmation")),
                     "relevance_score": round(1 - best_distance, 3),
                     "retrieved_text": best_doc[:600],
                     "retrieved_text_full": best_doc,
@@ -1366,6 +1511,10 @@ def audit(
                     trace_status = "refuted"
                 else:
                     trace_status = "verified" if vvca["score"] >= 85 else "partial"
+                por_confirmar = bool(ref.get("law_requires_confirmation"))
+                if por_confirmar:
+                    # Ley inferida de otro párrafo: nunca verificada ni refutada (🟡).
+                    trace_status = "partial"
                 trace = build_trace_record(
                     reference=ref["raw"],
                     ref_type="normativa",
@@ -1389,7 +1538,14 @@ def audit(
                 if trace_status == "verified":
                     verified_count += 1
 
-                if metadata_hit:
+                if por_confirmar:
+                    alerts.append(
+                        f"🟡 LEY POR CONFIRMAR (score {vvca['score']}): '{ref['raw']}' — "
+                        f"{MOTIVO_CONFIRMAR} (se cotejó contra '{best_source}'). "
+                        f"{vvca['V_verificacion']}. Precisar la ley junto al artículo antes de "
+                        f"citar."
+                    )
+                elif metadata_hit:
                     # Artículo confirmado por metadata (ley+artículo exactos) → verificado.
                     # Distancia alta ya NO es "alucinación": es texto de otra porción del
                     # artículo (largo/troceado). Se avisa para cotejar, no se tacha de falso.
@@ -1429,6 +1585,25 @@ def audit(
                             f"de artículo contra '{best_source}'. El contexto no nombró el "
                             f"ordenamiento; verificar que sea la ley correcta antes de citar."
                         )
+            elif ref.get("law_requires_confirmation"):
+                # Ley inferida de otro párrafo: no localizar el precepto en una ley supuesta
+                # no acredita nada (🟡, nunca 🔴).
+                alerts.append(
+                    f"🟡 LEY POR CONFIRMAR: '{ref['raw']}' — {MOTIVO_CONFIRMAR}; el corpus no "
+                    f"devolvió evidencia en '{expected_source}'. Precisar la ley junto al "
+                    f"artículo antes de citar."
+                )
+                verification_traces.append(build_trace_record(
+                    reference=ref["raw"],
+                    ref_type="normativa",
+                    status="not_verifiable",
+                    method="corpus_local",
+                    reason=f"{MOTIVO_CONFIRMAR}; sin evidencia en la ley inferida",
+                    semaforo="🟡",
+                    source_file=expected_source,
+                    locator=f"artículo {ref['article']}",
+                    metadata={"ley_por_confirmar": True},
+                ))
             else:
                 alerts.append(
                     f"🔴 ALERTA CRÍTICA: '{ref['raw']}' — no encontrado en el corpus. "

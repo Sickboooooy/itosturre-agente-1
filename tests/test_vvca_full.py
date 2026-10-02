@@ -5,6 +5,7 @@ la persistencia de ``vvca_full.json`` y la política de fallo cerrado.
 """
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import tempfile
@@ -380,6 +381,13 @@ def audit_with_yellow_article() -> dict:
     return payload
 
 
+class _StderrCapturado(io.StringIO):
+    """stderr capturado que admite el ``reconfigure`` que hace ``vvca_full.main``."""
+
+    def reconfigure(self, **_opciones) -> None:
+        return None
+
+
 class TelegramOptInTests(unittest.TestCase):
     """El envío a Telegram es opt-in (docs/POLITICA_DATOS.md, principio 4)."""
 
@@ -449,6 +457,44 @@ class TelegramOptInTests(unittest.TestCase):
         code, summary, _popup = self.run_with_popups()
         self.assertEqual(code, 1)
         self.assertEqual(summary["status"], "failed")
+
+    def test_ley_por_confirmar_llega_al_popup(self) -> None:
+        # R4b ronda 3: la ley inferida de otro párrafo viaja al pop-up con su motivo.
+        payload = audit_with_yellow_article()
+        payload["retrieved_sources"][0]["expected_source"] = "LEY SINTETICA.pdf"
+        payload["retrieved_sources"][0]["law_requires_confirmation"] = True
+        self.fake = FakeSubprocesses(audit_stdout=json.dumps(payload, ensure_ascii=False))
+        code, summary, _popup = self.run_with_popups()
+        self.assertEqual(code, 0)
+        (item,) = json.loads((self.case / "articulos_popup.json").read_text(encoding="utf-8"))
+        self.assertTrue(item["ley_identificada"])
+        self.assertTrue(item["ley_por_confirmar"])
+        self.assertEqual(item["motivo_ley"], vvca_full.MOTIVO_CONFIRMAR)
+        self.assertEqual(summary["pasos"]["rag_popup_articulos"]["ley_por_confirmar"], 1)
+
+    def test_cobertura_pendiente_es_visible_sin_captura_falsa(self) -> None:
+        payload = audit_with_yellow_article()
+        payload["traceability"]["records"] = [{
+            "claim": {"reference": "Arts. 14-40", "type": "normativa"},
+            "retrieval": {"method": "cobertura_extraccion"},
+            "verification": {"status": "not_verifiable",
+                             "reason": "Cobertura incompleta: rango de 27 artículos"},
+        }]
+        self.fake = FakeSubprocesses(audit_stdout=json.dumps(payload, ensure_ascii=False))
+        with patch("sys.stderr", new_callable=_StderrCapturado) as stderr:
+            code, summary, popup = self.run_with_popups()
+        self.assertEqual(code, 0)
+        self.assertEqual(summary["cobertura_pendiente"], [{
+            "referencia": "Arts. 14-40",
+            "motivo": "Cobertura incompleta: rango de 27 artículos",
+        }])
+        self.assertTrue(any(w["step"] == "cobertura" for w in summary["warnings"]))
+        self.assertIn("Cobertura pendiente", stderr.getvalue())
+        self.assertEqual(popup[popup.index("--cobertura-pendiente") + 1], "1")
+        # Ninguna captura nueva por lo no auditado: el pop-up sigue siendo el del artículo.
+        (item,) = json.loads((self.case / "articulos_popup.json").read_text(encoding="utf-8"))
+        self.assertEqual(item["reference"], "Art. 1 LEY SINTÉTICA")
+        self.assertEqual(summary["pasos"]["rag_popup_articulos"]["cobertura_pendiente"], 1)
 
     def test_conflicting_telegram_flags_are_rejected(self) -> None:
         with patch("sys.stderr"), self.assertRaises(SystemExit) as raised:

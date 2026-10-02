@@ -5,10 +5,25 @@ import re
 import unicodedata
 from typing import Any, Mapping
 
+from .referencias import patron_articulo, patron_variante_con_sufijo
+
 
 def _without_accents(value: str) -> str:
     decomposed = unicodedata.normalize("NFD", value or "")
     return "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+
+
+# Línea con forma de encabezado: "Artículo 42.", "Artículo 38.-", "Art. 1004-A.-".
+_PREFIJO_ENCABEZADO = r"^[ \t]*art(?:iculo)?\.?[ \t]+"
+_CIERRE_ENCABEZADO = r"[ \t]*(?:\.\-|[.\-:])"
+
+
+def _patron_literal(article: str) -> str | None:
+    """Designación no descomponible: el texto literal (comportamiento anterior a R4b)."""
+    normalized_article = " ".join(_without_accents(article).strip().split())
+    if not normalized_article:
+        return None
+    return re.escape(normalized_article).replace(r"\ ", r"[ \t]+")
 
 
 def has_exact_article_heading(text: str, article: str) -> bool:
@@ -17,16 +32,39 @@ def has_exact_article_heading(text: str, article: str) -> bool:
     Una remisión como ``artículo 42, fracción XIII`` no cuenta. Para acreditar la
     identidad del fragmento se exige una línea con forma de encabezado, por ejemplo
     ``Artículo 42.``, ``Artículo 38.-`` o ``Art. 1004-A.-``.
+
+    Tras el número solo cabe el cierre del encabezado (R4-D06): ``Artículo 4o.-A.-`` no es
+    el encabezado del artículo ``4o``, ni ``Artículo 29-B.`` el del ``29``, ni
+    ``Artículo 209 Bis.-`` el del ``209``. Un sufijo de letra o latino solo coincide si se
+    pidió (``4o.-A``, ``29-B``, ``209 Bis``). El ordinal se compara tal como se pidió.
     """
-    normalized_article = " ".join(_without_accents(article).strip().split())
-    if not normalized_article:
+    article_pattern = patron_articulo(article) or _patron_literal(article)
+    if not article_pattern:
         return False
-    article_pattern = re.escape(normalized_article).replace(r"\ ", r"[ \t]+")
     heading = re.compile(
-        rf"^[ \t]*art(?:iculo)?\.?[ \t]+{article_pattern}[ \t]*(?:\.\-|[.\-:])",
+        rf"{_PREFIJO_ENCABEZADO}{article_pattern}{_CIERRE_ENCABEZADO}",
         re.IGNORECASE | re.MULTILINE,
     )
     return bool(heading.search(_without_accents(text)))
+
+
+def has_suffixed_variant_heading(text: str, article: str) -> bool:
+    """Indica si ``text`` trae el encabezado de una variante con sufijo del mismo número
+    (``Artículo 4o.-A.-`` para ``4o``; ``Artículo 247 Bis.-`` para ``247``).
+
+    El chunker etiqueta esos fragmentos con el número base, así que la búsqueda por
+    metadata los ofrece como candidatos del artículo base. Que el índice solo devuelva
+    variantes no prueba nada sobre el precepto pedido: la cita queda no verificable.
+    """
+    variant_pattern = patron_variante_con_sufijo(article)
+    if not variant_pattern:
+        return False
+    heading = re.compile(
+        rf"{_PREFIJO_ENCABEZADO}{variant_pattern}", re.IGNORECASE | re.MULTILINE
+    )
+    return bool(heading.search(_without_accents(text))) and not has_exact_article_heading(
+        text, article
+    )
 
 
 def select_article_evidence(
@@ -36,7 +74,8 @@ def select_article_evidence(
 
     Si una remisión interna tiene menor distancia que el encabezado auténtico, se
     prefiere el encabezado. Si ninguno lo contiene, se conserva el primer resultado
-    para auditabilidad, pero se marca como no corroborado.
+    para auditabilidad, pero se marca como no corroborado; ``variant_heading`` indica
+    entonces si algún resultado era una variante con sufijo del mismo número.
     """
     if not results:
         return None
@@ -58,6 +97,9 @@ def select_article_evidence(
             heading_verified = True
             break
 
+    variant_heading = not heading_verified and any(
+        has_suffixed_variant_heading(document, article) for document in documents
+    )
     metadata = metadatas[selected_index] if selected_index < len(metadatas) else {}
     distance = distances[selected_index] if selected_index < len(distances) else 1.0
     return {
@@ -65,5 +107,6 @@ def select_article_evidence(
         "metadata": metadata or {},
         "distance": float(distance),
         "heading_verified": heading_verified,
+        "variant_heading": variant_heading,
         "rank": selected_index + 1,
     }

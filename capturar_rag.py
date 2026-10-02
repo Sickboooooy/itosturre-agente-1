@@ -15,6 +15,8 @@ from pathlib import Path
 
 # playwright, fitz (PyMuPDF) y requests se importan dentro de las funciones que los usan:
 # así el módulo se puede importar —y probar— sin esas dependencias (la CI no las instala).
+# itosturre.audit.referencias es biblioteca estándar pura (designación de artículos, R4b).
+from itosturre.audit.referencias import patron_articulo, sin_acentos
 
 try:
     from dotenv import load_dotenv
@@ -243,6 +245,15 @@ POPUP_MATCH_TEMPLATE = """\
     margin-bottom: 18px;
   }}
   .page-img {{ width: 100%; border: 1px solid #E5E7EB; border-radius: 4px; }}
+  .aviso {{
+    background: #FFFBEB;
+    border-left: 4px solid #D97706;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #78350F;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }}
   .missing-pdf {{
     background: #FEF3C7;
     border: 1px solid #D97706;
@@ -260,6 +271,7 @@ POPUP_MATCH_TEMPLATE = """\
     <span class="header-badge {badge_class}">{semaforo} {ley}</span>
   </div>
   <div class="body">
+    {aviso}
     <div class="label">TEXTO LITERAL DEL CORPUS</div>
     <div class="snippet">{snippet}</div>
     <div class="label">UBICACIÓN — {source_file}, pág. {page}</div>
@@ -450,18 +462,26 @@ _ARTICULO_HEADER_RE_CACHE: dict = {}
 def _contains_article_header(text: str, article) -> bool:
     """¿El texto recuperado realmente trae un encabezado 'Artículo {N}' para el
     número citado? Evita mostrar como 'prueba' un chunk que coincide en ley y
-    rankeó bien, pero corresponde a OTRO número de artículo (vecino semántico)."""
+    rankeó bien, pero corresponde a OTRO número de artículo (vecino semántico).
+
+    Desde R4b la designación se compara con su sufijo: '247 Ter' exige 'Artículo 247
+    Ter' (no basta 'Artículo 247') y '4o' no se confirma con 'Artículo 4o.-A' (el índice
+    agrupa esas variantes bajo el número base). El ordinal sigue siendo tolerante:
+    '1' se confirma con 'Artículo 1o.'."""
     if not article or not text:
         return True  # sin dato para comparar — no bloqueamos por esto
     m = re.match(r"\d+", str(article))
     if not m:
         return True  # formato no numérico (transitorios, etc.) — no verificable así
-    num = m.group(0)
-    pattern = _ARTICULO_HEADER_RE_CACHE.get(num)
+    clave = str(article)
+    pattern = _ARTICULO_HEADER_RE_CACHE.get(clave)
     if pattern is None:
-        pattern = re.compile(rf"art[íi]culos?\.?\s+{re.escape(num)}(?!\d)", re.IGNORECASE)
-        _ARTICULO_HEADER_RE_CACHE[num] = pattern
-    return bool(pattern.search(text))
+        designacion = patron_articulo(clave, ordinal_estricto=False, espacio=r"\s")
+        if designacion is None:  # designación no descomponible: número base, como antes
+            designacion = rf"{re.escape(m.group(0))}(?!\d)"
+        pattern = re.compile(rf"articulos?\.?\s+{designacion}", re.IGNORECASE)
+        _ARTICULO_HEADER_RE_CACHE[clave] = pattern
+    return bool(pattern.search(sin_acentos(text)))
 
 def build_popup_html(item: dict) -> str:
     snippet_raw = item.get("retrieved_text_full") or item.get("retrieved_text") or ""
@@ -527,7 +547,19 @@ def build_popup_html(item: dict) -> str:
     else:
         page_block = '<div class="missing-pdf">⚠️ PDF no disponible localmente — no se pudo renderizar la página para verificación visual.</div>'
 
+    # R4b: ley inferida de otro párrafo. La página se muestra, pero con la advertencia de que
+    # acredita la ubicación del precepto en el candidato, no que el escrito cite esa ley.
+    aviso = ""
+    if item.get("ley_por_confirmar"):
+        motivo = _escape(item.get("motivo_ley") or "ley inferida de otro párrafo")
+        aviso = (
+            f'<div class="aviso">⚠️ LEY POR CONFIRMAR — {motivo}. La página acredita la '
+            "ubicación del precepto en el candidato, no que el escrito cite ese "
+            "ordenamiento.</div>"
+        )
+
     return POPUP_MATCH_TEMPLATE.format(
+        aviso=aviso,
         reference=reference,
         semaforo=sem,
         badge_class=badge_class,
@@ -666,6 +698,9 @@ def main(argv: list[str] | None = None):
                        help="Enviar los PNG a Telegram (opt-in explícito: requiere aprobación del operador)")
     envio.add_argument("--no-telegram", action="store_true",
                        help="Compatibilidad: no enviar (ya es el comportamiento predeterminado)")
+    parser.add_argument("--cobertura-pendiente", type=int, default=0,
+                        help="Referencias con cobertura incompleta (sin captura): se avisan en "
+                             "consola y en el resumen del envío")
     args = parser.parse_args(argv)
 
     if args.modo == "tabla":
@@ -678,6 +713,13 @@ def main(argv: list[str] | None = None):
     if not args.items:
         parser.error("--items es requerido en modo popup")
     items = json.loads(Path(args.items).read_text(encoding="utf-8"))
+    aviso_cobertura = (
+        f"⚠️ {args.cobertura_pendiente} referencia(s) con cobertura pendiente: no se "
+        "auditaron y no tienen captura (ver vvca_full.json → cobertura_pendiente)"
+        if args.cobertura_pendiente > 0 else ""
+    )
+    if aviso_cobertura:
+        print(aviso_cobertura)
     if not items:
         print("[INFO] 0 artículos 🟡/🔴 — nada que capturar.")
         return
@@ -685,6 +727,8 @@ def main(argv: list[str] | None = None):
     resultados = capturar_articulos(items, Path(args.out))
     if args.telegram:
         resumen = f"📖 {len(resultados)} artículo(s) con hallazgo (🟡/🔴) — evidencia adjunta"
+        if aviso_cobertura:
+            resumen += "\n" + aviso_cobertura
         envio = enviar_lote_telegram(resultados, resumen)
         if not envio.get("enviado"):
             # El operador pidió el envío explícitamente: un fallo no se reporta como éxito.

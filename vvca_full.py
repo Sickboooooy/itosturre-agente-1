@@ -38,6 +38,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Biblioteca estándar pura (R4b): motivo de la ley por confirmar que muestran los pop-ups.
+from itosturre.audit.referencias import MOTIVO_CONFIRMAR
+
 REPO = Path(__file__).resolve().parent
 SUMMARY_SCHEMA_VERSION = "2.0"
 
@@ -365,6 +368,28 @@ def main(argv: list[str] | None = None) -> int:
             "summary": traceability.get("summary", {}),
         }
 
+    # R4b — Cobertura incompleta de la extracción (rango recortado o miembro de una
+    # enumeración no extraído con certeza). No existe captura de lo no auditado y no se
+    # fabrica una: la advertencia queda visible en el resumen, en consola y en el envío
+    # de pop-ups.
+    cobertura_pendiente = [
+        {
+            "referencia": t.get("claim", {}).get("reference"),
+            "motivo": t.get("verification", {}).get("reason"),
+        }
+        for t in (traceability or {}).get("records", [])
+        if t.get("retrieval", {}).get("method") == "cobertura_extraccion"
+    ]
+    if cobertura_pendiente:
+        summary["cobertura_pendiente"] = cobertura_pendiente
+        aviso = (
+            f"{len(cobertura_pendiente)} referencia(s) con cobertura incompleta (rangos "
+            "recortados o artículos no extraídos con certeza): no se auditaron y no tienen "
+            "captura; ver 'cobertura_pendiente'"
+        )
+        summary["warnings"].append({"step": "cobertura", "message": aviso})
+        print(f"\n⚠️  Cobertura pendiente: {aviso}", file=sys.stderr)
+
     # ── 2b. Memoria contextual ───────────────────────────────────────────────
     # Hasta ahora el veredicto y las citas bloqueadas morían en el JSON del caso:
     # ningún expediente auditado era consultable después. Se registran como
@@ -584,6 +609,18 @@ def main(argv: list[str] | None = None) -> int:
                 # realidad viene de un match semántico sin ley de referencia.
                 "coincide_fuente": explicabilidad.get("coincide_fuente", True),
                 "ley_identificada": bool(s.get("expected_source")),
+                # R4b: ley inferida de otro párrafo. La página acredita la ubicación del
+                # precepto en el candidato, no que el escrito cite ese ordenamiento.
+                "ley_por_confirmar": bool(
+                    s.get("law_requires_confirmation")
+                    or explicabilidad.get("ley_por_confirmar")
+                ),
+                "motivo_ley": (
+                    MOTIVO_CONFIRMAR
+                    if s.get("law_requires_confirmation")
+                    or explicabilidad.get("ley_por_confirmar")
+                    else None
+                ),
                 "retrieved_text_full": s.get("retrieved_text_full") or s.get("retrieved_text"),
                 "veces_citado": 1,
             }
@@ -593,6 +630,7 @@ def main(argv: list[str] | None = None) -> int:
             summary["pasos"]["rag_popup_articulos"] = {
                 "status": "not_required",
                 "items": 0,
+                "cobertura_pendiente": len(cobertura_pendiente),
             }
         else:
             popup_file = caso / "articulos_popup.json"
@@ -601,6 +639,9 @@ def main(argv: list[str] | None = None) -> int:
                    "--items", str(popup_file), "--out", str(caso)]
             if args.telegram:
                 cmd.append("--telegram")
+            if cobertura_pendiente:
+                # Aviso en el envío de pop-ups: lo no auditado no tiene captura propia.
+                cmd += ["--cobertura-pendiente", str(len(cobertura_pendiente))]
             try:
                 run(cmd, step="rag_popup_articulos", check=True)
             except PipelineStepError as exc:
@@ -636,6 +677,8 @@ def main(argv: list[str] | None = None) -> int:
                     "status": "ok",
                     "items": len(popup_items),
                     "telegram": "solicitado" if args.telegram else "no_solicitado",
+                    "ley_por_confirmar": sum(1 for i in popup_items if i["ley_por_confirmar"]),
+                    "cobertura_pendiente": len(cobertura_pendiente),
                 }
     else:
         summary["pasos"]["rag_popup_articulos"] = {
