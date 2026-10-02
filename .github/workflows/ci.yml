@@ -38,6 +38,9 @@ jobs:
       - name: Evaluar Gold Set de planes
         run: python scripts/evaluate_plan_gold_set.py
 
+      - name: Evaluar Gold Set de fidelidad
+        run: python scripts/evaluate_fidelidad_gold_set.py
+
       - name: Verificar superficies Claude/Codex
         run: python scripts/check_agent_surfaces.py
 

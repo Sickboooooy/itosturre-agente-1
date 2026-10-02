@@ -1,4 +1,4 @@
-"""Reglas observables del auditor de planes (PL-001 … PL-014, y PL-015 … PL-019 con paquete).
+"""Reglas observables del auditor de planes (PL-001 … PL-014, y PL-015 … PL-020 con paquete).
 
 Cada regla verifica algo que se puede comprobar mirando el ledger (y, para PL-014,
 el documento): campos presentes, vocabulario, hosts, fechas, hashes y referencias.
@@ -23,6 +23,22 @@ citada sin cotejar en un agregado CONFORME; PL-019: artículo remitido sin cotej
 bloquea. Una afirmación compuesta cuya parte sin cotejar no genera menciones (p. ej. una
 fecha del DOF) solo produce PL-018: se recomienda descomponerla para que cada parte cite su
 propia evidencia (el kit no lo hace por el operador).
+
+PL-020 (PR-4, también solo con paquete o con un ``fidelidad=`` ya calculado): señales del
+cotejo de fidelidad (``fidelidad.py``) que ninguna decisión humana atiende, según la
+política de precisión (ronda 2, criterio por defecto; el responsable puede endurecerlo):
+una señal de precisión ``alta`` (modo de procedibilidad distinto, plazo distinto para la
+misma condición, inicio del cómputo distinto) es BLOQUEANTE en una afirmación VERIFICADO y
+ALTA en otro estado; cualquier otra señal (``revisar``: modales, negación, cuantificadores,
+excepciones, órgano, cifras sin condición, cifra ausente, omisiones, alineación ambigua) es
+ADVERTENCIA "señal a revisar" en cualquier estado. La decisión que las atiende declara
+``fidelidad`` con el plan, la afirmación, su ``contenido_sha256`` vigente, la versión del
+motor y la huella, el código, la fuente, el artículo y el ``sha256_documento`` de cada
+señal, y tiene responsable humano; si la afirmación es VERIFICADO, además una resolución y
+la decisión APROBADA (``fidelidad.problemas_decision_fidelidad``). Si cambia cualquiera de
+esos datos, deja de valer: una decisión vieja o ajena no atiende una señal nueva.
+El cotejo de fidelidad nunca emite CONFORME: sin señales no hay hallazgo, pero tampoco
+aprobación ni validación.
 """
 from __future__ import annotations
 
@@ -42,6 +58,14 @@ from .estados import (
     normalizar_estado,
     problema_persona,
     problemas_aprobacion,
+)
+from .fidelidad import (
+    ALTA as PRECISION_ALTA,
+    SENALES,
+    FidelidadLedger,
+    cotejar_fidelidad,
+    problemas_decision_fidelidad,
+    senales_pendientes,
 )
 from .identidad import (
     CONFORME,
@@ -72,7 +96,7 @@ from .menciones import RANGO, esta_cubierta, extraer_menciones, indice_cobertura
 BLOQUEANTE = "BLOQUEANTE"
 ALTA = "ALTA"
 MEDIA = "MEDIA"
-ADVERTENCIA = "ADVERTENCIA"  # visible y nunca bloquea (PL-018, PL-019)
+ADVERTENCIA = "ADVERTENCIA"  # visible y nunca bloquea (PL-018, PL-019, señales "a revisar" de PL-020)
 SEVERIDADES = (BLOQUEANTE, ALTA, MEDIA, ADVERTENCIA)
 _RANGO = {severidad: indice for indice, severidad in enumerate(SEVERIDADES)}
 
@@ -100,6 +124,7 @@ REGLAS_COTEJO = {
     "PL-017": "Advertencias de la fuente sin decisión humana que las atienda",
     "PL-018": "Evidencia citada sin cotejar en una afirmación CONFORME",
     "PL-019": "Artículo remitido sin cotejar",
+    "PL-020": "Señales de fidelidad sin decisión humana que las atienda",
 }
 
 ACCIONES = {
@@ -131,6 +156,11 @@ ACCIONES = {
     "PL-019": (
         "Si la afirmación dice algo del artículo remitido, citar su propia evidencia; si solo "
         "describe la remisión, revisar a mano que el artículo remitido sea el que se afirma."
+    ),
+    "PL-020": (
+        "Leer el tramo oficial y corregir la afirmación, o registrar una decisión humana con "
+        "`fidelidad` (plan, afirmación, contenido_sha256, version_motor y huella de cada señal; "
+        "`plan_audit.py fidelidad` imprime el bloque; resolución y APROBADA si es VERIFICADO)."
     ),
 }
 
@@ -658,6 +688,62 @@ class _Auditoria:
                 f"sha256_documento vigente).{detalle}",
             )
 
+    # ── PL-020 (cotejo de fidelidad, PR-4) ──────────────────────────────────
+    def fidelidad(self, fidelidad: FidelidadLedger) -> None:
+        """Señales de fidelidad sin decisión humana que las atienda (ver el docstring)."""
+        # Igual que el cotejo: uno calculado sobre otro contenido es un error de uso.
+        problemas = fidelidad.problemas_correspondencia(self.ledger)
+        if problemas:
+            raise ValueError("el cotejo de fidelidad no corresponde a este ledger: " + "; ".join(problemas))
+        for resultado in fidelidad.afirmaciones:
+            if resultado.resultado != SENALES:
+                continue
+            afirmacion = self.afirmaciones[resultado.indice]
+            if afirmacion["id"] != resultado.afirmacion:
+                raise ValueError("el cotejo de fidelidad no corresponde a este ledger: afirmaciones distintas")
+            verificada = self.estado(afirmacion) == VERIFICADO
+            plan = self.ledger["plan"].get("id")
+            pendientes = senales_pendientes(resultado, afirmacion, self.decisiones, verificada=verificada, plan=plan)
+            altas = [s for s in pendientes if s.precision == PRECISION_ALTA]
+            a_revisar = [s for s in pendientes if s.precision != PRECISION_ALTA]
+            if altas:
+                self.emitir(
+                    "PL-020",
+                    BLOQUEANTE if verificada else ALTA,
+                    afirmacion["id"],
+                    self._mensaje_fidelidad(altas, "señal(es) de alta precisión", afirmacion, verificada, plan),
+                )
+            if a_revisar:
+                self.emitir(
+                    "PL-020",
+                    ADVERTENCIA,
+                    afirmacion["id"],
+                    self._mensaje_fidelidad(a_revisar, "señal(es) a revisar", afirmacion, verificada, plan),
+                )
+
+    def _mensaje_fidelidad(self, senales: list, clase: str, afirmacion: dict, verificada: bool, plan: Any) -> str:
+        partes = []
+        for senal in senales:
+            fuente = " ".join(senal.tramo_fuente.split())
+            if len(fuente) > 160:
+                fuente = fuente[:159] + "…"
+            partes.append(f"{senal.codigo} [{senal.severidad}] — {senal.detalle}"
+                          + (f"; fuente: «{fuente}»" if fuente else ""))
+        candidatas = [d for d in self.decisiones if isinstance(d.get("fidelidad"), dict)
+                      and d["fidelidad"].get("afirmacion") == afirmacion["id"]]
+        porque = "; ".join(
+            f"{d['id']}: " + ", ".join(problemas_decision_fidelidad(d, afirmacion, senales[0], verificada=verificada,
+                                                                    plan=plan))
+            for d in candidatas
+        )
+        detalle = f" Decisiones que no las atienden: {porque}." if porque else ""
+        return (
+            f"Fidelidad: {len(senales)} {clase} con el texto oficial sin decisión humana que la(s) atienda: "
+            + " | ".join(partes)
+            + ". Las reglas deterministas no sustituyen la lectura del abogado."
+            + detalle
+        )
+
     # ── PL-014 ──────────────────────────────────────────────────────────────
     def cobertura(self, documento: str) -> None:
         textos: list[str] = []
@@ -690,24 +776,28 @@ def lint_ledger(
     paquete: Any = None,
     cotejo: CotejoLedger | None = None,
     extractores: Sequence[Extractor] = (),
+    fidelidad: FidelidadLedger | None = None,
 ) -> list[dict]:
     """Aplica PL-001 … PL-014 y devuelve los hallazgos ordenados por severidad y regla.
 
     Lanza ``LedgerInvalido`` si el ledger no cumple el esquema ``plan-ledger/1.0``.
     PL-014 solo se evalúa cuando se pasa ``documento``. PL-015 … PL-019 solo se evalúan
     con un paquete de evidencia ya cargado (``paquete``) o con su ``cotejo`` ya
-    calculado (``identidad.cotejar_ledger``); sin ninguno de los dos, el resultado es
-    idéntico al del lint sin cotejo. Un ``cotejo`` calculado sobre otro contenido del
-    ledger lanza ``ValueError``. ``extractores`` se pasan al cotejo (relación
-    original–texto de las leyes).
+    calculado (``identidad.cotejar_ledger``); PL-020, con el paquete o con un cotejo de
+    ``fidelidad`` ya calculado (``fidelidad.cotejar_fidelidad``). Sin ninguno, el
+    resultado es idéntico al del lint sin cotejo. Un ``cotejo`` o una ``fidelidad``
+    calculados sobre otro contenido del ledger lanzan ``ValueError``. ``extractores`` se
+    pasan al cotejo (relación original–texto de las leyes).
     """
-    if paquete is not None and cotejo is not None:
-        raise ValueError("pasar paquete o cotejo, no ambos")
+    if paquete is not None and (cotejo is not None or fidelidad is not None):
+        raise ValueError("pasar paquete o cotejo/fidelidad ya calculados, no ambos")
     errores = validar_esquema(ledger)
     if errores:
         raise LedgerInvalido(errores)
     if paquete is not None:
-        cotejo = cotejar_ledger(ledger, paquete, extractores=extractores)
+        cache: dict = {}  # identidad y fidelidad comparten la re-extracción de cada PDF
+        cotejo = cotejar_ledger(ledger, paquete, extractores=extractores, cache=cache)
+        fidelidad = cotejar_fidelidad(ledger, paquete, cotejo=cotejo, extractores=extractores, cache=cache)
     auditoria = _Auditoria(ledger, frozenset(hosts_oficiales))
     auditoria.estados_fuera_de_vocabulario()
     auditoria.verificadas_sin_soporte()
@@ -720,6 +810,8 @@ def lint_ledger(
         auditoria.cobertura(documento)
     if cotejo is not None:
         auditoria.cotejo_de_identidad(cotejo)
+    if fidelidad is not None:
+        auditoria.fidelidad(fidelidad)
     return sorted(
         auditoria.hallazgos,
         key=lambda h: (_RANGO[h["severidad"]], h["regla"]),

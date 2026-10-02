@@ -11,6 +11,13 @@ motivos, documento y versión de la fuente y si requiere decisión humana. Sin c
 reporte es el de PR-1 (con la fila ``ADVERTENCIA`` del resumen por severidad en 0). Las
 notas del agregado incluyen los artículos remitidos sin cotejar (PL-019) y la evidencia
 citada sin cotejar (PL-018).
+
+Con un cotejo de fidelidad (``fidelidad=``, PR-4) se agrega la sección "Cotejo de
+fidelidad": conteo por resultado y por precisión, una tabla por señal con los tramos
+literales de la afirmación y del texto oficial lado a lado (y la decisión humana que la
+atiende, si hay) y la lista de afirmaciones NO_COTEJABLE con su motivo.
+SIN_SENALES_DETECTADAS se rotula siempre "sin señales detectadas por reglas deterministas;
+revisión del abogado obligatoria" y nunca se presenta como conforme ni como validación.
 """
 from __future__ import annotations
 
@@ -34,6 +41,16 @@ from .identidad import (
     CotejoLedger,
     ResultadoPar,
     decision_atiende,
+)
+from .fidelidad import (
+    AVISO as AVISO_FIDELIDAD,
+    ETIQUETA_SIN_SENALES,
+    NO_COTEJABLE,
+    RESULTADOS as RESULTADOS_FIDELIDAD,
+    SIN_SENALES_DETECTADAS,
+    FidelidadLedger,
+    decisiones_que_atienden,
+    es_verificada,
 )
 from .lint import ACCIONES, BLOQUEANTE, SEVERIDADES, resumen_severidades
 
@@ -143,8 +160,91 @@ def seccion_cotejo(cotejo: CotejoLedger, decisiones: list[dict] | None = None, e
     return lineas
 
 
+def _tramo(texto: str, limite: int = 320) -> str:
+    texto = " ".join(str(texto or "").split())
+    return texto if len(texto) <= limite else texto[: limite - 1] + "…"
+
+
+def seccion_fidelidad(fidelidad: FidelidadLedger, ledger: dict) -> list[str]:
+    """Líneas Markdown de la sección "Cotejo de fidelidad" (PR-4)."""
+    afirmaciones = ledger.get("afirmaciones") or []
+    decisiones = ledger.get("decisiones") or []
+    plan = (ledger.get("plan") or {}).get("id")
+    resumen = fidelidad.resumen()
+    lineas = [
+        "",
+        "## Cotejo de fidelidad",
+        "",
+        "Compara lo que AFIRMA cada afirmación (texto normativo, inferencia o propuesta) con lo "
+        "que DICE el texto oficial del artículo que la respalda (par CONFORME de la identidad o "
+        "referencia resuelta en el paquete). Informa señales deterministas por categoría; nunca "
+        "emite CONFORME, no aprueba ni cambia estados. " + AVISO_FIDELIDAD,
+        "",
+        "Precisión (criterio por defecto): **alta** (modo de procedibilidad distinto, plazo distinto "
+        "para la misma condición, inicio del cómputo distinto) bloquea en una afirmación VERIFICADO; "
+        "**revisar** es siempre una señal a revisar (ADVERTENCIA).",
+        "",
+        "| Resultado | Afirmaciones |",
+        "|---|---|",
+    ]
+    for resultado in RESULTADOS_FIDELIDAD:
+        rotulo = f"{resultado} ({ETIQUETA_SIN_SENALES})" if resultado == SIN_SENALES_DETECTADAS else resultado
+        lineas.append(f"| {rotulo} | {resumen[resultado]} |")
+    lineas.append(f"| Fuera de alcance (otros tipos) | {resumen['fuera_de_alcance']} |")
+    lineas.append(f"| Señales de precisión alta / a revisar | {resumen['alta']} / {resumen['revisar']} |")
+    if fidelidad.nada_cotejable:
+        lineas += ["", "**Nada fue cotejable:** ninguna afirmación tuvo texto oficial que comparar; esto no "
+                   "equivale a fidelidad."]
+    lineas += [
+        "",
+        "| Afirmación | Estado | Señal | Precisión | La afirmación dice | El texto oficial dice | Fuente | Decisión humana |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    filas = 0
+    for resultado in fidelidad.afirmaciones:
+        afirmacion = afirmaciones[resultado.indice]
+        for senal in resultado.senales:
+            atienden = decisiones_que_atienden(decisiones, afirmacion, senal, verificada=es_verificada(afirmacion),
+                                               plan=plan)
+            lineas.append(_fila((
+                resultado.afirmacion,
+                resultado.estado_declarado or "ESTADO INVÁLIDO",
+                f"{senal.codigo} [{senal.severidad}] — {senal.detalle}",
+                senal.precision,
+                _tramo(senal.tramo_afirmacion),
+                _tramo(senal.tramo_fuente) or "(no aparece en el texto oficial)",
+                senal.fuente,
+                f"atendida por {', '.join(atienden)}" if atienden else "sin decisión que la atienda",
+            )))
+            filas += 1
+    if not filas:
+        lineas.append(f"| — | — | {ETIQUETA_SIN_SENALES} | — | — | — | — | — |")
+    sin_senales = [r for r in fidelidad.afirmaciones if r.resultado == SIN_SENALES_DETECTADAS]
+    if sin_senales:
+        lineas += ["", f"{SIN_SENALES_DETECTADAS} ({ETIQUETA_SIN_SENALES}): "
+                   + ", ".join(f"`{r.afirmacion}`" for r in sin_senales)]
+    no_cotejables = [r for r in fidelidad.afirmaciones if r.resultado == NO_COTEJABLE]
+    if no_cotejables:
+        lineas += ["", "NO_COTEJABLE (sin texto oficial resoluble; nunca se lee como inexistencia):", ""]
+        lineas += [f"- `{r.afirmacion}`: " + _celda("; ".join(r.motivos) or "—") for r in no_cotejables]
+    parciales = [r for r in fidelidad.afirmaciones if r.resultado != NO_COTEJABLE and r.notas]
+    if parciales:
+        lineas += ["", "Notas (fuentes parciales o truncadas):", ""]
+        lineas += [f"- `{r.afirmacion}`: " + _celda("; ".join(r.notas)) for r in parciales]
+    return lineas
+
+
 def _describir_decision(decision: dict) -> str:
     datos = decision.get(CAMPO_DECISION_ADVERTENCIAS)
+    fidelidad = decision.get("fidelidad")
+    if isinstance(fidelidad, dict):
+        senales = fidelidad.get("senales")
+        codigos = [s.get("codigo") for s in senales if isinstance(s, dict)] if isinstance(senales, list) else []
+        return (
+            f" · Atiende señales de fidelidad de {fidelidad.get('afirmacion') or '—'}"
+            f" ({', '.join(str(c) for c in codigos) or '—'}; motor {fidelidad.get('version_motor') or '—'};"
+            f" resolución: {fidelidad.get('resolucion') or '—'})"
+        )
     if not isinstance(datos, dict):
         return ""
     sha = datos.get("sha256_documento") or datos.get("huella_registro")
@@ -158,11 +258,15 @@ def _describir_decision(decision: dict) -> str:
 
 
 def reporte_markdown(
-    ledger: dict, hallazgos: Iterable[dict], cotejo: CotejoLedger | None = None
+    ledger: dict,
+    hallazgos: Iterable[dict],
+    cotejo: CotejoLedger | None = None,
+    fidelidad: FidelidadLedger | None = None,
 ) -> str:
     """Construye el reporte Markdown de un ledger ya validado y sus hallazgos.
 
-    Con ``cotejo`` (``identidad.cotejar_ledger``) agrega la sección de cotejo de identidad.
+    Con ``cotejo`` (``identidad.cotejar_ledger``) agrega la sección de cotejo de identidad;
+    con ``fidelidad`` (``fidelidad.cotejar_fidelidad``), la de cotejo de fidelidad.
     """
     hallazgos = list(hallazgos)
     plan = ledger["plan"]
@@ -210,6 +314,8 @@ def reporte_markdown(
     if cotejo is not None:
         estados = {a["id"]: normalizar_estado(a["verificacion"].get("estado")) for a in afirmaciones}
         lineas += seccion_cotejo(cotejo, decisiones, estados)
+    if fidelidad is not None:
+        lineas += seccion_fidelidad(fidelidad, ledger)
 
     responsable_por_objetivo: dict[str, str] = {}
     for decision in decisiones:

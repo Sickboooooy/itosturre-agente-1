@@ -35,6 +35,7 @@
     "tests/fixtures/vvca_gold_set_v1.json",
     "tests/fixtures/vvca_gold_set_v2.json",
     "tests/fixtures/plan_gold_set_v1.json",
+    "tests/fixtures/fidelidad_gold_set_v1.json",
     "tests/fixtures/evidencia/manifiesto.json",
     "tests/fixtures/evidencia/leyesbiblio_CFF.json",
     "tests/fixtures/evidencia/leyesbiblio_CNPP.json",

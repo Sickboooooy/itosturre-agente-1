@@ -6,8 +6,8 @@ evidencias, contradicciones y decisiones de un plan y, si se pasa el documento,
 que cada artículo (también en la forma "CNPP 167" y con rangos "108-112"), registro
 digital o clave de tesis mencionado esté cubierto por una afirmación. Con un paquete de
 evidencia (``--paquete``) coteja además la identidad de cada evidencia citada
-(PL-015 … PL-019). Sin red y sin LLM: no sustituye la verificación VVCA ni la decisión
-del abogado.
+(PL-015 … PL-019) y la fidelidad de cada afirmación normativa al texto oficial (PL-020).
+Sin red y sin LLM: no sustituye la verificación VVCA ni la decisión del abogado.
 
 Uso:
   python plan_audit.py lint --ledger plan.ledger.json
@@ -15,6 +15,7 @@ Uso:
       --json hallazgos.json --md reporte.md [--paquete DIR]
   python plan_audit.py hash --ledger plan.ledger.json [--afirmacion A1]
   python plan_audit.py cotejar --ledger plan.ledger.json --paquete DIR [--json]
+  python plan_audit.py fidelidad --ledger plan.ledger.json --paquete DIR [--json]
   python plan_audit.py evidencia agregar-tesis --paquete DIR --archivo innerText.txt \\
       --url https://sjf2.scjn.gob.mx/detalle/tesis/NNNNNNN --fecha-consulta AAAA-MM-DD \\
       [--registro NNNNNNN]
@@ -72,8 +73,43 @@ paquete dentro del repositorio solo se acepta en una zona ignorada por la polít
 datos (``auditorias/<asunto>/plan/``, D7); fuera del repositorio, en cualquier lugar.
 Ninguna salida (``--json``/``--md``) puede quedar dentro del paquete.
 
+``fidelidad`` (cotejo de fidelidad determinista, C10/PR-4): para cada afirmación
+``texto_normativo``, ``inferencia`` o ``propuesta`` compara lo que afirma con el texto oficial
+del artículo de sus pares CONFORME o, si no tiene, de sus ``referencias`` ("art. N SIGLA")
+resueltas en el paquete con el mismo rigor que la identidad. Emite señales por categoría
+(procedibilidad, plazos y cifras, inicio del cómputo, modales, negación, excepciones y
+condiciones, cuantificadores, órgano), cada una con severidad (contradicción, omisión o
+alineación ambigua), precisión (``alta`` o ``revisar``), huella y los tramos literales de la
+afirmación y de la fuente. Resultado por afirmación: SENALES · SIN_SENALES_DETECTADAS ·
+NO_COTEJABLE (con motivo). **Nunca emite CONFORME**: SIN_SENALES_DETECTADAS se rotula
+siempre "sin señales detectadas por reglas deterministas; revisión del abogado
+obligatoria". Salida: 0 sin señales · 1 con señales o si nada fue cotejable (todo
+NO_COTEJABLE) · 2 entrada inválida.
+
+Protocolo de uso de la fidelidad:
+  1. Registrar la evidencia (``evidencia agregar-*``) y cotejar la identidad (``cotejar``).
+  2. ``fidelidad --ledger L --paquete DIR``: leer cada señal con los dos tramos lado a lado;
+     un NO_COTEJABLE dice por qué no hubo texto oficial (nunca acredita inexistencia); una
+     fuente TRUNCADA es incompleta (no se señalan ausencias en ella).
+  3. Corregir la afirmación según el texto oficial, o registrar una decisión humana en
+     ``decisiones[]``: el comando imprime el bloque por afirmación, con ``"fidelidad":
+     {"plan", "afirmacion", "contenido_sha256", "version_motor", "senales": [{"huella",
+     "codigo", "fuente", "articulo", "sha256_documento"}], "resolucion"}``. El responsable
+     llena ``id``, ``responsable`` (humano), ``estado`` y ``resolucion`` (si la afirmación es
+     VERIFICADO, la resolución es obligatoria y la decisión debe estar APROBADA). Si cambia el
+     plan, el texto o tipo de la afirmación, la fuente, el artículo, los tramos de la señal o
+     la versión del motor, deja de valer: una decisión vieja o ajena no atiende una señal nueva.
+  4. ``lint --paquete DIR``: PL-020 según la precisión (criterio por defecto, pendiente de
+     confirmación del responsable): una señal ``alta`` sin atender (modo de procedibilidad
+     distinto, plazo distinto para la misma condición, inicio del cómputo distinto) es
+     BLOQUEANTE en una afirmación VERIFICADO y ALTA en otros estados; toda otra señal
+     (``revisar``) es ADVERTENCIA "señal a revisar" en cualquier estado.
+  5. SIN_SENALES_DETECTADAS no es conformidad: la afirmación sigue necesitando la lectura y,
+     en su caso, la aprobación humana.
+
 ``hash`` imprime el ``contenido_sha256`` vigente de cada afirmación, que es el valor
-que debe registrar la persona que la aprueba (``aprobacion.contenido_sha256``).
+que debe registrar la persona que la aprueba (``aprobacion.contenido_sha256``) o que
+atiende sus señales de fidelidad (``decisiones[].fidelidad.contenido_sha256``).
 
 En Windows anteponer el intérprete del venv: ``./venv/Scripts/python.exe``.
 """
@@ -106,12 +142,18 @@ from itosturre.plan import (  # noqa: E402
     LedgerInvalido,
     cargar_ledger,
     contenido_sha256,
+    cotejar_fidelidad,
     cotejar_ledger,
     esta_bloqueado,
     lint_ledger,
     reporte_markdown,
     resumen_severidades,
 )
+from itosturre.plan.fidelidad import AVISO as AVISO_FIDELIDAD  # noqa: E402
+from itosturre.plan.fidelidad import ETIQUETA_SIN_SENALES, plantilla_decision  # noqa: E402
+from itosturre.plan.fidelidad import RESULTADOS as RESULTADOS_FIDELIDAD  # noqa: E402
+from itosturre.plan.fidelidad import SENALES as FIDELIDAD_SENALES  # noqa: E402
+from itosturre.plan.fidelidad import VERSION_MOTOR as VERSION_MOTOR_FIDELIDAD  # noqa: E402
 from itosturre.plan.identidad import (  # noqa: E402
     ARCHIVOS_LEYESBIBLIO,
     ESTADO_SOSTENIBLE,
@@ -243,15 +285,18 @@ def cmd_lint(args: argparse.Namespace) -> int:
             return _entrada_invalida([f"no se pudo leer el documento {args.documento}: {exc}"])
 
     cotejo = None
+    fidelidad = None
     if args.paquete:
         try:
-            cotejo = cotejar_ledger(
-                ledger, cargar_paquete(args.paquete), extractores=_extractores_disponibles()
-            )
+            paquete = cargar_paquete(args.paquete)
+            extractores = _extractores_disponibles()
+            cache: dict = {}  # identidad y fidelidad comparten la re-extracción de cada PDF
+            cotejo = cotejar_ledger(ledger, paquete, extractores=extractores, cache=cache)
+            fidelidad = cotejar_fidelidad(ledger, paquete, cotejo=cotejo, extractores=extractores, cache=cache)
         except (ErrorPaquete, OSError) as exc:
             return _entrada_invalida([f"paquete de evidencia: {exc}"])
 
-    hallazgos = lint_ledger(ledger, documento=documento, cotejo=cotejo)
+    hallazgos = lint_ledger(ledger, documento=documento, cotejo=cotejo, fidelidad=fidelidad)
     bloqueado = esta_bloqueado(hallazgos)
     severidades = resumen_severidades(hallazgos)
 
@@ -268,9 +313,11 @@ def cmd_lint(args: argparse.Namespace) -> int:
         if cotejo is not None:
             salida["paquete"] = args.paquete
             salida["cotejo"] = cotejo.como_dict()
+        if fidelidad is not None:
+            salida["fidelidad"] = fidelidad.como_dict()
         escrituras.append((args.json, json.dumps(salida, ensure_ascii=False, indent=2) + "\n"))
     if args.md:
-        escrituras.append((args.md, reporte_markdown(ledger, hallazgos, cotejo)))
+        escrituras.append((args.md, reporte_markdown(ledger, hallazgos, cotejo, fidelidad)))
     for destino, contenido in escrituras:
         try:
             Path(destino).write_text(contenido, encoding="utf-8")
@@ -288,6 +335,8 @@ def cmd_lint(args: argparse.Namespace) -> int:
         print("  (PL-014 de cobertura no evaluada: no se pasó --documento)")
     if cotejo is not None:
         print(f"  Cotejo de identidad: {_resumen_cotejo(cotejo)}")
+    if fidelidad is not None:
+        print(f"  Cotejo de fidelidad: {_resumen_fidelidad(fidelidad)}")
     print(
         "Resultado: BLOQUEADO"
         if bloqueado
@@ -393,6 +442,93 @@ def cmd_cotejar(args: argparse.Namespace) -> int:
         else "Resultado: con hallazgos (el cotejo informa; no aprueba ni cambia estados)"
     )
     return SALIDA_OK if cotejo.todo_conforme else SALIDA_BLOQUEADO
+
+
+# ── Cotejo de fidelidad (PR-4) ──────────────────────────────────────────────
+
+
+def _resumen_fidelidad(fidelidad) -> str:
+    resumen = fidelidad.resumen()
+    partes = [f"{resultado}={resumen[resultado]}" for resultado in RESULTADOS_FIDELIDAD]
+    partes.append(f"señales alta={resumen['alta']}")
+    partes.append(f"a revisar={resumen['revisar']}")
+    partes.append(f"fuera de alcance={resumen['fuera_de_alcance']}")
+    texto = f"{len(fidelidad.afirmaciones)} afirmación(es) · " + " · ".join(partes)
+    if fidelidad.nada_cotejable:
+        texto += " · NADA FUE COTEJABLE"
+    return texto
+
+
+def _plano(texto: str) -> str:
+    return " ".join(str(texto or "").split())
+
+
+def cmd_fidelidad(args: argparse.Namespace) -> int:
+    try:
+        ledger = cargar_ledger(args.ledger)
+    except LedgerInvalido as exc:
+        return _entrada_invalida(exc.errores)
+    try:
+        paquete = cargar_paquete(args.paquete)
+        extractores = _extractores_disponibles()
+        cache: dict = {}
+        cotejo = cotejar_ledger(ledger, paquete, extractores=extractores, cache=cache)
+        fidelidad = cotejar_fidelidad(ledger, paquete, cotejo=cotejo, extractores=extractores, cache=cache)
+    except (ErrorPaquete, OSError) as exc:
+        return _entrada_invalida([f"paquete de evidencia: {exc}"])
+    con_senales = any(r.resultado == FIDELIDAD_SENALES for r in fidelidad.afirmaciones)
+    # Nada cotejable (todo NO_COTEJABLE o nada en alcance) no es "sin señales": sale ≠ 0.
+    codigo_salida = SALIDA_BLOQUEADO if con_senales or fidelidad.nada_cotejable else SALIDA_OK
+
+    if args.json:
+        salida = {
+            "schema_version": ledger["schema_version"],
+            "plan": ledger["plan"],
+            "paquete": args.paquete,
+            **fidelidad.como_dict(),
+        }
+        print(json.dumps(salida, ensure_ascii=False, indent=2))
+        return codigo_salida
+
+    plan = ledger["plan"]["id"]
+    print(f"Cotejo de fidelidad · plan {plan} · paquete {args.paquete} · motor {VERSION_MOTOR_FIDELIDAD}")
+    print(f"  huella del ledger {fidelidad.huella_ledger} · huella del paquete {fidelidad.huella_paquete}")
+    for resultado in fidelidad.afirmaciones:
+        fuentes = "; ".join(
+            f"{f.descriptor} ({'evidencias ' + ', '.join(f.evidencias) if f.origen == 'par_conforme' else 'referencia «' + str(f.referencia) + '»'})"
+            + (" · TRUNCADA" if f.truncado else "")
+            for f in resultado.fuentes
+        ) or "—"
+        print(f"  [{resultado.etiqueta}] {resultado.afirmacion} ({resultado.tipo} · "
+              f"{resultado.estado_declarado or 'estado inválido'}) · fuentes: {fuentes}")
+        for motivo in resultado.motivos:
+            print(f"      · motivo: {motivo}")
+        for nota in resultado.notas:
+            print(f"      · nota: {nota}")
+        for senal in resultado.senales:
+            nivel = "ALTA PRECISIÓN" if senal.precision == "alta" else "señal a revisar"
+            print(f"      - [{nivel} · {senal.severidad}] {senal.codigo} — {senal.detalle}")
+            print(f"          afirmación: «{_plano(senal.tramo_afirmacion)}»")
+            documentos = ", ".join(sha[:12] + "…" for sha in senal.sha256_documentos) or "—"
+            print(f"          fuente ({senal.fuente} · sha256 {documentos}): "
+                  f"«{_plano(senal.tramo_fuente) or 'la cifra no aparece en el texto oficial'}»")
+            print(f"          huella de la señal: {senal.huella}")
+        if resultado.senales:
+            print("      bloque de decisión para decisiones[] (los campos [ASIGNAR] son del responsable):")
+            bloque = json.dumps(plantilla_decision(plan, resultado), ensure_ascii=False, indent=2)
+            print("\n".join("        " + linea for linea in bloque.splitlines()))
+    if fidelidad.fuera_de_alcance:
+        print(f"  Fuera de alcance (criterio judicial, hecho aportado): {', '.join(fidelidad.fuera_de_alcance)}")
+    print(f"Resumen: {_resumen_fidelidad(fidelidad)}")
+    print(f"Aviso: {AVISO_FIDELIDAD}")
+    if fidelidad.nada_cotejable:
+        print("Resultado: nada fue cotejable (ninguna afirmación tuvo texto oficial que comparar; no equivale a "
+              "fidelidad)")
+    elif con_senales:
+        print("Resultado: con señales (el cotejo informa; no aprueba ni cambia estados)")
+    else:
+        print(f"Resultado: {ETIQUETA_SIN_SENALES} (no equivale a conformidad ni a validación)")
+    return codigo_salida
 
 
 # ── Registro de evidencia en un paquete ─────────────────────────────────────
@@ -813,12 +949,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    lint = sub.add_parser("lint", help="Aplicar las reglas PL-001 … PL-014 (y PL-015 … PL-019 con --paquete)")
+    lint = sub.add_parser("lint", help="Aplicar las reglas PL-001 … PL-014 (y PL-015 … PL-020 con --paquete)")
     lint.add_argument("--ledger", required=True, help="Ledger JSON plan-ledger/1.0")
     lint.add_argument("--documento", help="Documento del plan (.md/.txt) para PL-014")
     lint.add_argument("--json", help="Escribir los hallazgos en este archivo JSON")
     lint.add_argument("--md", help="Escribir el reporte Markdown en este archivo")
-    lint.add_argument("--paquete", help="Paquete de evidencia: agrega el cotejo de identidad (PL-015 … PL-019)")
+    lint.add_argument(
+        "--paquete",
+        help="Paquete de evidencia: agrega el cotejo de identidad (PL-015 … PL-019) y el de fidelidad (PL-020)",
+    )
     lint.set_defaults(func=cmd_lint)
 
     hash_ = sub.add_parser("hash", help="Calcular el contenido_sha256 de las afirmaciones")
@@ -833,6 +972,15 @@ def main(argv: list[str] | None = None) -> int:
     cotejar.add_argument("--paquete", required=True, help="Directorio del paquete de evidencia")
     cotejar.add_argument("--json", action="store_true", help="Imprimir el cotejo como JSON")
     cotejar.set_defaults(func=cmd_cotejar)
+
+    fidelidad = sub.add_parser(
+        "fidelidad",
+        help="Cotejo de fidelidad determinista: señales entre lo que afirma el plan y el texto oficial (nunca CONFORME)",
+    )
+    fidelidad.add_argument("--ledger", required=True, help="Ledger JSON plan-ledger/1.0")
+    fidelidad.add_argument("--paquete", required=True, help="Directorio del paquete de evidencia")
+    fidelidad.add_argument("--json", action="store_true", help="Imprimir el cotejo de fidelidad como JSON")
+    fidelidad.set_defaults(func=cmd_fidelidad)
 
     evidencia = sub.add_parser(
         "evidencia", help="Registrar evidencia oficial ya obtenida en un paquete (sin red) o consultar un artículo"
