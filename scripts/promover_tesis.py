@@ -18,6 +18,10 @@ Uso:
 
 Seguridad: UPSERT por `registro` (no reescribe el corpus a ciegas). No promueve DESCARTADO ni
 tesis con error/registro vacío. Escribe UTF-8, indent=2.
+
+R4d: la vigencia nunca se escribe como "vigente" sin que el scraper la haya registrado. Sin
+valor → "no_consultada"; un valor desconocido se conserva tal cual (el auditor lo reporta
+"no_reconocida"). Solo superada/interrumpida/sustituida se anuncian como vigencia perdida.
 """
 from __future__ import annotations
 
@@ -30,6 +34,13 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+
+from itosturre.audit.jurisprudence import (  # noqa: E402
+    VIGENCIA_NO_RECONOCIDA,
+    VIGENCIA_PERDIDA,
+    normalizar_vigencia,
+)
 
 # Campos que vive el corpus local (subconjunto del objeto del scraper). Alineado con
 # jurisprudencia/712-2023_tesis_verificadas.json + estado_vigencia (glue de vigencia).
@@ -38,10 +49,17 @@ CAMPOS_CORPUS = ("registro", "numero_tesis", "rubro", "texto_completo",
 
 
 def item_corpus(t: dict) -> dict:
-    """Proyecta una tesis del scraper al esquema del corpus; default vigente."""
+    """Proyecta una tesis del scraper al esquema del corpus.
+
+    R4d: sin vigencia registrada → "no_consultada" (antes "vigente" por defecto); un estado
+    conocido se normaliza ("Superada " → "superada") y uno desconocido se conserva tal cual.
+    """
     out = {k: t.get(k, "") for k in CAMPOS_CORPUS}
-    ev = str(out.get("estado_vigencia") or "vigente").strip().lower()
-    out["estado_vigencia"] = ev if ev in ("vigente", "superada", "interrumpida", "sustituida") else "vigente"
+    vigencia = normalizar_vigencia(out)
+    estado, registrado = vigencia["estado"], vigencia["registrado"]
+    out["estado_vigencia"] = (
+        registrado.strip() if estado == VIGENCIA_NO_RECONOCIDA and registrado else estado
+    )
     return out
 
 
@@ -98,7 +116,7 @@ def main() -> int:
             continue
         item = item_corpus(t)
         reg = str(item["registro"])
-        if item["estado_vigencia"] != "vigente":
+        if item["estado_vigencia"] in VIGENCIA_PERDIDA:
             superadas.append(f"{reg} ({item['estado_vigencia']})")
         if reg in idx:
             corpus[idx[reg]] = item

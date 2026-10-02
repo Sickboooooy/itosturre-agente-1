@@ -10,14 +10,16 @@ defecto tiene un ID en ``DEFECTOS_CONOCIDOS`` (PR que lo corrige, descripción y
 comportamiento correcto esperado) y su prueba lleva el ID en el nombre: el PR que lo
 corrija (R4b, R4c o R4d) cambia esa prueba a sabiendas. No hay ``expectedFailure``.
 
-R4b corrigió R4-D01 a R4-D06 (``"corregido": "R4b"`` en el registro) y R4c, R4-D08,
-R4-D09, R4-D11 y R4-D12 (``"corregido": "R4c"``): sus pruebas ya no fijan el defecto sino el
-comportamiento correcto. R4-D10 (decisión del responsable) y R4-D07, R4-D13 y R4-D14 (R4d)
-siguen fijando el comportamiento actual.
+R4b corrigió R4-D01 a R4-D06 (``"corregido": "R4b"`` en el registro), R4c, R4-D08,
+R4-D09, R4-D11 y R4-D12 (``"corregido": "R4c"``) y R4d, R4-D07, R4-D13 y R4-D14
+(``"corregido": "R4d"``): sus pruebas ya no fijan el defecto sino el comportamiento correcto.
+Solo R4-D10 (decisión del responsable) sigue fijando el comportamiento actual.
 
 Las entradas mencionan leyes y artículos reales como TEXTO A AUDITAR, no como citas que se
 afirmen. Los registros de tesis son ficticios (0000001…) y sus rubros dicen FICTICIO o
-SINTÉTICO; los fragmentos del corpus falso son texto sintético.
+SINTÉTICO; los fragmentos del corpus falso son texto sintético. Las únicas tesis reales son
+las de ``tests/fixtures/evidencia/`` (registros 2006224 y 2032506), con su rubro copiado
+literalmente del fixture (la prueba lo comprueba).
 """
 from __future__ import annotations
 
@@ -41,6 +43,13 @@ from itosturre.audit.evidence import (
     has_exact_article_heading,
     has_suffixed_variant_heading,
     precepto_derogado,
+)
+from itosturre.audit.jurisprudence import (
+    cotejar_rubro,
+    diferencias_polaridad,
+    extraer_rubro_invocado,
+    normalizar_rubro,
+    normalizar_vigencia,
 )
 from itosturre.audit.policy import (
     ALCANCE_JURISPRUDENCIA,
@@ -135,6 +144,7 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D07": {
         "pr": "R4d",
+        "corregido": "R4d",
         "origen": "lista R4",
         "descripcion": (
             "La detección de registros distingue mayúsculas: 'REGISTRO DIGITAL: 0000001' y "
@@ -192,6 +202,7 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D13": {
         "pr": "R4d",
+        "corregido": "R4d",
         "origen": "lista R4",
         "descripcion": (
             "El cotejo de rubro es léxico y sin NFD: el mismo rubro sin acentos queda bajo "
@@ -201,15 +212,21 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D14": {
         "pr": "R4d",
+        "corregido": "R4d",
         "origen": "lista R4",
         "descripcion": (
             "El cotejo de rubro ignora palabras de menos de 5 letras: el rubro con el "
             "sentido invertido ('NO ES COMPUTABLE') coincide al 100 % y pasa 🟢."
         ),
         "correcto": "Detectar negaciones o exigir coincidencia literal normalizada del rubro.",
-        # R4c (ronda 2): mientras D13/D14 sigan abiertos, un escrito con SOLO tesis no sale
-        # 🟢 (scoring_vvca.RETENER_VERDE_SOLO_TESIS); R4d debe ponerlo en False al corregirlos.
-        "condiciona": "R4c retiene el 🟢 de escritos con solo tesis (RETENER_VERDE_SOLO_TESIS)",
+        # R4c (ronda 2): mientras D13/D14 siguieran abiertos, un escrito con SOLO tesis no sale
+        # 🟢 (scoring_vvca.RETENER_VERDE_SOLO_TESIS). R4d los corrigió, pero la retención se
+        # mantiene por adjudicación (2-oct-2026) hasta validar el cotejo con más tesis.
+        "condiciona": (
+            "R4c retiene el 🟢 de escritos con solo tesis (RETENER_VERDE_SOLO_TESIS); R4d "
+            "corrigió D13/D14 y la retención se mantiene hasta validar el cotejo con un corpus "
+            "de tesis mayor"
+        ),
     },
 }
 
@@ -285,16 +302,17 @@ class RegistroDefectosTests(unittest.TestCase):
                     f"ninguna prueba lleva {marca} en el nombre",
                 )
 
-    def test_estado_tras_R4c(self) -> None:
+    def test_estado_tras_R4d(self) -> None:
         corregidos = {id_ for id_, d in DEFECTOS_CONOCIDOS.items() if d.get("corregido")}
+        self.assertEqual(corregidos, set(DEFECTOS_CONOCIDOS) - {"R4-D10"})
         self.assertEqual(
-            corregidos,
-            {f"R4-D0{n}" for n in range(1, 7)} | {"R4-D08", "R4-D09", "R4-D11", "R4-D12"},
+            {id_ for id_, d in DEFECTOS_CONOCIDOS.items() if d.get("corregido") == "R4d"},
+            {"R4-D07", "R4-D13", "R4-D14"},
         )
-        # R4-D10 espera la decisión del responsable (toca la Regla 4 de CLAUDE.md); R4-D07,
-        # R4-D13 y R4-D14 son de R4d.
+        # R4-D10 espera la decisión del responsable (toca la Regla 4 de CLAUDE.md).
         self.assertIsNone(DEFECTOS_CONOCIDOS["R4-D10"].get("corregido"))
         # D14 condiciona la retención transitoria del 🟢 de "solo tesis" (ronda 2 de R4c).
+        # Adjudicación de R4d (2-oct-2026): cerrados D13 y D14, la retención SE MANTIENE.
         import scoring_vvca
         self.assertIn("RETENER_VERDE_SOLO_TESIS", DEFECTOS_CONOCIDOS["R4-D14"]["condiciona"])
         self.assertTrue(scoring_vvca.RETENER_VERDE_SOLO_TESIS)
@@ -704,13 +722,81 @@ class ExtraccionTests(unittest.TestCase):
         self.assertEqual([r["unidad_citada"] for r in refs],
                          [[], [{"tipo": "parrafo", "valor": "último"}]])
 
-    def test_R4_D07_registro_en_mayusculas_no_se_detecta(self) -> None:
+    def test_R4_D07_registro_en_cualquier_caja_se_detecta(self) -> None:
+        # Antes solo se detectaba "Registro: 0000004": las dos primeras tesis desaparecían.
         refs = ON.extract_references(
             "Tesis de prueba con REGISTRO DIGITAL: 0000001 (registro ficticio).\n"
             "Tesis de prueba con Registro Digital: 0000002 (registro ficticio).\n"
             "Tesis de prueba con Registro: 0000004 (registro ficticio)."
         )
-        self.assertEqual([r["registro"] for r in refs], ["0000004"])
+        self.assertEqual([r["registro"] for r in refs], ["0000001", "0000002", "0000004"])
+        self.assertEqual([r["raw"] for r in refs],
+                         ["REGISTRO DIGITAL: 0000001", "Registro Digital: 0000002",
+                          "Registro: 0000004"])
+        # El contexto de cada registro no cruza el anterior (no hereda su rubro).
+        self.assertEqual([r["ctx_invocado"] for r in refs],
+                         ["Tesis de prueba con", "(registro ficticio).\nTesis de prueba con",
+                          "(registro ficticio).\nTesis de prueba con"])
+
+    def test_R4_D07_otras_formas_del_registro(self) -> None:
+        casos = {
+            "Registro digital 0000005 (sin dos puntos).": ("0000005", "Registro digital 0000005"),
+            "registro IUS 0000006 ficticio.": ("0000006", "registro IUS 0000006"),
+            "Tesis ficticia, IUS: 0000007.": ("0000007", "IUS: 0000007"),
+            "Tesis ficticia (Reg. 0000008).": ("0000008", "Reg. 0000008"),
+            "Tesis ficticia, registro número 0000009.": ("0000009", "registro número 0000009"),
+        }
+        for texto, (registro, raw) in casos.items():
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual((ref["type"], ref["registro"], ref["raw"]),
+                                 ("jurisprudencia", registro, raw))
+        # No son registros: "ius" dentro de otra palabra o sin número, ni un número largo.
+        for texto in ("El ius puniendi 0000001.", "Marius 0000001.", "Registro 123456789."):
+            with self.subTest(texto=texto):
+                self.assertEqual(ON.extract_references(texto), [])
+
+    def test_R4_D07_numeros_que_no_son_registros_de_tesis(self) -> None:
+        # Ronda 2: un expediente "N/AAAA", un número de 8 dígitos (fecha o folio) y "Registro",
+        # "Reg." o "IUS" sin contexto de tesis en el párrafo no son tesis.
+        for texto in (
+            "En el expediente Reg. 2006224/2026 se dictó el acuerdo.",
+            "Registro: 20261002 de la oficialía de partes.",
+            "Registro 1234567 de la oficialía de partes.",
+            "Inventario del almacén: IUS 1234567, escritorio.",
+            "La tesis ficticia del expediente Reg. 2006224/2026.",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(ON.extract_references(texto), [])
+        # Con contexto de tesis las mismas cabezas sí cuentan.
+        (ref,) = ON.extract_references("Tesis ficticia, IUS 1234567.")
+        self.assertEqual(ref["registro"], "1234567")
+
+    def test_R4_D07_enumeraciones_nunca_solo_el_primero(self) -> None:
+        for texto in ("Tesis ficticias, registros digitales 0000010 / 0000011.",
+                      "Tesis ficticias, registros digitales 0000010/0000011.",
+                      "Tesis ficticias, registros digitales 0000010 y/o 0000011.",
+                      "Tesis ficticias, registros digitales 0000010 o 0000011."):
+            with self.subTest(texto=texto):
+                refs = ON.extract_references(texto)
+                self.assertEqual([r["registro"] for r in refs], ["0000010", "0000011"])
+                self.assertTrue(all(r["registro_en_enumeracion"] for r in refs))
+        # Conector no reconocido: el segundo número queda como cobertura incompleta.
+        primera, segunda = ON.extract_references(
+            "Tesis ficticia con registro digital 0000010 así como 0000011.")
+        self.assertEqual((primera["registro"], primera.get("coverage_gap")), ("0000010", None))
+        self.assertEqual(segunda["registro"], "0000011")
+        self.assertIn("conector no reconocido («así como»)", segunda["coverage_gap"])
+
+    def test_R4_D07_registros_enumerados_no_se_omiten(self) -> None:
+        refs = ON.extract_references(
+            "Tesis ficticias de rubros «UNO SINTÉTICO DE PRUEBA» y «DOS SINTÉTICO DE "
+            "PRUEBA», registros digitales 0000010 y 0000011."
+        )
+        self.assertEqual([r["registro"] for r in refs], ["0000010", "0000011"])
+        # En una enumeración el rubro de cada tesis no se asocia con certeza.
+        self.assertEqual({r["ctx_invocado"] for r in refs}, {""})
+        self.assertTrue(all(r["registro_en_enumeracion"] for r in refs))
 
 
 class ResolucionLeyTests(unittest.TestCase):
@@ -1069,8 +1155,10 @@ class ConstruccionVvcaTesisTests(unittest.TestCase):
         self.assertFalse(vvca["rubro_mismatch"])
         self.assertEqual(vvca["V_validacion"], "Jurisprudencia obligatoria")
         self.assertEqual(vvca["fuerza_vinculante"]["sello"], "[J-TCC]")
-        self.assertEqual(vvca["estado_vigencia"], "vigente")
+        # R4d: sin dato de vigencia ya no se asume "vigente".
+        self.assertEqual(vvca["estado_vigencia"], "no_consultada")
         self.assertEqual(vvca["explicabilidad"]["overlap_rubro"], 1.0)
+        self.assertEqual(vvca["cotejo_rubro"], "coincide")
 
     def test_tesis_aislada_y_rubro_discrepante(self) -> None:
         aislada = ON.build_vvca_tesis(
@@ -1091,7 +1179,10 @@ class ConstruccionVvcaTesisTests(unittest.TestCase):
         self.assertTrue(discrepante["V_verificacion"].startswith("⚠️ DISCREPANCIA: Reg. 0000001"))
 
     def test_estado_de_vigencia_normalizado(self) -> None:
-        casos = {"SUPERADA ": "superada", "interrumpida": "interrumpida", "rara": "vigente"}
+        # R4d: un valor desconocido ya no se lee como "vigente" (antes "rara" → "vigente").
+        casos = {"SUPERADA ": "superada", "interrumpida": "interrumpida",
+                 "Sustituida": "sustituida", "Vigente": "vigente", "rara": "no_reconocida",
+                 "": "no_consultada", None: "no_consultada"}
         for crudo, esperado in casos.items():
             with self.subTest(estado=crudo):
                 vvca = ON.build_vvca_tesis(
@@ -1101,28 +1192,331 @@ class ConstruccionVvcaTesisTests(unittest.TestCase):
                 )
                 self.assertEqual(vvca["estado_vigencia"], esperado)
 
-    def test_R4_D13_rubro_sin_acentos_se_bloquea_como_discrepante(self) -> None:
+    def test_R4_D13_rubro_sin_acentos_coincide(self) -> None:
+        # Antes: traslape 0.2 y 🔴 bloqueante (falso rojo) por no normalizar NFD.
         item = _tesis_ficticia(rubro="PETICIÓN SINTÉTICA. NOTIFICACIÓN Y RESOLUCIÓN FICTICIAS")
-        con_acentos = ON.build_vvca_tesis(
-            self._ref("PETICIÓN SINTÉTICA. NOTIFICACIÓN Y RESOLUCIÓN FICTICIAS"), item, "f.json"
-        )
-        sin_acentos = ON.build_vvca_tesis(
-            self._ref("PETICION SINTETICA. NOTIFICACION Y RESOLUCION FICTICIAS"), item, "f.json"
-        )
-        self.assertEqual((con_acentos["score"], con_acentos["rubro_mismatch"]), (95, False))
-        self.assertEqual((sin_acentos["score"], sin_acentos["semaforo"]), (0, "🔴"))
-        self.assertTrue(sin_acentos["rubro_mismatch"])
-        self.assertEqual(sin_acentos["explicabilidad"]["overlap_rubro"], 0.2)
+        for invocado in ("PETICIÓN SINTÉTICA. NOTIFICACIÓN Y RESOLUCIÓN FICTICIAS",
+                         "PETICION SINTETICA. NOTIFICACION Y RESOLUCION FICTICIAS",
+                         "de rubro: «Petición sintética. Notificación y resolución ficticias.»"):
+            with self.subTest(invocado=invocado):
+                vvca = ON.build_vvca_tesis(self._ref(invocado), item, "f.json")
+                self.assertEqual((vvca["score"], vvca["semaforo"], vvca["rubro_mismatch"]),
+                                 (95, "🟢", False))
+                self.assertEqual(vvca["cotejo_rubro"], "coincide")
+                self.assertEqual(vvca["explicabilidad"]["overlap_rubro"], 1.0)
+                # Se muestra el rubro original (con acentos), no la forma normalizada.
+                self.assertEqual(vvca["explicabilidad"]["rubro_real"],
+                                 "PETICIÓN SINTÉTICA. NOTIFICACIÓN Y RESOLUCIÓN FICTICIAS")
 
-    def test_R4_D14_rubro_con_sentido_invertido_pasa(self) -> None:
+    def test_R4d_tesis_real_del_fixture(self) -> None:
+        # Registro, clave, tipo y rubro reales de tests/fixtures/evidencia/sjf_2006224.txt.
+        item = {"registro": "2006224", "rubro": RUBRO_2006224, "tipo_tesis": "Jurisprudencia",
+                "numero_tesis": "P./J. 20/2014 (10a.)", "sala": "Pleno",
+                "epoca": "Décima Época", "materia": "Constitucional"}
+        casos = {
+            f"de rubro: «{RUBRO_2006224}»": (95, "🟢", "coincide"),
+            f"de rubro: «{normalizar_rubro(RUBRO_2006224)}»": (95, "🟢", "coincide"),
+            "de rubro: «DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS TRATADOS "
+            "INTERNACIONALES. …»": (84, "🟡", "parcial"),
+            f"de rubro: «{RUBRO_2006224.replace('CONSTITUYEN EL', 'NO CONSTITUYEN EL')}»":
+                (0, "🔴", "invertido"),
+            "Se invoca la jurisprudencia P./J. 20/2014 (10a.), con": (84, "🟡",
+                                                                      "sin_rubro_invocado"),
+        }
+        for contexto, esperado in casos.items():
+            with self.subTest(contexto=contexto[:50]):
+                vvca = ON.build_vvca_tesis(self._ref(contexto, "2006224"), item, "f.json")
+                self.assertEqual((vvca["score"], vvca["semaforo"], vvca["cotejo_rubro"]),
+                                 esperado)
+                self.assertEqual(vvca["fuerza_vinculante"]["sello"], "[J-PLENO]")
+                self.assertEqual(vvca["explicabilidad"]["rubro_real"], RUBRO_2006224)
+
+    def test_R4d_ninguna_diferencia_concede_verde(self) -> None:
+        # Jurisprudencia (base 95): todo lo que no es igualdad literal queda en 84 o menos.
+        for contexto in (
+            "RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE EN DÍAS",
+            "RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO…",
+            "Se invoca la tesis con",
+        ):
+            with self.subTest(contexto=contexto):
+                vvca = ON.build_vvca_tesis(self._ref(contexto), _tesis_ficticia(), "f.json")
+                self.assertEqual((vvca["score"], vvca["semaforo"]), (84, "🟡"))
+                self.assertFalse(vvca["rubro_mismatch"])
+        # Sin rubro en la fuente tampoco.
+        vvca = ON.build_vvca_tesis(self._ref(self.RUBRO), _tesis_ficticia(rubro=""), "f.json")
+        self.assertEqual((vvca["score"], vvca["cotejo_rubro"]), (84, "sin_rubro_fuente"))
+        # Registro en una enumeración: no se le asocia rubro.
+        ref = {**self._ref(self.RUBRO), "registro_en_enumeracion": True}
+        vvca = ON.build_vvca_tesis(ref, _tesis_ficticia(), "f.json")
+        self.assertEqual((vvca["score"], vvca["cotejo_rubro"]), (84, "sin_rubro_invocado"))
+        self.assertIn("enumeración", vvca["V_verificacion"])
+
+    RUBRO = "RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE"
+
+    def test_R4_D14_rubro_con_sentido_invertido_se_bloquea(self) -> None:
+        # Antes: traslape 1.0 (las palabras de menos de 5 letras no contaban) y 🟢 95.
         vvca = ON.build_vvca_tesis(
             self._ref("RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO NO ES COMPUTABLE"),
             _tesis_ficticia(),
             "tesis_ficticias.json",
         )
-        self.assertEqual((vvca["score"], vvca["semaforo"]), (95, "🟢"))
-        self.assertFalse(vvca["rubro_mismatch"])
+        self.assertEqual((vvca["score"], vvca["semaforo"]), (0, "🔴"))
+        self.assertTrue(vvca["rubro_mismatch"])
+        self.assertEqual(vvca["cotejo_rubro"], "invertido")
+        # El traslape sigue siendo total: solo la polaridad distingue los dos rubros.
         self.assertEqual(vvca["explicabilidad"]["overlap_rubro"], 1.0)
+        self.assertEqual(vvca["explicabilidad"]["polaridad"],
+                         ["negaciones (no, ni, sin, nunca…): 1 en el rubro invocado y 0 en el "
+                          "real"])
+        self.assertTrue(vvca["V_verificacion"].startswith("⚠️ DISCREPANCIA: Reg. 0000001"))
+        # Al revés (el real niega y el invocado no) también.
+        invertido = ON.build_vvca_tesis(
+            self._ref("RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE"),
+            _tesis_ficticia(rubro="RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO NO ES "
+                                  "COMPUTABLE"),
+            "tesis_ficticias.json",
+        )
+        self.assertEqual((invertido["score"], invertido["cotejo_rubro"]), (0, "invertido"))
+
+
+FIXTURES_EVIDENCIA = REPO / "tests" / "fixtures" / "evidencia"
+# Rubros REALES copiados literalmente de los fixtures oficiales del SJF (la prueba
+# ``test_rubros_reales_copiados_literalmente`` lo comprueba). No se inventa ninguno.
+RUBRO_2006224 = (
+    "DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS TRATADOS INTERNACIONALES. "
+    "CONSTITUYEN EL PARÁMETRO DE CONTROL DE REGULARIDAD CONSTITUCIONAL, PERO CUANDO EN LA "
+    "CONSTITUCIÓN HAYA UNA RESTRICCIÓN EXPRESA AL EJERCICIO DE AQUÉLLOS, SE DEBE ESTAR A LO "
+    "QUE ESTABLECE EL TEXTO CONSTITUCIONAL."
+)
+RUBRO_2032506 = (
+    "SUSPENSIÓN PROVISIONAL EN AMPARO INDIRECTO. ES IMPROCEDENTE CONTRA EL SISTEMA NORMATIVO "
+    "CONFORMADO POR EL ARTÍCULO 162, FRACCIÓN VI, PÁRRAFOS SEGUNDO Y TERCERO, DE LA LEY "
+    "ADUANERA, Y LA REGLA 1.4.14. DE LAS REGLAS GENERALES DE COMERCIO EXTERIOR PARA 2026."
+)
+
+
+def _cotejo(contexto: str, real: str, **opciones) -> dict:
+    return cotejar_rubro(extraer_rubro_invocado(contexto, **opciones), real)
+
+
+class CotejoRubroTests(unittest.TestCase):
+    """R4d: extracción del rubro invocado y cotejo determinista (funciones puras)."""
+
+    REAL = "RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE"
+
+    def test_rubros_reales_copiados_literalmente(self) -> None:
+        for registro, rubro in (("2006224", RUBRO_2006224), ("2032506", RUBRO_2032506)):
+            with self.subTest(registro=registro):
+                fixture = (FIXTURES_EVIDENCIA / f"sjf_{registro}.txt").read_text(encoding="utf-8")
+                self.assertIn(f"Registro digital: {registro}", fixture)
+                self.assertIn(rubro, fixture)
+
+    def test_normalizacion_regla_1(self) -> None:
+        self.assertEqual(normalizar_rubro("  «PETICIÓN»,  Notificación;\nY RESOLUCIÓN. "),
+                         "peticion notificacion y resolucion")
+        self.assertEqual(normalizar_rubro("ARTÍCULO 1º."), normalizar_rubro("artículo 1o"))
+        self.assertEqual(normalizar_rubro("ARTÍCULO 1°."), normalizar_rubro("artículo 1o"))
+        self.assertEqual(normalizar_rubro(RUBRO_2006224),
+                         normalizar_rubro(RUBRO_2006224.lower().rstrip(".")))
+
+    def test_solo_la_igualdad_literal_coincide(self) -> None:
+        for contexto in (RUBRO_2006224, normalizar_rubro(RUBRO_2006224).upper(),
+                         f"de rubro: «{RUBRO_2006224.lower()}»"):
+            with self.subTest(contexto=contexto[:30]):
+                self.assertEqual(_cotejo(contexto, RUBRO_2006224)["resultado"], "coincide")
+        # Mismas palabras en otro orden o con una de más: nunca "coincide" (ningún traslape
+        # concede 🟢).
+        desordenado = ("CONSTITUYEN EL PARÁMETRO DE CONTROL DE REGULARIDAD CONSTITUCIONAL. "
+                       "DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS TRATADOS "
+                       "INTERNACIONALES.")
+        cotejo = _cotejo(desordenado, RUBRO_2006224)
+        self.assertEqual(cotejo["resultado"], "no_literal")
+        self.assertEqual(cotejo["traslape"], 1.0)
+
+    def test_truncado_explicito_es_parcial_solo_si_encaja(self) -> None:
+        for marca in ("…", "...", "[…]", "[...]", "(…)"):
+            with self.subTest(marca=marca):
+                contexto = ("de rubro: «DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS "
+                            f"TRATADOS INTERNACIONALES. {marca}»")
+                self.assertEqual(_cotejo(contexto, RUBRO_2006224)["resultado"], "parcial")
+        # Supresión en medio y al inicio.
+        self.assertEqual(_cotejo("DERECHOS HUMANOS […] SE DEBE ESTAR A LO QUE ESTABLECE EL "
+                                 "TEXTO CONSTITUCIONAL.", RUBRO_2006224)["resultado"], "parcial")
+        self.assertEqual(_cotejo("… SE DEBE ESTAR A LO QUE ESTABLECE EL TEXTO CONSTITUCIONAL",
+                                 RUBRO_2006224)["resultado"], "parcial")
+        # La marca al final no autoriza a omitir el INICIO: "ES COMPUTABLE…" no es el inicio
+        # de "…NO ES COMPUTABLE" y la negación omitida invierte el sentido.
+        real = "EL PLAZO SINTÉTICO NO ES COMPUTABLE EN DÍAS FICTICIOS"
+        cotejo = _cotejo("EL PLAZO SINTÉTICO ES COMPUTABLE…", real)
+        self.assertEqual(cotejo["resultado"], "invertido")
+        # Sin marca, un tramo literal del rubro no es "parcial": 🟡 no literal.
+        self.assertEqual(_cotejo("DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS "
+                                 "TRATADOS INTERNACIONALES.", RUBRO_2006224)["resultado"],
+                         "no_literal")
+
+    def test_polaridad_lista_cerrada(self) -> None:
+        # Negación añadida o suprimida.
+        invertido = RUBRO_2006224.replace("CONSTITUYEN EL", "NO CONSTITUYEN EL")
+        self.assertEqual(_cotejo(invertido, RUBRO_2006224)["resultado"], "invertido")
+        # Antónimo por prefijo: IMPROCEDENTE ↔ PROCEDENTE (rubro real de 2032506).
+        procedente = RUBRO_2032506.replace("ES IMPROCEDENTE", "ES PROCEDENTE")
+        cotejo = _cotejo(procedente, RUBRO_2032506)
+        self.assertEqual(cotejo["resultado"], "invertido")
+        self.assertEqual(cotejo["polaridad"], [
+            "«improcedente» (antónimo de «procedente»): 0 en el rubro invocado y 1 en el real"
+        ])
+        inconstitucional = RUBRO_2006224.replace("EL TEXTO CONSTITUCIONAL",
+                                                 "EL TEXTO INCONSTITUCIONAL")
+        self.assertEqual(_cotejo(inconstitucional, RUBRO_2006224)["resultado"], "invertido")
+        # Par simétrico: conceder ↔ negar.
+        self.assertEqual(
+            diferencias_polaridad("LA SUSPENSIÓN SINTÉTICA DEBE NEGARSE AL QUEJOSO FICTICIO",
+                                  "LA SUSPENSIÓN SINTÉTICA DEBE CONCEDERSE AL QUEJOSO FICTICIO"),
+            ["«conceder» y «negar»: el rubro invocado dice «negar» y el real «conceder»"],
+        )
+        # "NO … NI …" frente a "NO … NO …": misma polaridad (cuentan en total).
+        self.assertEqual(diferencias_polaridad("NO ES X NI Y FICTICIOS", "NO ES X NO Y FICTICIOS"),
+                         [])
+
+    def test_traslape_bajo_es_discrepante_y_cuenta_las_palabras_cortas(self) -> None:
+        cotejo = _cotejo("de rubro: «OTRO ENUNCIADO FICTICIO SOBRE NOTIFICACIONES SIMULADAS»",
+                         self.REAL)
+        self.assertEqual((cotejo["resultado"], cotejo["traslape"]), ("discrepante", 0.2))
+        # Las palabras cortas con contenido cuentan (antes solo las de 5+ letras); las vacías
+        # ("de", "la", "el") no.
+        self.assertEqual(_cotejo("de rubro: «LEY ACTO PENA FICTICIOS»",
+                                 "LEY ACTO PENA SINTÉTICOS")["traslape"], 0.75)
+
+    def test_sin_rubro_identificable(self) -> None:
+        for contexto in (
+            "",
+            "Tesis de prueba con",
+            # Comillas en minúsculas sin marcador: suele ser el texto de la tesis o de la norma.
+            "La Sala dijo que \"el plazo sintético no es computable\" en la tesis con",
+            # Datos de publicación en mayúsculas: no son un rubro.
+            "Tesis P./J. 20/2014 (10a.), Gaceta, Libro 5, con",
+        ):
+            with self.subTest(contexto=contexto[:30]):
+                self.assertIsNone(extraer_rubro_invocado(contexto))
+                self.assertEqual(_cotejo(contexto, self.REAL)["resultado"],
+                                 "sin_rubro_invocado")
+        self.assertEqual(cotejar_rubro({"texto": self.REAL, "metodo": "marcador",
+                                        "truncado": False}, "")["resultado"],
+                         "sin_rubro_fuente")
+
+    def test_extraccion_del_rubro_invocado(self) -> None:
+        casos = {
+            # contexto: (texto extraído, método)
+            'la jurisprudencia P./J. 3/2019, de rubro: "PRISIÓN SINTÉTICA. SU\nVALIDEZ '
+            'FICTICIA", ': ("PRISIÓN SINTÉTICA. SU VALIDEZ FICTICIA", "marcador"),
+            "de título y subtítulo: “Plazo sintético. Es computable en días ficticios.”":
+                ("Plazo sintético. Es computable en días ficticios.", "marcador"),
+            "RUBRO: PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS. Tesis": (
+                "PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS.", "marcador"),
+            "de rubro y texto siguientes: «PLAZO SINTÉTICO FICTICIO»": (
+                "PLAZO SINTÉTICO FICTICIO", "marcador"),
+            "**1.** La tesis **PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS.**, ": (
+                "PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS.", "comillas"),
+            # La clave y la época que siguen al rubro no forman parte de él.
+            "Tesis I.1o.P. J/7 PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS. P./J. 1/2020 "
+            "(10a.), ": ("PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS.", "mayusculas"),
+            # Solo el párrafo del registro.
+            "## III. JURISPRUDENCIA APLICABLE\n\nSe invoca la tesis con": None,
+            # La línea de un encabezado no es un rubro, aunque no la separe una línea en blanco;
+            # lo que sigue en otra línea sí puede serlo. Una numeración arábiga solo se recorta.
+            "III. JURISPRUDENCIA APLICABLE AL CASO\nSirve de apoyo la tesis con": None,
+            "## IV. TESIS\nPLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS.\nRegistro": (
+                "PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS.", "mayusculas"),
+            "1. PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS, ": (
+                "PLAZO SINTÉTICO. ES COMPUTABLE EN DÍAS FICTICIOS,", "mayusculas"),
+        }
+        for contexto, esperado in casos.items():
+            with self.subTest(contexto=contexto[:40]):
+                invocado = extraer_rubro_invocado(contexto)
+                self.assertEqual(invocado and (invocado["texto"], invocado["metodo"]), esperado)
+
+    def test_rubro_pegado_a_la_derecha_del_registro(self) -> None:
+        # Formato frecuente: "…, registro digital N, de rubro y texto: «…»". El rubro de la
+        # derecha es de ESA tesis y no cuenta como contexto de la siguiente.
+        texto = (
+            "Sirve de apoyo la jurisprudencia 2a./J. 1/2020, Época ficticia, registro digital "
+            "0000001, de rubro y texto: \"RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO NO "
+            "ES COMPUTABLE.\" (texto ficticio) y la diversa con registro digital: 0000002."
+        )
+        primera, segunda = ON.extract_references(texto)
+        self.assertEqual(primera["ctx_posterior"],
+                         ', de rubro y texto: "RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO '
+                         'SINTÉTICO NO ES COMPUTABLE."')
+        self.assertNotIn("ctx_posterior", segunda)
+        self.assertEqual(segunda["ctx_invocado"], "(texto ficticio) y la diversa con")
+        vvca = ON.build_vvca_tesis(primera, _tesis_ficticia(), "f.json")
+        self.assertEqual((vvca["cotejo_rubro"], vvca["semaforo"]), ("invertido", "🔴"))
+        self.assertEqual(vvca["explicabilidad"]["rubro_invocado_metodo"], "marcador_posterior")
+        vvca = ON.build_vvca_tesis(segunda, _tesis_ficticia(registro="0000002"), "f.json")
+        self.assertEqual(vvca["cotejo_rubro"], "sin_rubro_invocado")
+        # Solo un marcador PEGADO: tras un punto ya es otra oración.
+        (ref,) = ON.extract_references("Registro digital: 0000001. De rubro: «OTRO RUBRO "
+                                       "FICTICIO DE PRUEBA SINTÉTICA».")
+        self.assertNotIn("ctx_posterior", ref)
+
+    def test_ventana_recortada_no_concede_verde_ni_rojo_por_lo_no_visto(self) -> None:
+        # Si el contexto se recortó y el rubro empieza en el borde, pudo empezar antes.
+        real = "EL PLAZO NO ES COMPUTABLE. SUSPENSIÓN SINTÉTICA EN DÍAS FICTICIOS"
+        invocado = extraer_rubro_invocado("SUSPENSIÓN SINTÉTICA EN DÍAS FICTICIOS", recortado=True)
+        self.assertTrue(invocado["truncado"])
+        self.assertEqual(cotejar_rubro(invocado, real)["resultado"], "parcial")
+        self.assertEqual(
+            cotejar_rubro(extraer_rubro_invocado("SUSPENSIÓN SINTÉTICA EN DÍAS FICTICIOS"),
+                          real)["resultado"],
+            "invertido",
+        )
+
+    def test_vigencia_nunca_vigente_sin_fuente(self) -> None:
+        def estado(item: dict) -> tuple:
+            vigencia = normalizar_vigencia(item)
+            return vigencia["estado"], vigencia["registrado"], vigencia["conflicto"]
+
+        self.assertEqual(estado({}), ("no_consultada", None, False))
+        self.assertEqual(estado({"estado_vigencia": "  "}), ("no_consultada", None, False))
+        self.assertEqual(estado({"vigencia": "Superada"}), ("superada", "Superada", False))
+        self.assertEqual(estado({"estado_vigencia": "rara"}), ("no_reconocida", "rara", False))
+        # Ronda 2: la primera palabra de pérdida cuenta ("superada por contradicción").
+        self.assertEqual(estado({"estado_vigencia": "superada por contradicción"}),
+                         ("superada", "superada por contradicción", False))
+        self.assertEqual(estado({"estado_vigencia": "no superada"}),
+                         ("no_reconocida", "no superada", False))
+
+    def test_vigencia_perdida_en_cualquier_campo_prevalece(self) -> None:
+        # Ronda 2 (punto 5): antes {"estado_vigencia": "no_consultada", "vigencia":
+        # "superada"} no bloqueaba (solo se leía el primer campo con valor).
+        casos = [
+            ({"estado_vigencia": "no_consultada", "vigencia": "superada"},
+             ("superada", "superada", False)),
+            ({"estado_vigencia": "rara", "vigencia": "interrumpida"},
+             ("interrumpida", "interrumpida", True)),
+            ({"estado_vigencia": "vigente", "vigencia": "sustituida"},
+             ("sustituida", "sustituida", True)),
+            ({"estado_vigencia": "vigente", "vigencia": "rara"},
+             ("en_conflicto", "estado_vigencia=vigente; vigencia=rara", True)),
+            ({"estado_vigencia": "vigente", "vigencia": "Vigente"}, ("vigente", "vigente", False)),
+        ]
+        for item, esperado in casos:
+            with self.subTest(item=item):
+                vigencia = normalizar_vigencia(item)
+                self.assertEqual((vigencia["estado"], vigencia["registrado"],
+                                  vigencia["conflicto"]), esperado)
+
+    def test_promover_tesis_no_escribe_vigente_sin_fuente(self) -> None:
+        from scripts.promover_tesis import item_corpus
+
+        base = {"registro": "0000001", "rubro": self.REAL}
+        self.assertEqual(item_corpus(base)["estado_vigencia"], "no_consultada")
+        self.assertEqual(item_corpus({**base, "estado_vigencia": "Vigente"})["estado_vigencia"],
+                         "vigente")
+        self.assertEqual(item_corpus({**base, "estado_vigencia": "SUPERADA"})["estado_vigencia"],
+                         "superada")
+        self.assertEqual(item_corpus({**base, "estado_vigencia": "rara "})["estado_vigencia"],
+                         "rara")
 
 
 class CoberturaCorpusTests(unittest.TestCase):
@@ -1258,7 +1652,10 @@ class AuditoriaTests(AuditoriaBase):
                       self.coleccion.llamadas)
 
         self.assertEqual(sorted(resultado), [
-            "alerts", "alerts_count", "cosine_threshold", "retrieved_sources", "status",
+            "alerts", "alerts_count",
+            # R4d (campos añadidos).
+            "avisos", "avisos_count",
+            "cosine_threshold", "retrieved_sources", "status",
             "summary", "total_references_found", "traceability", "verified", "vvca_summary",
         ])
         self.assertEqual(resultado["alerts"], [])
@@ -1285,7 +1682,12 @@ class AuditoriaTests(AuditoriaBase):
             "normativa_no_verificable", "normativa_refutada", "rag_sin_citas", "rojos",
             "score_rag", "score_sjf", "semaforo_rag", "semaforo_sjf", "sjf_sin_citas",
             "tesis_mismatch", "tesis_no_encontradas", "tesis_ok", "tesis_parciales",
-            "tesis_por_fuerza", "tesis_rojas", "tesis_superadas", "tesis_total", "verdes",
+            # R4d (campos añadidos).
+            "tesis_por_cotejo_rubro",
+            "tesis_por_fuerza",
+            # R4d (campo añadido).
+            "tesis_por_vigencia",
+            "tesis_rojas", "tesis_superadas", "tesis_total", "verdes",
             "veredicto",
         ])
         self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (1, 0, 0))
@@ -1709,20 +2111,32 @@ class AuditoriaTests(AuditoriaBase):
             "jurisprudencia local (no confirmado como falso). Verificar en sjf2.scjn.gob.mx "
             "antes de citar."
         ])
+        # R4d: la tesis localizada no registra vigencia → aviso informativo aparte (no cambia
+        # el semáforo ni cuenta en ``alerts_count``).
+        self.assertEqual(resultado["avisos"], [
+            "ℹ️ VIGENCIA NO CONSULTADA: Registro digital 0000001 — ni el corpus local ni el "
+            "scraper registran la vigencia del criterio; no se asume vigente. No cambia el "
+            "semáforo: verificar en sjf2.scjn.gob.mx (notas y ejecutorias) que no esté "
+            "superado, interrumpido o sustituido.",
+        ])
+        self.assertEqual((resultado["alerts_count"], resultado["avisos_count"]), (1, 1))
         resumen = resultado["vvca_summary"]
         self.assertEqual(
             (resumen["tesis_total"], resumen["tesis_ok"], resumen["tesis_no_encontradas"],
              resumen["tesis_rojas"], resumen["tesis_por_fuerza"]),
             (2, 1, 1, 1, {"[J-TCC]": 1}),
         )
+        self.assertEqual((resumen["tesis_por_cotejo_rubro"], resumen["tesis_por_vigencia"]),
+                         ({"coincide": 1}, {"no_consultada": 1}))
         self.assertEqual(resumen["veredicto"]["razon"],
                          "1/2 tesis no verificables (ausentes del corpus local — no "
                          "confirmadas como falsas)")
 
     def test_R4_D12_solo_tesis_verificadas_sin_articulos_no_es_insuficiencia(self) -> None:
         # Antes de R4c: "RAG 0.0 🔴" y 🟡 "Artículos con verificación insuficiente (RAG: 0.0)"
-        # sin artículos citados. Ronda 2: la razón ya no habla de artículos, pero el 🟢 se
-        # RETIENE (🟡 transitorio) hasta que R4d corrija el cotejo léxico del rubro (D13/D14).
+        # sin artículos citados. Ronda 2 de R4c: la razón ya no habla de artículos, pero el 🟢
+        # se RETIENE (🟡 transitorio). R4d corrigió D13/D14, pero la retención se mantiene
+        # (adjudicación del 2-oct-2026) hasta validar el cotejo con un corpus de tesis mayor.
         self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
         self.guardar_tesis([_tesis_ficticia()])
         texto = ("Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
@@ -1737,13 +2151,16 @@ class AuditoriaTests(AuditoriaBase):
                          [("registro digital: 0000001", "verified", "corpus_jurisprudencia")])
         self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
         self.assertEqual(resumen["veredicto"]["razon"],
-                         "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)")
+                         "Jurisprudencia localizada; 🟢 de solo tesis retenido (transitorio) "
+                         "hasta validar el cotejo del rubro con un corpus de tesis mayor")
         self.assertEqual(resultado["summary"],
                          "RAG sin citas · SJF 95.0 🟢 (1/1 tesis ok) · Veredicto: 🟡 "
-                         "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)")
+                         "Jurisprudencia localizada; 🟢 de solo tesis retenido (transitorio) "
+                         "hasta validar el cotejo del rubro con un corpus de tesis mayor")
         (tesis,) = resultado["retrieved_sources"]
         self.assertEqual(tesis["alcance_verificacion"], ALCANCE_JURISPRUDENCIA)
-        # Cuando R4d corrija D13/D14 (bandera en False) el escrito sería 🟢 con su razón.
+        self.assertEqual(resumen["alcance_verificacion_tesis"], ALCANCE_JURISPRUDENCIA)
+        # Cuando se libere la retención (bandera en False) el escrito sería 🟢 con su razón.
         import scoring_vvca
         with mock.patch.object(scoring_vvca, "RETENER_VERDE_SOLO_TESIS", False):
             veredicto = self.auditar(texto)["vvca_summary"]["veredicto"]
@@ -1809,17 +2226,127 @@ class AuditoriaTests(AuditoriaBase):
         self.assertEqual(resumen["veredicto"]["semaforo"], "🔴")
         self.assertEqual(resumen["disclaimer"]["nivel"], "🔴")
 
-    def test_R4_D07_tesis_en_mayusculas_no_entra_a_la_auditoria(self) -> None:
+    def test_R4_D07_tesis_en_mayusculas_entra_a_la_auditoria(self) -> None:
+        # Antes la tesis desaparecía: 0 referencias, ninguna traza y 🟡 "Sin citas detectadas".
         self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
         resultado = self.auditar("Tesis de prueba con REGISTRO DIGITAL: 0000001 (registro ficticio).")
-        self.assertEqual(resultado["total_references_found"], 0)
-        self.assertEqual(resultado["traceability"]["records"], [])
-        # El defecto D07 (R4d) no cambia: la tesis desaparece. R4c solo cambió la razón del
-        # mismo 🟡 (antes "Artículos con verificación insuficiente (RAG: 0.0)", R4-D12).
+        self.assertEqual(resultado["total_references_found"], 1)
+        self.assertEqual(self.estados(resultado), [
+            ("REGISTRO DIGITAL: 0000001", "not_verifiable", "corpus_jurisprudencia"),
+        ])
         veredicto = resultado["vvca_summary"]["veredicto"]
-        self.assertEqual(veredicto["semaforo"], "🟡")
-        self.assertEqual(veredicto["razon"],
-                         "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar")
+        self.assertEqual((veredicto["semaforo"], veredicto["razon"]),
+                         ("🟡", "1/1 tesis no verificables (ausentes del corpus local — no "
+                                "confirmadas como falsas)"))
+        # Localizada en el corpus, con su rubro literal: verificada como cualquier otra.
+        self.guardar_tesis([_tesis_ficticia()])
+        resultado = self.auditar(
+            "Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+            "COMPUTABLE, REGISTRO DIGITAL: 0000001.")
+        self.assertEqual(self.estados(resultado), [
+            ("REGISTRO DIGITAL: 0000001", "verified", "corpus_jurisprudencia"),
+        ])
+
+    # ── R4d: cotejo del rubro y vigencia en la auditoría ──────────────────────────────
+    def test_R4d_alertas_del_cotejo_muestran_el_rubro_original(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        real = "RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE"
+        self.guardar_tesis([_tesis_ficticia(estado_vigencia="vigente")])
+        casos = (
+            # (texto, estado de la traza, semáforo, inicio de la alerta)
+            ("Se invoca RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO NO ES COMPUTABLE, "
+             "registro digital: 0000001.", "refuted", "🔴",
+             "🔴 RUBRO DISCREPANTE — SENTIDO INVERTIDO: Registro digital 0000001. Diferencia "
+             "de polaridad: negaciones"),
+            ("Se invoca OTRO ENUNCIADO FICTICIO SOBRE NOTIFICACIONES SIMULADAS, registro "
+             "digital: 0000001.", "refuted", "🔴",
+             "🔴 RUBRO DISCREPANTE: Registro digital 0000001 existe en el corpus local, pero "
+             "el rubro invocado no coincide con el real (traslape 20 %, menor a 40 %)."),
+            ("La tesis de rubro: \"RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO…\", registro "
+             "digital: 0000001.", "partial", "🟡", "🟡 RUBRO PARCIAL: Registro digital 0000001"),
+            ("Se invoca RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE EN "
+             "DÍAS HÁBILES, registro digital: 0000001.", "partial", "🟡",
+             "🟡 RUBRO NO COINCIDE LITERALMENTE: Registro digital 0000001"),
+            ("Se invoca una tesis con registro digital: 0000001.", "partial", "🟡",
+             "🟡 SIN RUBRO INVOCADO: Registro digital 0000001"),
+        )
+        for texto, estado, semaforo, alerta in casos:
+            with self.subTest(texto=texto[:40]):
+                resultado = self.auditar(texto)
+                self.assertEqual(self.estados(resultado),
+                                 [("registro digital: 0000001", estado, "corpus_jurisprudencia")])
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], semaforo)
+                (aviso,) = resultado["alerts"]
+                self.assertTrue(aviso.startswith(alerta), aviso)
+                # Siempre con el rubro real original, acentos incluidos (Regla 1).
+                self.assertIn(f"Rubro real: «{real}»", aviso)
+
+    def test_R4d_sin_rubro_invocado_dice_su_alcance(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        self.guardar_tesis([_tesis_ficticia(estado_vigencia="vigente")])
+        resultado = self.auditar("Se invoca una tesis con registro digital: 0000001.")
+        (tesis,) = resultado["retrieved_sources"]
+        self.assertEqual((tesis["vvca"]["score"], tesis["vvca"]["cotejo_rubro"]),
+                         (84, "sin_rubro_invocado"))
+        self.assertIn("solo acredita la existencia del registro", tesis["vvca"]["V_verificacion"])
+        self.assertEqual(tesis["alcance_verificacion"], ON.ALCANCE_JURISPRUDENCIA_SIN_RUBRO)
+        resumen = resultado["vvca_summary"]
+        self.assertEqual(resumen["alcance_verificacion_tesis"],
+                         f"{ALCANCE_JURISPRUDENCIA}; 1 tesis sin cotejo del rubro: solo "
+                         f"existencia del registro")
+        self.assertEqual((resumen["tesis_ok"], resumen["tesis_parciales"]), (0, 1))
+        self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
+
+    def test_R4d_una_tesis_no_hereda_el_rubro_de_la_anterior(self) -> None:
+        # Antes los 400 caracteres previos podían incluir el rubro de otra tesis.
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        self.guardar_tesis([
+            _tesis_ficticia(estado_vigencia="vigente"),
+            _tesis_ficticia(registro="0000002", estado_vigencia="vigente",
+                            rubro="SEGUNDO RUBRO SINTÉTICO SOBRE NOTIFICACIONES FICTICIAS"),
+        ])
+        resultado = self.auditar(
+            "Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+            "COMPUTABLE, registro digital: 0000001, y la de registro digital: 0000002."
+        )
+        cotejos = [s["vvca"]["cotejo_rubro"] for s in resultado["retrieved_sources"]]
+        self.assertEqual(cotejos, ["coincide", "sin_rubro_invocado"])
+        self.assertEqual(resultado["vvca_summary"]["tesis_mismatch"], 0)
+
+    def test_R4d_vigencia_perdida_sigue_bloqueando_y_sin_dato_no_cambia_el_semaforo(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        texto = ("Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+                 "COMPUTABLE, registro digital: 0000001.")
+        for estado in ("superada", "interrumpida", "sustituida"):
+            with self.subTest(estado=estado):
+                self.guardar_tesis([_tesis_ficticia(estado_vigencia=estado)])
+                resumen = self.auditar(texto)["vvca_summary"]
+                self.assertEqual((resumen["tesis_superadas"], resumen["veredicto"]["semaforo"]),
+                                 (1, "🔴"))
+                self.assertEqual(resumen["tesis_por_vigencia"], {estado: 1})
+        # Sin dato o con un valor desconocido: aviso ℹ️ aparte; la tesis y el veredicto quedan
+        # igual que con la vigencia registrada como "vigente".
+        self.guardar_tesis([_tesis_ficticia(estado_vigencia="vigente")])
+        con_vigencia = self.auditar(texto)
+        self.assertEqual(con_vigencia["avisos"], [])
+        for estado, aviso in ((None, "ℹ️ VIGENCIA NO CONSULTADA"),
+                              ("rara", "ℹ️ VIGENCIA NO RECONOCIDA")):
+            with self.subTest(estado=estado):
+                self.guardar_tesis([_tesis_ficticia(estado_vigencia=estado)])
+                resultado = self.auditar(texto)
+                self.assertEqual(resultado["vvca_summary"]["veredicto"],
+                                 con_vigencia["vvca_summary"]["veredicto"])
+                self.assertEqual(resultado["retrieved_sources"][0]["vvca"]["score"], 95)
+                self.assertEqual(resultado["vvca_summary"]["tesis_superadas"], 0)
+                self.assertEqual(resultado["alerts"], [])
+                (texto_aviso,) = resultado["avisos"]
+                self.assertTrue(texto_aviso.startswith(aviso), texto_aviso)
+                if estado:
+                    self.assertIn("«rara»", texto_aviso)
+                # Telegram: el aviso informativo va agrupado y sin el signo de advertencia.
+                telegram = ON.formato_telegram(resultado)
+                self.assertIn("\n" + aviso + " (no cambia el semáforo", telegram)
+                self.assertNotIn("⚠️ ℹ️", telegram)
 
 
 class VinculoSintacticoTests(AuditoriaBase):
@@ -2508,6 +3035,219 @@ class RondaDosR4cTests(AuditoriaBase):
         self.assertNotIn("Alcance", ON.formato_telegram(self.auditar(invoca)))
 
 
+TESIS_2006224 = {
+    # Datos reales de tests/fixtures/evidencia/sjf_2006224.txt (sin vigencia registrada).
+    "registro": "2006224", "rubro": RUBRO_2006224, "tipo_tesis": "Jurisprudencia",
+    "numero_tesis": "P./J. 20/2014 (10a.)", "sala": "Pleno", "epoca": "Décima Época",
+    "materia": "Constitucional",
+}
+TESIS_2032506 = {
+    # Datos reales de tests/fixtures/evidencia/sjf_2032506.txt (sin vigencia registrada).
+    "registro": "2032506", "rubro": RUBRO_2032506, "tipo_tesis": "Aislada",
+    "numero_tesis": "VI.3o.A.55 A (12a.)", "materia": "Administrativa, Común",
+}
+
+
+class RondaDosR4dTests(AuditoriaBase):
+    """Ronda 2 de R4d (rechazo de Codex y del coordinador). Cada prueba fija el resultado del
+    cotejo, el semáforo de la tesis y el veredicto del escrito. El escrito cita además un
+    artículo verificado (🟢), para que el veredicto dependa solo de la tesis: con la tesis
+    🟢 el veredicto es 🟢 "Normativa y jurisprudencia verificadas"."""
+
+    ART16 = "Art. 16 CPEUM.\n\n"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.coleccion.agregar("Artículo 16. Texto sintético.",
+                               {"source": CPEUM, "article": "16", "page": "19"},
+                               eje=self.codificador.eje("Artículo 16 cpeum"), distancia=0.08)
+        self.guardar_tesis([
+            TESIS_2006224, TESIS_2032506,
+            _tesis_ficticia(registro="0000005",
+                            rubro="RUBRO SINTÉTICO. LA REGLA FICTICIA 1.4.14. Y LA CLAVE "
+                                  "69-B SON APLICABLES"),
+        ])
+
+    def _auditar(self, texto: str) -> tuple[dict, dict]:
+        resultado = self.auditar(self.ART16 + texto)
+        (tesis,) = [s for s in resultado["retrieved_sources"] if s["ref_type"] == "jurisprudencia"]
+        return resultado, tesis
+
+    def comprobar(self, texto: str, cotejo: str, puntaje: int, semaforo: str,
+                  veredicto: str) -> dict:
+        resultado, tesis = self._auditar(texto)
+        self.assertEqual((tesis["vvca"]["cotejo_rubro"], tesis["vvca"]["score"],
+                          tesis["vvca"]["semaforo"]), (cotejo, puntaje, semaforo))
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], veredicto)
+        return resultado
+
+    def test_control_rubro_literal_es_verde(self) -> None:
+        resultado = self.comprobar(f"La jurisprudencia de rubro: «{RUBRO_2006224}», registro "
+                                   f"digital: 2006224.", "coincide", 95, "🟢", "🟢")
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["razon"],
+                         "Normativa y jurisprudencia verificadas")
+
+    def test_p1_texto_omitido_tras_el_marcador_impide_coincidir(self) -> None:
+        # Antes: "coincide" 🟢 aunque el escrito niegue el rubro.
+        for texto in (
+            f"La jurisprudencia de rubro: no es cierto que {RUBRO_2006224}, registro digital: "
+            f"2006224.",
+            f"La jurisprudencia de rubro: no es cierto que «{RUBRO_2006224}», registro digital: "
+            f"2006224.",
+        ):
+            with self.subTest(texto=texto[:60]):
+                resultado = self.comprobar(texto, "no_literal", 84, "🟡", "🟡")
+                alerta = [a for a in resultado["alerts"] if "2006224" in a][0]
+                self.assertIn("«no es cierto que»", alerta)
+        # Las fórmulas introductorias de la lista cerrada sí se admiten.
+        for formula in ("de rubro y texto siguientes:", "cuyo rubro es:", "de rubro, que a la "
+                        "letra dice:", "intitulada", "de título y subtítulo:"):
+            with self.subTest(formula=formula):
+                self.comprobar(f"La jurisprudencia {formula} «{RUBRO_2006224}», registro "
+                               f"digital: 2006224.", "coincide", 95, "🟢", "🟢")
+
+    def test_p2_marca_de_supresion_nunca_coincide(self) -> None:
+        # Antes: "coincide" 🟢, porque la normalización borraba el "…".
+        for marca in ("…", "...", "[…]"):
+            with self.subTest(marca=marca):
+                self.comprobar(f"La jurisprudencia de rubro: «{RUBRO_2006224} {marca}», "
+                               f"registro digital: 2006224.", "parcial", 84, "🟡", "🟡")
+        # La ventana recortada también marca la supresión al inicio.
+        invocado = extraer_rubro_invocado(RUBRO_2006224, recortado=True)
+        self.assertTrue(invocado["truncado"])
+        self.assertEqual(cotejar_rubro(invocado, RUBRO_2006224)["resultado"], "parcial")
+
+    def test_p3_numeros_y_designaciones_se_conservan(self) -> None:
+        # Antes: "1.4.14." y "1/4/14." se normalizaban igual y la tesis salía "coincide".
+        cambiado = RUBRO_2032506.replace("1.4.14.", "1/4/14.")
+        self.assertNotEqual(normalizar_rubro(cambiado), normalizar_rubro(RUBRO_2032506))
+        self.assertEqual(_cotejo(f"de rubro: «{cambiado}»", RUBRO_2032506)["resultado"],
+                         "no_literal")
+        self.comprobar(f"La tesis de rubro: «{cambiado}», registro digital: 2032506.",
+                       "no_literal", 72, "🟡", "🟡")
+        real = "RUBRO SINTÉTICO. LA REGLA FICTICIA 1.4.14. Y LA CLAVE 69-B SON APLICABLES"
+        self.comprobar(f"La tesis de rubro: «{real}», registro digital: 0000005.",
+                       "coincide", 95, "🟢", "🟢")
+        for variante in (real.replace("1.4.14.", "1/4/14."), real.replace("69-B", "69 B"),
+                         real.replace("69-B", "96-B")):
+            with self.subTest(variante=variante[-40:]):
+                self.comprobar(f"La tesis de rubro: «{variante}», registro digital: 0000005.",
+                               "no_literal", 84, "🟡", "🟡")
+
+    def test_p4_otra_mencion_de_tesis_corta_el_vinculo(self) -> None:
+        # Antes: "coincide" 🟢 con el rubro de OTRA tesis.
+        resultado = self.comprobar(
+            f"La tesis A lleva por título «{RUBRO_2006224}»; se invoca otra tesis con registro "
+            f"digital 2006224.", "rubro_no_asociado", 84, "🟡", "🟡")
+        self.assertTrue(any(a.startswith("🟡 RUBRO NO ASOCIADO CON CERTEZA: Registro digital "
+                                         "2006224") for a in resultado["alerts"]))
+        # Asociación incierta: tampoco 🔴 aunque el rubro sea de otra tesis.
+        self.comprobar(f"La tesis A lleva por título «{RUBRO_2032506}»; se invoca otra tesis "
+                       f"con registro digital 2006224.", "rubro_no_asociado", 84, "🟡", "🟡")
+        # La etiqueta de la clave o del tipo no es otra tesis.
+        self.comprobar(f"La jurisprudencia de rubro: «{RUBRO_2006224}», tesis P./J. 20/2014 "
+                       f"(10a.), Tipo: Jurisprudencia, registro digital 2006224.",
+                       "coincide", 95, "🟢", "🟢")
+        # Varios rubros en el párrafo: tampoco se asocia.
+        self.comprobar(f"Las tesis de rubros «{RUBRO_2032506}» y «{RUBRO_2006224}», registro "
+                       f"digital 2006224.", "rubro_no_asociado", 84, "🟡", "🟡")
+
+    def test_p5_vigencia_registrada_en_cualquier_campo(self) -> None:
+        texto = f"La jurisprudencia de rubro: «{RUBRO_2006224}», registro digital: 2006224."
+        casos = (
+            # (campos de vigencia, estado, puntaje, semáforo de la tesis, veredicto)
+            ({"estado_vigencia": "no_consultada", "vigencia": "superada"},
+             "superada", 95, "🟢", "🔴"),
+            ({"estado_vigencia": "vigente", "vigencia": "interrumpida"},
+             "interrumpida", 95, "🟢", "🔴"),
+            ({"estado_vigencia": "vigente", "vigencia": "rara"}, "en_conflicto", 84, "🟡", "🟡"),
+        )
+        for campos, estado, puntaje, semaforo, veredicto in casos:
+            with self.subTest(campos=campos):
+                self.guardar_tesis([{**TESIS_2006224, **campos}])
+                resultado, tesis = self._auditar(texto)
+                self.assertEqual((tesis["vvca"]["estado_vigencia"], tesis["vvca"]["score"],
+                                  tesis["vvca"]["semaforo"]), (estado, puntaje, semaforo))
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], veredicto)
+                self.assertEqual(resultado["avisos"], [])
+        self.assertTrue(any(a.startswith("🟡 VIGENCIA EN CONFLICTO: Registro digital 2006224")
+                            for a in resultado["alerts"]))
+
+    def test_p6_encabezado_u_organo_nunca_es_rubro_rojo(self) -> None:
+        # Antes: el órgano se tomaba como rubro → 🔴 discrepante (falso rojo).
+        for texto in (
+            f"{RUBRO_2006224}\n\nSUPREMA CORTE DE JUSTICIA DE LA NACIÓN\nRegistro digital: "
+            f"2006224",
+            "PRIMER TRIBUNAL COLEGIADO EN MATERIA PENAL DEL TERCER CIRCUITO\nSirve de apoyo "
+            "la tesis con registro digital: 2006224.",
+            "III. JURISPRUDENCIA APLICABLE AL CASO\nSirve de apoyo la tesis con registro "
+            "digital: 2006224.",
+        ):
+            with self.subTest(texto=texto[-60:]):
+                self.comprobar(texto, "sin_rubro_invocado", 84, "🟡", "🟡")
+
+    def test_p7_telegram_muestra_todas_las_alertas_y_avisos_aparte(self) -> None:
+        self.guardar_tesis([_tesis_ficticia(registro=f"000000{n}") for n in range(1, 5)])
+        texto = (
+            "Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO NO ES "
+            "COMPUTABLE, registro digital: 0000001.\n\n"
+            "Se invoca una tesis con registro digital: 0000002.\n\n"
+            "La tesis de rubro: «RUBRO FICTICIO DE PRUEBA VVCA. …», registro digital: 0000003."
+            "\n\nSe invoca RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES COMPUTABLE, "
+            "registro digital: 0000004."
+        )
+        resultado = self.auditar(texto)
+        self.assertEqual((resultado["alerts_count"], resultado["avisos_count"]), (3, 3))
+        telegram = ON.formato_telegram(resultado)
+        self.assertIn("· 3 alertas · 3 avisos", telegram)
+        for alerta in resultado["alerts"]:
+            # Completa: con el rubro real, sin el recorte de 120 caracteres.
+            self.assertIn(f"⚠️ {alerta}", telegram)
+            self.assertIn("Rubro real: «RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+                          "COMPUTABLE»", alerta)
+        self.assertIn("ℹ️ VIGENCIA NO CONSULTADA (no cambia el semáforo; verificar en "
+                      "sjf2.scjn.gob.mx): Reg. 0000002, 0000003, 0000004", telegram)
+        # Si no caben, lo dice y remite al JSON.
+        muchas = dict(resultado, alerts=[f"🟡 ALERTA SINTÉTICA {n}: " + "x" * 200
+                                         for n in range(40)])
+        telegram = ON.formato_telegram(muchas)
+        self.assertLessEqual(len(telegram), ON.LIMITE_TELEGRAM)
+        self.assertRegex(telegram, r"… y \d+ alerta\(s\) más: el texto completo, con los "
+                                   r"rubros, está en el JSON de la auditoría")
+
+    def test_p0_el_puente_de_memoria_no_bloquea_por_vigencia_no_consultada(self) -> None:
+        # Punto 0: con el auditor real, una tesis literal sin vigencia registrada ya no queda en
+        # la memoria como "cita_bloqueada … criterio no_consultada".
+        from itosturre.memoria.puente import eventos_desde_auditoria
+
+        resultado, tesis = self._auditar(f"La jurisprudencia de rubro: «{RUBRO_2006224}», "
+                                         f"registro digital: 2006224.")
+        self.assertEqual(tesis["vvca"]["estado_vigencia"], "no_consultada")
+        tipos = [e["event_type"] for e in eventos_desde_auditoria(resultado, caso="sintetico")]
+        self.assertEqual(tipos, ["vvca_veredicto"])
+        # Un rubro invertido sí se registra, con su motivo.
+        invertido = RUBRO_2006224.replace("CONSTITUYEN EL", "NO CONSTITUYEN EL")
+        resultado, _ = self._auditar(f"La jurisprudencia de rubro: «{invertido}», registro "
+                                     f"digital: 2006224.")
+        bloqueadas = [e for e in eventos_desde_auditoria(resultado)
+                      if e["event_type"] == "cita_bloqueada"]
+        self.assertEqual(len(bloqueadas), 1)
+        self.assertIn("sentido invertido", bloqueadas[0]["summary"])
+
+    def test_p8_cobertura_incompleta_de_un_registro_no_se_calla(self) -> None:
+        resultado = self.auditar(f"La jurisprudencia de rubro: «{RUBRO_2006224}», registro "
+                                 f"digital 2006224 así como 2032506.")
+        self.assertEqual(
+            [estado for estado in self.estados(resultado) if estado[0] != "Art. 16"],
+            [("registro digital 2006224", "verified", "corpus_jurisprudencia"),
+             ("registro digital 2006224 así como 2032506", "not_verifiable",
+              "cobertura_extraccion")],
+        )
+        self.assertTrue(any(a.startswith("🟡 COBERTURA INCOMPLETA: 'registro digital 2006224 "
+                                         "así como 2032506'") for a in resultado["alerts"]))
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+
 class AuditoriaCaminoPorDefectoTests(unittest.TestCase):
     """Sin inyección, ``audit`` sigue el camino de siempre: modelo → CHROMA_PATH → colección."""
 
@@ -2648,11 +3388,13 @@ class VeredictoTests(unittest.TestCase):
 
     def test_R4_D12_sin_articulos_no_es_insuficiencia(self) -> None:
         # Con articulos_total=0 la dimensión normativa no tiene citas: no hay insuficiencia.
-        # Ronda 2: el 🟢 de "solo tesis" queda retenido (🟡) hasta R4d (D13/D14).
+        # Ronda 2 de R4c: el 🟢 de "solo tesis" queda retenido (🟡); R4d lo mantiene
+        # (adjudicación del 2-oct-2026) hasta validar el cotejo con un corpus de tesis mayor.
         veredicto = veredicto_global(None, 95.0, 0, 0, 1, articulos_total=0)
         self.assertEqual(
             (veredicto["apto"], veredicto["semaforo"], veredicto["razon"]),
-            (False, "🟡", "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)"),
+            (False, "🟡", "Jurisprudencia localizada; 🟢 de solo tesis retenido (transitorio) "
+                          "hasta validar el cotejo del rubro con un corpus de tesis mayor"),
         )
         import scoring_vvca
         with mock.patch.object(scoring_vvca, "RETENER_VERDE_SOLO_TESIS", False):

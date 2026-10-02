@@ -48,7 +48,7 @@ paso manual por caso (ver MENÚ 1 → opción 1 más abajo).
 ════════════════════════════════════════════════
 
   Tesis auditadas: N
-  ─ [🟢] cita_1 — VERIFICADA (Reg. XXXXX · rubro coincide)
+  ─ [🟢] cita_1 — VERIFICADA (Reg. XXXXX · rubro coincide literalmente)
   ─ [🔴] cita_2 — BLOQUEADA · rubro discrepante (USO PROHIBIDO)
   ─ [🟡] cita_3 — no encontrada en corpus local · verificar en SJF
 
@@ -83,6 +83,19 @@ paso manual por caso (ver MENÚ 1 → opción 1 más abajo).
 > "🟡 EVIDENCIA INCOMPLETA" y "🟡 EVIDENCIA DE OTRO ORDENAMIENTO" se reportan tal cual; una
 > cita de párrafo o fracción no se da por verificada con el solo encabezado del artículo
 > (ver `docs/PROTOCOLO_VVCA.md`).
+>
+> **Tesis (R4d):** "rubro coincide" significa igualdad **literal** normalizada (sin acentos,
+> mayúsculas ni puntuación no numérica; "1.4.14" no es "1/4/14"), sin "…" ni texto omitido
+> entre "de rubro:" y el rubro; `vvca.cotejo_rubro` dice el resultado. Las alertas "🔴 RUBRO
+> DISCREPANTE — SENTIDO INVERTIDO", "🔴 RUBRO DISCREPANTE", "🟡 RUBRO PARCIAL", "🟡 RUBRO NO
+> COINCIDE LITERALMENTE", "🟡 RUBRO NO ASOCIADO CON CERTEZA", "🟡 SIN RUBRO INVOCADO" (la tesis
+> solo acredita su registro), "🟡 RUBRO NO DISPONIBLE", "🟡 VIGENCIA EN CONFLICTO" y "🟡
+> COBERTURA INCOMPLETA" (registro no extraído con certeza) se reportan tal cual, con el rubro
+> original. Los avisos de `avisos` ("ℹ️ VIGENCIA NO CONSULTADA" / "ℹ️ VIGENCIA NO
+> RECONOCIDA") son informativos: no cambian el semáforo ni cuentan en `alerts_count`, pero se
+> le dicen al abogado (`estado_vigencia: no_consultada` nunca es "vigente"). Un escrito con
+> solo tesis sigue 🟡 transitorio aunque los rubros coincidan. Para citar parte de un rubro,
+> marcar la supresión con "…".
 
 ---
 

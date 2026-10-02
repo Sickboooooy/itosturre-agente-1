@@ -226,7 +226,8 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
 ## Veredicto honesto (R4c)
 
 Corrige R4-D08, D09, D11 y D12 sin tocar umbrales (85/60) ni la fórmula de `vvca_score`;
-R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 son de R4d.
+R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 se corrigieron en R4d
+(sección siguiente).
 
 - **Precepto derogado (D08):** `itosturre/audit/evidence.py::precepto_derogado(texto,
   artículo)` (pura) reconoce "(Se deroga)", "Se deroga." o "(Derogado)" solo como lo primero
@@ -267,9 +268,10 @@ R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 son de R4d.
     evidencia_incompleta)`: derogación de la unidad o ambigua → 60–84 (traza `partial`);
     unidad no cotejada o evidencia incompleta → tope 84 sin piso (la rama de R4-D10 no cambia).
   - `veredicto_global(..., tesis_parciales=0)`: tesis `partial` → 🟡; `tesis_ok` = solo
-    verificadas. `RETENER_VERDE_SOLO_TESIS` (transitorio hasta R4d) retiene el 🟢 de "solo
-    tesis". `OpenNotebook.formato_telegram` (función aparte) muestra el alcance de cada
-    dimensión con citas. `capturar_rag.semaforo(None)` → ⚪; `evaluate_gold_set` admite
+    verificadas. `RETENER_VERDE_SOLO_TESIS` (transitorio) retiene el 🟢 de "solo tesis"; R4d
+    lo mantiene hasta validar el cotejo con un corpus de tesis mayor.
+    `OpenNotebook.formato_telegram` (función aparte) muestra el alcance de cada dimensión con
+    citas. `capturar_rag.semaforo(None)` → ⚪; `evaluate_gold_set` admite
     `null` en `score_rag`/`score_sjf` solo con `articulos_total: 0` / `tesis_total: 0`.
 - **Alcance explícito:** `policy.ALCANCE_NORMATIVA` / `ALCANCE_JURISPRUDENCIA` en cada
   referencia (`alcance_verificacion`) y en `vvca_summary` (`alcance_verificacion`,
@@ -290,6 +292,71 @@ R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 son de R4d.
   `itosturre/memoria/puente.py` (guarda los puntajes tal cual; admite `null`),
   `scripts/run_regression.py` y `scripts/evaluate_gold_set.py` (sin cambios) y la skill
   `menu-itosturre` (MENÚ 1: `null` = sin citas).
+
+## Jurisprudencia determinista (R4d)
+
+Corrige R4-D07, D13 y D14 sin tocar umbrales (85/60 y el 40 % del traslape) ni la
+clasificación de fuerza vinculante (`[PR]`/`[SCJN-I]` siguen manuales, Regla 6). R4-D10 sigue
+pendiente de decisión del responsable.
+
+- **Registros (D07):** `OpenNotebook.REGISTRO_TESIS_RE` sin distinguir mayúsculas ("Registro
+  digital", con o sin dos puntos; "registro IUS"; "Registro", "Reg.", "registro número" o
+  "IUS" solo con contexto de tesis en el párrafo, `_es_registro_de_tesis`); número de 6 o 7
+  dígitos, nunca de 8 ni "N/AAAA"; en plural o enumeración (",", "y", "o", "y/o", "/"), una
+  referencia por número (`registro_en_enumeracion`, sin rubro asociado); un número con un
+  conector no reconocido queda como referencia `coverage_gap` (🟡 COBERTURA INCOMPLETA,
+  método `cobertura_extraccion`).
+  `ctx_invocado` (≤ `VENTANA_RUBRO` = 1 500 caracteres) no cruza el registro anterior (antes,
+  400 caracteres que podían contener el rubro de otra tesis); `ctx_recortado` si la ventana
+  cortó; `ctx_posterior` con el marcador pegado a la derecha ("registro digital N, de rubro:
+  «…»"), que prevalece y deja de contar como contexto de la tesis siguiente.
+- **Rubro invocado:** `itosturre/audit/jurisprudence.py` (pura, stdlib):
+  `extraer_rubro_invocado` (tras "rubro"/"título y subtítulo"/"epígrafe"/"lleva por
+  título"/"intitulada", el primer texto entre comillas o negritas o la primera corrida de
+  mayúsculas; sin marcador, el texto entre comillas en mayúsculas o la corrida de mayúsculas
+  más cercana al registro, sin la clave, la época, encabezados ni órganos) y
+  `extraer_rubro_posterior`. Comillas en minúsculas sin marcador no son rubro. Ronda 2:
+  `texto_omitido` (lo que media entre el marcador y el rubro si no está en
+  `FORMULAS_INTRODUCTORIAS`) impide "coincide"; `asociacion_incierta` (otra mención de tesis
+  entre el rubro y el registro; varios rubros) da `rubro_no_asociado` (🟡).
+- **Cotejo (D13, D14):** `cotejar_rubro` → `rubro_no_asociado` / `parcial` / `coincide` /
+  `discrepante` / `invertido` / `no_literal` / `sin_rubro_invocado` / `sin_rubro_fuente`
+  (`RUBRO_*`; la marca de supresión se evalúa antes de la igualdad), con `normalizar_rubro`
+  (NFKD sin acentos, casefold, sin puntuación no numérica: "1.4.14" ≠ "1/4/14", "69-b" ≠ "69
+  b"), `traslape_rubro` (la fórmula de
+  siempre con palabras cortas, salvo `PALABRAS_VACIAS`) y `diferencias_polaridad`
+  (`NEGACIONES`, `ANTONIMOS_NEGATIVOS`, `PARES_SIMETRICOS`: listas cerradas).
+  `build_vvca_tesis`: `coincide` → 95/72; `discrepante`/`invertido` → 0 (`rubro_mismatch`,
+  🔴); el resto → `min(base, 84)` (🟡, traza `partial`). Un error al construir el semáforo de
+  una tesis ya no la hace desaparecer: queda 🟡 NO VERIFICABLE.
+- **Vigencia:** `normalizar_vigencia` → `{"estado", "registrado", "conflicto", "valores"}`,
+  leyendo `estado_vigencia` y `vigencia`: una pérdida en cualquier campo prevalece; campos con
+  dato distintos sin pérdida → `en_conflicto` (🟡, alerta); sin dato `no_consultada`, valor
+  desconocido `no_reconocida`, nunca "vigente" sin fuente, como aviso ℹ️ en `avisos` (no en
+  `alerts`) sin cambiar el semáforo. `scripts/promover_tesis.py` ya no escribe "vigente" por
+  defecto y solo anuncia como vigencia perdida superada/interrumpida/sustituida.
+- **Veredicto:** `scoring_vvca.RETENER_VERDE_SOLO_TESIS = True` (se mantiene por adjudicación
+  del 2-oct-2026 hasta validar el cotejo con un corpus de tesis mayor).
+- **Telegram:** `formato_telegram` muestra todas las alertas completas que quepan en
+  `LIMITE_TELEGRAM` ("… y N alerta(s) más" remite al JSON) y agrupa los avisos por tipo.
+- **Contrato JSON:** campos añadidos (`avisos` y `avisos_count` en el resultado;
+  `vvca.cotejo_rubro`; en la explicabilidad, `cotejo_rubro`, `motivo_cotejo`,
+  `rubro_invocado_metodo`, `rubro_truncado`, `polaridad`, `texto_omitido`,
+  `asociacion_incierta`, `vigencia_registrada`, `vigencia_campos`, `vigencia_en_conflicto`;
+  `vvca_summary.tesis_por_cotejo_rubro` y `tesis_por_vigencia`; en la referencia extraída,
+  opcionales, `ctx_recortado`, `registro_en_enumeracion`, `ctx_posterior` y `coverage_gap`).
+  Cambios de valor: `estado_vigencia` puede ser `no_consultada`, `no_reconocida` o
+  `en_conflicto`; `explicabilidad.rubro_invocado` es el rubro extraído (antes 160 caracteres
+  del contexto) y `rubro_real` va completo; `ALCANCE_JURISPRUDENCIA` dice "coincidencia literal
+  (normalizada)" y `alcance_verificacion_tesis` cuenta las tesis sin cotejo del rubro
+  (`ALCANCE_JURISPRUDENCIA_SIN_RUBRO` por tesis); `alerts` lleva las alertas del cotejo y
+  `alerts_count` conserva su significado (los avisos van aparte). Consumidores revisados:
+  `vvca_full.py` y `capturar_rag.py` (no leen campos de tesis; las referencias de cobertura
+  de tesis entran en `cobertura_pendiente`), `run_regression.py` y `evaluate_gold_set.py`
+  (sin cambios; `estado_vigencia` sigue presente), `formato_telegram`, skill `menu-itosturre`
+  (MENÚ 1, actualizada) e `itosturre/memoria/puente.py` (corregido en la ronda 2: solo bloquea
+  por vigencia superada/interrumpida/sustituida y registra el motivo y la polaridad del
+  cotejo).
 
 ## Fuentes canónicas
 
@@ -335,7 +402,7 @@ la lógica del núcleo con dobles, pero no la recuperación real.
   dobles; las correcciones del núcleo (R4b–R4d) cambian las pruebas de caracterización a
   sabiendas. R4b movió la extracción y la resolución de ley a `itosturre/audit/referencias.py`;
   R4c, la detección de derogación (`evidence.py`) y el semáforo por dimensión y el alcance
-  (`policy.py`).
+  (`policy.py`); R4d, el cotejo del rubro y la vigencia de las tesis (`jurisprudence.py`).
 - `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
   permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.

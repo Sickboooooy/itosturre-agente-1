@@ -21,6 +21,10 @@ from typing import Any, Mapping, Sequence
 
 from .store import MemoriaStore
 
+# Vigencia perdida: lo único que bloquea por vigencia (R4d). "no_consultada", "no_reconocida"
+# y "en_conflicto" no son un bloqueo: son avisos o un 🟡 que el veredicto ya refleja.
+_VIGENCIA_PERDIDA = frozenset({"superada", "interrumpida", "sustituida"})
+
 
 def eventos_desde_auditoria(
     audit: Mapping[str, Any],
@@ -84,12 +88,19 @@ def eventos_desde_auditoria(
             continue
         vvca = dict(fuente.get("vvca") or {})
         mismatch = bool(vvca.get("rubro_mismatch"))
-        superada = str(vvca.get("estado_vigencia", "vigente")).lower() != "vigente"
+        # R4d: solo una pérdida registrada bloquea (antes, todo lo que no fuera "vigente", así
+        # que "no_consultada" se habría registrado como cita bloqueada).
+        superada = str(vvca.get("estado_vigencia", "vigente")).lower() in _VIGENCIA_PERDIDA
         if not (mismatch or superada):
             continue
         explicabilidad = dict(vvca.get("explicabilidad") or {})
         registro = explicabilidad.get("registro") or fuente.get("reference") or "?"
-        motivo = "rubro discrepante" if mismatch else f"criterio {vvca.get('estado_vigencia')}"
+        if mismatch:
+            # R4d: el cotejo distingue el rubro con el sentido invertido.
+            motivo = ("rubro discrepante (sentido invertido)"
+                      if vvca.get("cotejo_rubro") == "invertido" else "rubro discrepante")
+        else:
+            motivo = f"criterio {vvca.get('estado_vigencia')}"
         eventos.append({
             "event_type": "cita_bloqueada",
             "summary": f"Tesis Reg. {registro} bloqueada por {motivo} en {etiqueta}",
@@ -98,6 +109,10 @@ def eventos_desde_auditoria(
                 "rubro_real": explicabilidad.get("rubro_real"),
                 "rubro_invocado": explicabilidad.get("rubro_invocado"),
                 "overlap_rubro": explicabilidad.get("overlap_rubro"),
+                # R4d (campos añadidos): resultado y motivo del cotejo del rubro.
+                "cotejo_rubro": vvca.get("cotejo_rubro"),
+                "motivo_cotejo": explicabilidad.get("motivo_cotejo"),
+                "polaridad": explicabilidad.get("polaridad"),
                 "estado_vigencia": vvca.get("estado_vigencia"),
                 "fuerza_vinculante": vvca.get("fuerza_vinculante"),
             },
