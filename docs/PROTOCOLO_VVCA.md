@@ -13,6 +13,15 @@ Anti-Alucinación del prompt Itosturre. Es la referencia de implementación, no 
 
 No existe un "score global" compuesto. El **veredicto** es una decisión binaria con razón.
 
+**Dimensión sin citas (R4c, R4-D12).** Si el escrito no cita artículos (o tesis), esa dimensión
+dice "sin citas": `score_rag`/`score_sjf` valen `null`, `semaforo_rag`/`semaforo_sjf` son ⚪
+(neutro) y `rag_sin_citas`/`sjf_sin_citas` valen `true`. Si hay citas pero ninguna con
+evidencia evaluable (todas no verificables), el puntaje también es `null` y el semáforo es 🟡
+(🔴 solo si alguna quedó refutada). Antes ambas situaciones salían "0.0 🔴" ("SJF 0.0 🔴 (0/0
+tesis ok)"). Con puntaje, el semáforo de la dimensión sigue siendo el de su promedio, pero el
+`summary` dice junto al subpuntaje cuántas citas quedaron no verificables o refutadas ("RAG
+92.0 🟢 (2 arts; 1 no verificable)"): un 🟢 del promedio nunca las oculta.
+
 ## 2. Semáforo por referencia
 
 `vvca_score()` parte de la distancia coseno y ajusta por coincidencia de fuente:
@@ -23,9 +32,15 @@ base −= 15  si la fuente recuperada no es la esperada
 base −= 10  si la cita no traía ley identificable
 ```
 
+La fórmula no cambió en R4c. Lo que cambió es que la penalización −15 ya es alcanzable: antes
+`audit()` borraba la fuente esperada cuando el filtro por fuente fallaba y la comparación era
+verdadera por construcción (R4-D09). Sobre el puntaje base se aplican límites que fijan 🟡 en
+ambos sentidos (60–84): ley por confirmar (R4b), evidencia de otro ordenamiento y precepto
+derogado (R4c).
+
 | Semáforo | Score | Lectura |
 |---|---|---|
-| 🟢 | ≥ 85 | Citar con seguridad |
+| 🟢 | ≥ 85 | Existencia y ubicación verificadas en el corpus local (cotejar contenido; ver "Alcance del 🟢") |
 | 🟡 | 60–84 | Citar con reserva — verificar |
 | 🔴 | < 60 | No citar — investigar |
 
@@ -48,10 +63,36 @@ Reglas en orden de precedencia:
    refutada. El promedio no puede ocultarla.
 4. `tesis_no_encontradas > 0` → **🟡** — ausentes del corpus local; *no confirmadas como falsas*
    (el corpus puede estar incompleto).
-5. `normativa_no_verificable > 0` → **🟡** — al menos una cita normativa tiene evidencia
+5. `tesis_parciales > 0` → **🟡** "N/T tesis con verificación parcial" (R4c, ronda 2): una tesis
+   localizada con puntaje menor a 85 (p. ej. aislada, 72) deja traza `partial` y cuenta en el
+   veredicto como una cita normativa parcial. `tesis_ok` cuenta solo las verificadas (antes
+   contaba las parciales y un escrito con solo una tesis aislada salía 🟢).
+6. `normativa_no_verificable > 0` → **🟡** — al menos una cita normativa tiene evidencia
    parcial o insuficiente.
-6. `score_rag < 70` → **🟡** — artículos con verificación insuficiente.
-7. en otro caso → **🟢**.
+7. `score_rag < 70` (o sin puntaje) → **🟡** — artículos con verificación insuficiente. No
+   aplica si no se citó ningún artículo (`articulos_total == 0`, R4c): una dimensión sin citas
+   no es una dimensión insuficiente.
+8. sin artículos ni tesis → **🟡** "Sin citas detectadas: no hay normativa ni jurisprudencia
+   que verificar" (R4c). Un 🟢 sería vacío; la extracción automática puede omitir un formato.
+9. solo tesis, sin artículos → **🟡** "Jurisprudencia localizada; cotejo de sentido del rubro
+   pendiente (R4d)". **Transitorio** (ver abajo).
+10. en otro caso → **🟢**, con una razón que enuncia solo lo verificado (R4c, R4-D11):
+   "Normativa y jurisprudencia verificadas" o "Normativa verificada; sin tesis citadas".
+
+`veredicto_global` recibe `articulos_total` y `tesis_parciales` (nuevos, opcionales). El flujo
+real (`audit()`) los pasa siempre; sin `articulos_total` —llamadas anteriores a R4c, como el
+Gold Set v1— no se distingue "sin artículos" de "artículos con 0 puntos" y la regla 7 se aplica
+como antes.
+
+**Retención transitoria del 🟢 de "solo tesis" (R4c, ronda 2; condicionada por R4-D14).** Un
+escrito que solo cita tesis, todas localizadas con rubro coincidente, ya no sale "Artículos con
+verificación insuficiente (RAG: 0.0)", pero tampoco 🟢: su único sustento sería el cotejo del
+rubro, que hoy es léxico y deja pasar un rubro con el sentido invertido (R4-D13, R4-D14). Queda
+🟡 "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)" mientras
+`scoring_vvca.RETENER_VERDE_SOLO_TESIS` sea `True`. R4d la pondrá en `False` al corregir D13/D14
+(lo registra `DEFECTOS_CONOCIDOS["R4-D14"]["condiciona"]`); entonces la razón será
+"Jurisprudencia verificada; sin artículos citados". Con esta retención R4c no produce ningún 🟢
+nuevo.
 
 La distinción entre una cita refutada y una no verificable es crítica: "rubro discrepante"
 o "fuente incorrecta" (peligroso) ≠ "no encontrada"
@@ -59,6 +100,22 @@ o "fuente incorrecta" (peligroso) ≠ "no encontrada"
 
 El `score_rag` es descriptivo. El veredicto global sigue la peor traza: una sola cita roja
 bloquea y una sola cita amarilla impide declarar el documento apto, aunque el promedio sea alto.
+
+### Alcance del 🟢 (R4c)
+
+Un 🟢 acredita **existencia y ubicación del precepto en el corpus local** (en tesis: el registro
+existe en el corpus local de jurisprudencia y el rubro invocado coincide léxicamente). **No**
+significa que el precepto diga lo que el escrito afirma ni que sea pertinente al caso (Capa 2).
+El resultado lo dice en tres lugares: `alcance_verificacion` en cada referencia de
+`retrieved_sources` y en `vvca_summary` (más `alcance_verificacion_tesis`), y el texto del
+`disclaimer` 🟢 que se muestra al abogado ("Alcance del 🟢: existencia y ubicación del precepto
+en el corpus local (en tesis, registro y rubro); no significa que lo citado diga lo que el
+escrito afirma"). Cuando el veredicto es 🟢, la salida `--format telegram` añade "Alcance
+(normas): …" si hay artículos y "Alcance (tesis): …" si hay tesis (ambas si hay ambos).
+
+Si la cita designa una **unidad** del precepto (fracción, inciso, párrafo…), el 🟢 exige además
+haber cotejado esa unidad en el texto (ver §4, "Unidad citada"): el encabezado del artículo no
+basta.
 
 ## 4. Guards de resolución de artículos (anti-falso-veredicto)
 
@@ -185,9 +242,89 @@ Comportamiento al auditar (`audit()`):
   muestra la página con la advertencia visible "LEY POR CONFIRMAR — <motivo>. La página
   acredita la ubicación del precepto en el candidato, no que el escrito cite ese
   ordenamiento" (campos `ley_por_confirmar` y `motivo_ley` del ítem).
+- **Precepto derogado** (R4c, R4-D08) → `🟡 PRECEPTO DEROGADO` (traza `partial`), nunca 🟢.
+  Se detecta **solo** en la primera línea con contenido que sigue al encabezado exacto del
+  precepto citado, en la evidencia de la ley citada (se salta el ruido de página: cabeceras de
+  la Cámara, "127 de 380", la denominación en mayúsculas). Ronda 2: cualquier fórmula
+  **inequívoca**, con o sin paréntesis, punto dentro o fuera, en cualquier caja y número:
+  "(Se deroga).", "(Se deroga.)", "Se deroga", "Se derogan.", "DEROGADO.", "Derogado",
+  "(Derogada)", "(DEROGADO, P.O. 5 DE SEPTIEMBRE DE 2009)", seguida o no de la nota "Artículo
+  derogado DOF …". Una fórmula de derogación junto al encabezado que **no** es inequívoca
+  ("(Se deroga primer párrafo).", "Se derogan los artículos …") ya no se ignora:
+  `🟡 POSIBLE DEROGACIÓN` (traza `partial`, puntaje 60–84; `derogacion_ambigua`). No cuentan
+  una fracción derogada dentro del cuerpo (salvo que se cite esa fracción, ver "Unidad
+  citada"), ni "Quedan derogadas las disposiciones…" ni el "(Se deroga)" de otro artículo del
+  mismo fragmento. La alerta explica que el texto vigente no contiene
+  norma y pide verificar si el escrito cita una versión anterior del precepto o un régimen
+  transitorio aplicable. El puntaje se limita a 60–84 y sustituye las alertas de distancia
+  (COTEJAR / ALERTA ALTA): el precepto sí se ubicó. `retrieved_sources` lleva
+  `precepto_derogado`, y el pop-up de `vvca_full.py` muestra la página con la advertencia
+  "PRECEPTO DEROGADO" (la página acredita la derogación, no el contenido que el escrito le
+  atribuye), junto a la de "LEY POR CONFIRMAR" si también aplica.
+  **Criterio por defecto, no decisión del responsable:** 🟡. El responsable puede endurecerlo
+  (p. ej. 🔴 cuando el escrito no invoca un régimen transitorio); hoy un precepto derogado no
+  bloquea por sí solo.
+- **Unidad citada** (R4c, ronda 2) → si la cita designa fracción, inciso, párrafo, apartado,
+  base o "in fine" ("artículo 31, fracción I, del CCF"; "artículo 16, primer párrafo";
+  "artículo 1o., párrafo tercero"; "artículo 107, fracción V, inciso a)"), también antes del
+  artículo ("párrafo tercero del artículo 1o."; "fracción II del artículo 31"; "inciso a) de
+  la fracción III del artículo 107"; "último párrafo del artículo 16"), y con ordinales en
+  palabra (primero…décimo primero, último, penúltimo) o número ("párrafo 2°", "2o.
+  párrafo"), la extracción la guarda en `unidad_citada` y la
+  auditoría la coteja en el cuerpo del precepto. Solo fracciones (romano al inicio de línea:
+  "I.", "II.-") e incisos ("a)") se ubican en el texto, y solo si su marca aparece **una** vez
+  (una fracción I repetida en dos apartados no es inequívoca). Resultado:
+  - unidad derogada → `🟡 PRECEPTO DEROGADO` de **la unidad** ("la fracción I del artículo 31
+    dice que se deroga (el resto del artículo no se declara derogado)"); `unidad_derogada`,
+    `precepto_derogado` sigue `false`; puntaje 60–84, traza `partial`;
+  - unidad no ubicada con certeza (fracción ausente o repetida; párrafo, apartado, base, "in
+    fine", que no se pueden ubicar en el texto del PDF) → `🟡 UNIDAD CITADA NO COTEJADA` con
+    el motivo (`unidad_no_cotejada`); tope 84 (nunca 🟢), sin piso;
+  - unidad ubicada y vigente → el semáforo de siempre (`unidad_cotejada: true`).
+  Una cita del artículo completo se coteja como antes. Consecuencia: toda cita de párrafo queda
+  🟡 hasta que el cotejo de párrafos sea fiable (p. ej. "artículo 19, párrafo 2°"). Una unidad
+  que precede al artículo solo se le asocia si la cadena termina pegada a la cabeza con
+  "del"/"de la"/"de los": "el segundo párrafo de la sentencia … el artículo 16" o "la fracción
+  II de la Ley de Amparo" no son unidades del artículo.
+- **Evidencia incompleta** (R4c, ronda 2) → un fragmento con el encabezado exacto pero sin
+  cuerpo suficiente ("…\nArtículo 64.-" al final del fragmento, o "Artículo 64.- Las") no
+  autoriza 🟢. Se busca la continuación entre los candidatos del **mismo** precepto (misma
+  fuente, misma etiqueta de artículo, `chunk_index` consecutivo, como la ingesta guarda los
+  subfragmentos) y se coteja el cuerpo reunido (derogación y unidad incluidas;
+  `fragmentos_continuacion` en la explicabilidad). Si no se localiza: `🟡 EVIDENCIA
+  INCOMPLETA` (`evidencia_incompleta`), tope 84, sin piso.
+  Ninguno de estos topes toca la rama de distancia alta sin metadata (R4-D10): su severidad no
+  cambia.
+- **Evidencia de otro ordenamiento** (R4c, R4-D09) → `🟡 EVIDENCIA DE OTRO ORDENAMIENTO`
+  (traza `not_verifiable`): la fuente esperada nunca se borra. Si ChromaDB rechaza el filtro
+  por fuente, la consulta sin filtro prefiere los fragmentos de la ley citada; si ninguno lo
+  es, la evidencia es de otro ordenamiento y no acredita ni refuta la cita (puntaje con −15 y
+  límite 60–84; nunca 🟢 ni 🔴). "Fuente correcta" solo aparece cuando la fuente coincide de
+  verdad; si no, "Fuente distinta: se encontró en '…', se esperaba '…'". La derogación de un
+  fragmento de otro ordenamiento no se atribuye a la cita. El pop-up "FUENTE NO COINCIDE" usa
+  el semáforo de la cita (ya no un 🔴 fijo).
 - **Tesis citada no encontrada** en el corpus local → `🟡 NO VERIFICABLE` (no confirmada
   falsa); cuenta en `amarillos`, no en `rojos`, coherente con el veredicto.
 - **No encontrado con la fuente esperada** → 🔴 alerta crítica (posible alucinación).
+  Pendiente de decisión del responsable (R4-D10, toca la Regla 4 de `CLAUDE.md`): R4c no
+  cambió su severidad.
+
+### Qué cambia para el abogado (R4c)
+
+| Antes | Después |
+|---|---|
+| "Artículo 64.- (Se deroga)." salía 🟢 verificado | 🟡 PRECEPTO DEROGADO con la página y el aviso de versión anterior / régimen transitorio (también "DEROGADO.", "Derogado", "(Se deroga.)", "Se derogan.") |
+| "(Se deroga primer párrafo)." junto al encabezado se ignoraba | 🟡 POSIBLE DEROGACIÓN |
+| "artículo 31, fracción I, del CCF" salía 🟢 aunque la fracción I dice "(Se deroga)" | 🟡 PRECEPTO DEROGADO de la fracción I (el artículo no se declara derogado) |
+| Una cita de fracción, inciso o párrafo se acreditaba con el encabezado del artículo | La unidad se coteja; si no se ubica con certeza, 🟡 UNIDAD CITADA NO COTEJADA |
+| Un encabezado sin cuerpo podía salir 🟢 | Se reúne la continuación del mismo precepto o 🟡 EVIDENCIA INCOMPLETA |
+| Una tesis aislada (72) contaba como "ok": solo tesis aislada → 🟢 | 🟡 "N/T tesis con verificación parcial" |
+| Si el filtro por fuente fallaba, el artículo de otra ley salía 🟢 "Fuente correcta" | 🟡 EVIDENCIA DE OTRO ORDENAMIENTO ("Fuente distinta") o la evidencia de la ley citada |
+| 🟢 "Normativa y jurisprudencia verificadas" sin tesis citadas | 🟢 "Normativa verificada; sin tesis citadas" |
+| "SJF 0.0 🔴 (0/0 tesis ok)"; "RAG 0.0 🔴" con todas las normas no verificables | "SJF sin citas"; "RAG — 🟡 (N arts; N no verificables)" |
+| Solo tesis verificadas: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)" (transitorio) |
+| Sin ninguna cita: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar" |
+| El 🟢 no decía qué acreditaba | "Alcance del 🟢: existencia y ubicación del precepto en el corpus local; no significa que lo citado diga lo que el escrito afirma" |
 
 > El guard 🟡 NO VERIFICABLE para una ley ausente solo se ejerce con `--force`; sin `--force`
 > la auditoría se **detiene** antes con `status: corpus_incomplete` (ver §5).

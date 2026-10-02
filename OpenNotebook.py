@@ -2,6 +2,20 @@
 OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
+Cambios R4c (veredicto honesto):
+  ✅ Precepto derogado ("Artículo 64.- (Se deroga).") → 🟡 PRECEPTO DEROGADO, nunca 🟢
+     (criterio por defecto; el responsable puede endurecerlo).
+  ✅ La fuente esperada nunca se borra: evidencia de otro ordenamiento → 🟡, nunca 🟢 con
+     "Fuente correcta" (antes, si el filtro por fuente fallaba, source_match era True).
+  ✅ El 🟢 enuncia solo lo verificado ("Normativa verificada; sin tesis citadas") y una
+     dimensión sin citas no se califica como fallida (score None, semáforo neutro ⚪).
+  ✅ Alcance explícito (``alcance_verificacion``): existencia y ubicación del precepto en el
+     corpus local; 🟢 no significa que el precepto diga lo que el escrito afirma.
+  ✅ Ronda 2: la unidad citada (fracción, inciso, párrafo…) se coteja en el texto; variantes
+     inequívocas de la derogación y fórmula ambigua → 🟡; encabezado sin cuerpo → continuación
+     del mismo precepto o 🟡 EVIDENCIA INCOMPLETA; tesis parciales cuentan en el veredicto;
+     el 🟢 de "solo tesis" queda retenido (🟡) hasta R4d.
+
 Cambios R4b (extracción de referencias y resolución de ley; itosturre/audit/referencias.py):
   ✅ Designación con sufijo ("247 Ter", "4o.-A", "32-B Quáter") y una referencia por
      artículo en enumeraciones y rangos ("arts. 14, 16 y 19", "467 a 471").
@@ -60,7 +74,13 @@ from types import SimpleNamespace
 from typing import Callable, Optional, Tuple, Dict, List
 
 from itosturre.audit.context import vvca_contextualizacion
-from itosturre.audit.evidence import select_article_evidence
+from itosturre.audit.evidence import (
+    DEROGACION_AMBIGUA,
+    DEROGADO,
+    cotejar_precepto,
+    describir_unidad,
+    select_article_evidence,
+)
 from itosturre.audit.referencias import (
     ARTICULO_RE,
     MOTIVO_CONFIRMAR,
@@ -79,7 +99,14 @@ from itosturre.audit.jurisprudence import (
     classify_fuerza_vinculante,
     rubro_keywords as _rubro_keywords,
 )
-from itosturre.audit.policy import disclaimer_graduado, vvca_score, vvca_semaforo
+from itosturre.audit.policy import (
+    ALCANCE_JURISPRUDENCIA,
+    ALCANCE_NORMATIVA,
+    disclaimer_graduado,
+    semaforo_dimension,
+    vvca_score,
+    vvca_semaforo,
+)
 from itosturre.audit.traceability import build_trace_record, traceability_bundle
 from scoring_vvca import veredicto_global
 
@@ -956,6 +983,37 @@ def _article_candidates(article: str) -> List[str]:
     return list(cands)
 
 
+def _unidades_de(ref: Dict) -> List[Dict]:
+    """Unidad citada de una referencia (R4c, ronda 2): ``unidad_citada`` de la extracción o,
+    en una referencia construida a mano, su ``fraction``. [] = el artículo completo."""
+    if ref.get("unidad_citada") is not None:
+        return [dict(u) for u in ref["unidad_citada"]]
+    fraccion = (ref.get("fraction") or "").strip().rstrip(".,;")
+    return [{"tipo": "fraccion", "valor": fraccion}] if fraccion else []
+
+
+def _preferir_fuente(results: Optional[Dict], fuente: Optional[str]) -> Optional[Dict]:
+    """R4c (R4-D09): resultados de una consulta SIN filtro reducidos a los de la fuente
+    esperada, si alguno lo es; si ninguno, los resultados tal cual (la evidencia será de
+    otro ordenamiento y ``audit`` la reporta así). Conserva la forma de ChromaDB."""
+    if not results or not fuente:
+        return results
+    documentos = (results.get("documents") or [[]])[0] or []
+    metadatas = (results.get("metadatas") or [[]])[0] or []
+    distancias = (results.get("distances") or [[]])[0] or []
+    indices = [
+        i for i, meta in enumerate(metadatas)
+        if i < len(documentos) and (meta or {}).get("source") == fuente
+    ]
+    if not indices:
+        return results
+    return {
+        "documents": [[documentos[i] for i in indices]],
+        "metadatas": [[metadatas[i] for i in indices]],
+        "distances": [[distancias[i] for i in indices if i < len(distancias)]],
+    }
+
+
 def build_vvca(
     ref: Dict,
     distance: float,
@@ -964,7 +1022,23 @@ def build_vvca(
     page: str,
     metadata_verificado: bool = False,
     article_heading_verified: Optional[bool] = None,
+    derogado: bool = False,
+    *,
+    unidad_derogada: Optional[str] = None,
+    derogacion_ambigua: bool = False,
+    unidad_no_cotejada: Optional[str] = None,
+    evidencia_incompleta: bool = False,
 ) -> Dict:
+    """Score, semáforo y explicación VVCA de una cita normativa con evidencia.
+
+    R4c: ``derogado`` (precepto completo) y ``unidad_derogada`` (fracción o inciso citados,
+    p. ej. "fracción I") y ``derogacion_ambigua`` limitan a 60–84: la unidad se ubicó y su
+    texto vigente no la sostiene. ``unidad_no_cotejada`` (motivo) y ``evidencia_incompleta``
+    solo impiden el 🟢 (tope 84): no tocan el piso, así que la rama de distancia alta (R4-D10,
+    pendiente del responsable) conserva su severidad.
+    """
+    # Desde R4c ``source_match`` compara de verdad la fuente recuperada con la esperada
+    # (R4-D09): la penalización −15 de ``vvca_score`` deja de ser inalcanzable.
     score = vvca_score(distance, source_match, has_source_file=bool(ref.get("source_file")))
     # Anti-falso-🟢: sin ley identificada en el contexto el match es solo por número de
     # artículo; no dar verde aunque la distancia sea baja — capar a 🟡 (84).
@@ -984,13 +1058,52 @@ def build_vvca(
     por_confirmar = bool(ref.get("law_requires_confirmation"))
     if por_confirmar:
         score = max(60, min(score, 84))
+    # R4c (R4-D09): evidencia de OTRO ordenamiento. No acredita la cita (nunca 🟢) ni la
+    # refuta (nunca 🔴): el precepto no se cotejó en la ley citada. 🟡 en ambos sentidos.
+    if not source_match:
+        score = max(60, min(score, 84))
+    # R4c (R4-D08): precepto (o unidad citada) derogado, o fórmula de derogación ambigua
+    # junto al encabezado. Se localizó, pero el texto vigente no lo sostiene: nunca 🟢. 🟡
+    # es el criterio por defecto (el responsable puede endurecerlo a 🔴).
+    if derogado or unidad_derogada or derogacion_ambigua:
+        score = max(60, min(score, 84))
+    # R4c (ronda 2): la unidad citada no se cotejó, o el cuerpo del precepto quedó incompleto:
+    # el encabezado del artículo no basta para un 🟢.
+    if unidad_no_cotejada or evidencia_incompleta:
+        score = min(score, 84)
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
     art = ref.get("article", "?")
     frac = ref.get("fraction", "")
     art_label = f"Art. {art}" + (f" fr. {frac}" if frac else "")
 
-    if metadata_verificado:
+    if not source_match:
+        v_verificacion = (
+            f"Evidencia de otro ordenamiento: no acredita la cita en la ley citada "
+            f"(dist={distance:.3f})"
+        )
+    elif derogado:
+        v_verificacion = (
+            f"Precepto derogado: tras el encabezado exacto, el texto vigente del corpus solo "
+            f"indica que se deroga (dist={distance:.3f})"
+        )
+    elif unidad_derogada:
+        v_verificacion = (
+            f"Unidad citada derogada ({unidad_derogada}): el texto vigente del corpus solo "
+            f"indica que se deroga; el resto del artículo no se declara derogado "
+            f"(dist={distance:.3f})"
+        )
+    elif derogacion_ambigua:
+        v_verificacion = (
+            f"Fórmula de derogación ambigua junto al encabezado: verificar qué parte está "
+            f"derogada (dist={distance:.3f})"
+        )
+    elif evidencia_incompleta:
+        v_verificacion = (
+            f"Evidencia incompleta: el fragmento trae el encabezado exacto, pero no cuerpo "
+            f"suficiente para cotejar el precepto (dist={distance:.3f})"
+        )
+    elif metadata_verificado:
         v_verificacion = (
             f"Artículo confirmado por metadata y encabezado exacto en corpus oficial "
             f"(dist={distance:.3f})"
@@ -1014,6 +1127,8 @@ def build_vvca(
     )
     if por_confirmar:
         v_verificacion = f"Ley inferida de otro párrafo (confirmar el ordenamiento); {v_verificacion}"
+    if unidad_no_cotejada:
+        v_verificacion = f"{v_verificacion}; unidad citada no cotejada: {unidad_no_cotejada}"
     c_contextualizacion = vvca_contextualizacion(source_file)
     a_auditabilidad = f"{art_label} · {law} · pág. {page} · corpus: {source_file}"
 
@@ -1031,6 +1146,16 @@ def build_vvca(
     }
     if por_confirmar:
         explicabilidad["ley_por_confirmar"] = True
+    if derogado:
+        explicabilidad["precepto_derogado"] = True
+    if unidad_derogada:
+        explicabilidad["unidad_derogada"] = unidad_derogada
+    if derogacion_ambigua:
+        explicabilidad["derogacion_ambigua"] = True
+    if unidad_no_cotejada:
+        explicabilidad["unidad_no_cotejada"] = unidad_no_cotejada
+    if evidencia_incompleta:
+        explicabilidad["evidencia_incompleta"] = True
     return {
         "score": score,
         "semaforo": semaforo,
@@ -1133,6 +1258,45 @@ def check_corpus_coverage(refs: List[Dict], collection) -> List[str]:
         except Exception:
             missing.append(source_file)
     return sorted(missing)
+
+
+def _puntaje(score: Optional[float]) -> str:
+    """Subpuntaje para mostrar: "—" cuando la dimensión no tiene evidencia evaluable."""
+    return "—" if score is None else f"{score}"
+
+
+def _plural(n: int, singular: str, plural: str) -> str:
+    return f"{n} {singular if n == 1 else plural}"
+
+
+def _resumen_rag(score: Optional[float], semaforo: str, total: int,
+                 no_verificables: int, refutadas: int) -> str:
+    """Parte normativa del ``summary`` (R4c, R4-D12): "sin citas" si no hay artículos; si
+    los hay, el subpuntaje va acompañado de cuántas citas quedaron sin verificar o
+    refutadas, para que un 🟢 del promedio nunca las oculte."""
+    if total == 0:
+        return "RAG sin citas"
+    detalle = [f"{total} arts"]
+    if no_verificables:
+        detalle.append(_plural(no_verificables, "no verificable", "no verificables"))
+    if refutadas:
+        detalle.append(_plural(refutadas, "refutada", "refutadas"))
+    return f"RAG {_puntaje(score)} {semaforo} ({'; '.join(detalle)})"
+
+
+def _resumen_sjf(score: Optional[float], semaforo: str, total: int, ok: int,
+                 discrepantes: int, no_encontradas: int, parciales: int = 0) -> str:
+    """Parte de jurisprudencia del ``summary`` (R4c, R4-D12): "sin citas" si no se invocó
+    ninguna tesis (antes "SJF 0.0 🔴 (0/0 tesis ok)"). "ok" cuenta solo las verificadas
+    (ronda 2); las parciales se dicen aparte."""
+    if total == 0:
+        return "SJF sin citas"
+    return (
+        f"SJF {_puntaje(score)} {semaforo} ({ok}/{total} tesis ok)"
+        + (f" — {discrepantes} rubro discrepante" if discrepantes else "")
+        + (f", {no_encontradas} no encontradas" if no_encontradas else "")
+        + (f", {_plural(parciales, 'parcial', 'parciales')}" if parciales else "")
+    )
 
 
 def _motivo_ley_no_identificada(ref: Dict) -> str:
@@ -1433,6 +1597,7 @@ def audit(
                     except Exception:
                         results = None  # sintaxis where no soportada → fallback semántico
 
+            filtro_fuente_fallido = False
             if results is None:
                 try:
                     # Encoding asimétrico (retrieval.query); filtro por fuente si se conoce.
@@ -1442,12 +1607,20 @@ def audit(
                         where=where_filter,
                     )
                 except Exception:
-                    # where_filter puede fallar si la fuente no existe en el corpus
-                    results = collection.query(
-                        query_embeddings=[codificar(query)],
-                        n_results=3,
+                    # where_filter puede fallar (ChromaDB rechaza el filtro): consulta sin
+                    # filtro. R4c (R4-D09): la fuente esperada YA NO se borra (antes
+                    # ``expected_source = None`` hacía source_match True por construcción y la
+                    # evidencia de otro ordenamiento salía 🟢 "Fuente correcta"). Se prefiere
+                    # la evidencia de la ley citada y, si no la hay, se reporta como de otro
+                    # ordenamiento.
+                    results = _preferir_fuente(
+                        collection.query(
+                            query_embeddings=[codificar(query)],
+                            n_results=3,
+                        ),
+                        expected_source,
                     )
-                    expected_source = None
+                    filtro_fuente_fallido = True
 
             selected = select_article_evidence(results, ref["article"])
             if selected:
@@ -1456,8 +1629,11 @@ def audit(
                 best_source = best_meta.get("source", "desconocido")
                 best_distance = selected["distance"]
                 article_heading_verified = selected["heading_verified"]
-                metadata_hit = metadata_candidate_found and article_heading_verified
-                source_match = (not expected_source) or (best_source == expected_source)
+                # R4c (R4-D09): comparación real con la fuente esperada (desde R4b siempre
+                # existe aquí: una cita sin ley identificada no llega a la consulta).
+                source_match = best_source == expected_source
+                # La metadata solo corrobora si la evidencia es de la ley citada.
+                metadata_hit = metadata_candidate_found and article_heading_verified and source_match
 
                 # R4b — El chunker etiqueta "4o.-A", "247 Bis" o "29-A Bis" con el número
                 # base, así que la búsqueda por metadata devuelve el artículo base y sus
@@ -1474,6 +1650,41 @@ def audit(
                     )
                     continue
 
+                # R4c — Cotejo del precepto ubicado (encabezado exacto en la ley citada): su
+                # cuerpo hasta el encabezado de otro artículo, reunido con la continuación del
+                # MISMO precepto (misma fuente y etiqueta, fragmentos consecutivos) cuando el
+                # fragmento termina antes; la derogación (D08) solo de lo que sigue a SU
+                # encabezado, y la unidad citada (fracción, inciso…) en ese cuerpo. Nunca se
+                # examina el texto de otro artículo ni el de otro ordenamiento.
+                unidades = _unidades_de(ref)
+                cotejo = None
+                if source_match and article_heading_verified:
+                    candidatos = [
+                        (doc, meta) for doc, meta in zip(
+                            (results.get("documents") or [[]])[0] or [],
+                            (results.get("metadatas") or [[]])[0] or [],
+                        )
+                        if (meta or {}).get("source") == best_source
+                    ]
+                    cotejo = cotejar_precepto(best_doc, best_meta, ref["article"], unidades,
+                                              candidatos)
+                derogado = bool(cotejo and cotejo["derogacion"] == DEROGADO)
+                derogacion_ambigua = bool(cotejo and cotejo["derogacion"] == DEROGACION_AMBIGUA)
+                evidencia_incompleta = bool(cotejo and not cotejo["completo"])
+                unidad = (cotejo or {}).get("unidad")
+                unidad_derogada = None
+                unidad_no_cotejada = None
+                if unidad and unidad["estado"] == "derogada":
+                    unidad_derogada = ", ".join(unidad["derogadas"])
+                elif unidad and unidad["estado"] == "ambigua":
+                    derogacion_ambigua = True
+                elif unidad and unidad["estado"] == "no_cotejada":
+                    unidad_no_cotejada = unidad["motivo"] + (
+                        " (evidencia incompleta)" if evidencia_incompleta else ""
+                    )
+                elif unidades and source_match and not article_heading_verified:
+                    unidad_no_cotejada = "sin el encabezado exacto del artículo no se coteja la unidad"
+
                 vvca = build_vvca(
                     ref=ref,
                     distance=best_distance,
@@ -1482,7 +1693,16 @@ def audit(
                     page=best_meta.get("page", "?"),
                     metadata_verificado=metadata_hit,
                     article_heading_verified=article_heading_verified,
+                    derogado=derogado,
+                    unidad_derogada=unidad_derogada,
+                    derogacion_ambigua=derogacion_ambigua,
+                    unidad_no_cotejada=unidad_no_cotejada,
+                    evidencia_incompleta=evidencia_incompleta,
                 )
+                if filtro_fuente_fallido:
+                    vvca["explicabilidad"]["filtro_fuente_fallido"] = True
+                if cotejo and cotejo["continuaciones"]:
+                    vvca["explicabilidad"]["fragmentos_continuacion"] = cotejo["continuaciones"]
 
                 entry = {
                     "reference": ref["raw"],
@@ -1501,10 +1721,30 @@ def audit(
                     "retrieved_text": best_doc[:600],
                     "retrieved_text_full": best_doc,
                     "vvca": vvca,
+                    # R4c (campos añadidos): precepto derogado y alcance de la verificación.
+                    "precepto_derogado": derogado,
+                    "alcance_verificacion": ALCANCE_NORMATIVA,
+                    # R4c, ronda 2 (campos añadidos): unidad citada y su cotejo; derogación
+                    # ambigua; evidencia sin cuerpo suficiente.
+                    "unidad_citada": unidades,
+                    "unidad_cotejada": (
+                        None if not unidades
+                        else bool(unidad and unidad["estado"] == "cotejada")
+                    ),
+                    "unidad_derogada": unidad_derogada,
+                    "unidad_no_cotejada": unidad_no_cotejada,
+                    "derogacion_ambigua": derogacion_ambigua,
+                    "evidencia_incompleta": evidencia_incompleta,
                 }
 
                 if not source_match:
-                    trace_status = "refuted"
+                    # R4c (R4-D09): la evidencia es de otro ordenamiento: no acredita ni
+                    # refuta la cita (antes, inalcanzable, se marcaba refutada).
+                    trace_status = "not_verifiable"
+                elif derogado or unidad_derogada or derogacion_ambigua:
+                    # R4c (R4-D08): localizado, pero sin norma vigente (o con una fórmula de
+                    # derogación ambigua): nunca verificado.
+                    trace_status = "partial"
                 elif metadata_hit:
                     trace_status = "verified" if vvca["score"] >= 85 else "partial"
                 elif best_distance > COSINE_THRESHOLD:
@@ -1512,7 +1752,7 @@ def audit(
                 else:
                     trace_status = "verified" if vvca["score"] >= 85 else "partial"
                 por_confirmar = bool(ref.get("law_requires_confirmation"))
-                if por_confirmar:
+                if por_confirmar and trace_status != "not_verifiable":
                     # Ley inferida de otro párrafo: nunca verificada ni refutada (🟡).
                     trace_status = "partial"
                 trace = build_trace_record(
@@ -1538,13 +1778,60 @@ def audit(
                 if trace_status == "verified":
                     verified_count += 1
 
-                if por_confirmar:
+                if not source_match:
+                    # R4c (R4-D09): antes inalcanzable ("Posible confusión entre
+                    # ordenamientos"). Una sola alerta, con la fuente esperada y la hallada.
+                    causa = " (el filtro por fuente falló)" if filtro_fuente_fallido else ""
                     alerts.append(
-                        f"🟡 LEY POR CONFIRMAR (score {vvca['score']}): '{ref['raw']}' — "
-                        f"{MOTIVO_CONFIRMAR} (se cotejó contra '{best_source}'). "
-                        f"{vvca['V_verificacion']}. Precisar la ley junto al artículo antes de "
-                        f"citar."
+                        f"🟡 EVIDENCIA DE OTRO ORDENAMIENTO (score {vvca['score']}): "
+                        f"'{ref['raw']}' — el fragmento recuperado es de '{best_source}', no "
+                        f"de '{expected_source}'{causa}. No acredita ni refuta la cita: "
+                        f"cotejar el precepto en la ley citada."
                     )
+                    if por_confirmar:
+                        alerts.append(
+                            f"🟡 LEY POR CONFIRMAR: '{ref['raw']}' — {MOTIVO_CONFIRMAR}. "
+                            f"Precisar la ley junto al artículo antes de citar."
+                        )
+                elif por_confirmar or derogado or unidad_derogada or derogacion_ambigua:
+                    if por_confirmar:
+                        alerts.append(
+                            f"🟡 LEY POR CONFIRMAR (score {vvca['score']}): '{ref['raw']}' — "
+                            f"{MOTIVO_CONFIRMAR} (se cotejó contra '{best_source}'). "
+                            f"{vvca['V_verificacion']}. Precisar la ley junto al artículo "
+                            f"antes de citar."
+                        )
+                    pagina = best_meta.get("page", "?")
+                    if derogado:
+                        # R4c (R4-D08): criterio por defecto 🟡 (el responsable puede
+                        # endurecerlo). Sustituye a COTEJAR / ALERTA ALTA: el precepto sí se
+                        # ubicó y su texto vigente es solo la fórmula de derogación.
+                        alerts.append(
+                            f"🟡 PRECEPTO DEROGADO (score {vvca['score']}): '{ref['raw']}' — "
+                            f"en '{best_source}' (pág. {pagina}) el "
+                            f"artículo {ref['article']} dice que se deroga: el texto vigente no "
+                            f"contiene norma. Verificar si el escrito cita una versión anterior "
+                            f"del precepto o un régimen transitorio aplicable antes de citar."
+                        )
+                    elif unidad_derogada:
+                        # R4c (ronda 2): la unidad citada está derogada; el resto del artículo
+                        # no se declara derogado.
+                        alerts.append(
+                            f"🟡 PRECEPTO DEROGADO (score {vvca['score']}): '{ref['raw']}' — "
+                            f"en '{best_source}' (pág. {pagina}) la {unidad_derogada} del "
+                            f"artículo {ref['article']} dice que se deroga (el resto del artículo "
+                            f"no se declara derogado): el texto vigente de la unidad citada no "
+                            f"contiene norma. Verificar si el escrito cita una versión anterior "
+                            f"o un régimen transitorio aplicable antes de citar."
+                        )
+                    elif derogacion_ambigua:
+                        alerts.append(
+                            f"🟡 POSIBLE DEROGACIÓN (score {vvca['score']}): '{ref['raw']}' — "
+                            f"en '{best_source}' (pág. {pagina}) junto al encabezado del "
+                            f"artículo {ref['article']} hay una fórmula de derogación que no es "
+                            f"inequívoca. Verificar qué parte del precepto está vigente antes de "
+                            f"citar."
+                        )
                 elif metadata_hit:
                     # Artículo confirmado por metadata (ley+artículo exactos) → verificado.
                     # Distancia alta ya NO es "alucinación": es texto de otra porción del
@@ -1556,12 +1843,6 @@ def audit(
                             f"(dist={best_distance:.3f}): puede ser otra porción del artículo. "
                             f"Cotejar el texto citado contra el precepto."
                         )
-                elif not source_match and best_distance <= COSINE_THRESHOLD:
-                    alerts.append(
-                        f"{vvca['semaforo']} ALERTA (score {vvca['score']}): '{ref['raw']}' — "
-                        f"encontrado en '{best_source}' pero se esperaba '{expected_source}'. "
-                        f"Posible confusión entre ordenamientos. Verificar manualmente."
-                    )
                 elif best_distance > COSINE_THRESHOLD:
                     alerts.append(
                         f"🔴 ALERTA ALTA (score {vvca['score']}): '{ref['raw']}' — "
@@ -1575,16 +1856,27 @@ def audit(
                         f"no contiene el encabezado exacto del artículo {ref['article']}. "
                         f"Puede ser una remisión interna; cotejar el precepto auténtico."
                     )
-                else:
-                    # Guard P0 (anti-falso-🟢): si el contexto no nombró la ley, el match
-                    # es solo por número de artículo y pudo caer en otro ordenamiento.
-                    # No bloquear, pero advertir explícitamente — no dar 🟢 ciego.
-                    if not expected_source:
-                        alerts.append(
-                            f"🟡 LEY NO IDENTIFICADA: '{ref['raw']}' — coincidencia por número "
-                            f"de artículo contra '{best_source}'. El contexto no nombró el "
-                            f"ordenamiento; verificar que sea la ley correcta antes de citar."
-                        )
+                # (Guard P0 "LEY NO IDENTIFICADA — coincidencia por número": desde R4b una
+                # cita sin ley identificada no llega aquí y desde R4c la fuente esperada no se
+                # borra; la rama quedó inalcanzable y se retiró.)
+
+                # R4c (ronda 2): avisos que se suman a los anteriores (no los sustituyen).
+                if source_match and evidencia_incompleta and not derogado:
+                    alerts.append(
+                        f"🟡 EVIDENCIA INCOMPLETA (score {vvca['score']}): '{ref['raw']}' — el "
+                        f"fragmento de '{best_source}' trae el encabezado del artículo "
+                        f"{ref['article']} pero no cuerpo suficiente, y su continuación no se "
+                        f"localizó entre los fragmentos del mismo precepto. Cotejar el precepto "
+                        f"en la fuente oficial antes de citar."
+                    )
+                if source_match and unidad_no_cotejada and article_heading_verified:
+                    alerts.append(
+                        f"🟡 UNIDAD CITADA NO COTEJADA (score {vvca['score']}): '{ref['raw']}' "
+                        f"— se ubicó el artículo {ref['article']} en '{best_source}', pero "
+                        f"{unidad_no_cotejada}: el semáforo no cubre la "
+                        f"{describir_unidad(unidades[0]) if len(unidades) == 1 else 'unidad citada'}. "
+                        f"Cotejarla en la fuente oficial antes de citar."
+                    )
             elif ref.get("law_requires_confirmation"):
                 # Ley inferida de otro párrafo: no localizar el precepto en una ley supuesta
                 # no acredita nada (🟡, nunca 🔴).
@@ -1666,6 +1958,8 @@ def audit(
                                     "retrieved_text": texto[:600],
                                     "vvca": vvca,
                                     "trace_id": trace["trace_id"],
+                                    # R4c: qué acredita (y qué no) el semáforo de la tesis.
+                                    "alcance_verificacion": ALCANCE_JURISPRUDENCIA,
                                 })
                                 if trace["verification"]["status"] == "verified":
                                     verified_count += 1
@@ -1695,18 +1989,20 @@ def audit(
                 ))
 
     # ── Score RAG (artículos) — validación estática
+    # R4c (R4-D12): sin evidencia evaluable el puntaje es None, no 0.0: "sin citas" o "sin
+    # verificar" no es lo mismo que una cita con 0 puntos (antes salía "RAG 0.0 🔴").
     art_scores = [
         s["vvca"]["score"] for s in retrieved_sources
         if "vvca" in s and s.get("ref_type") == "normativa"
     ]
-    score_rag = round(sum(art_scores) / len(art_scores), 1) if art_scores else 0.0
+    score_rag = round(sum(art_scores) / len(art_scores), 1) if art_scores else None
 
     # ── Score SJF (tesis) — validación dinámica
     jur_scores = [
         s["vvca"]["score"] for s in retrieved_sources
         if "vvca" in s and s.get("ref_type") == "jurisprudencia"
     ]
-    score_sjf = round(sum(jur_scores) / len(jur_scores), 1) if jur_scores else 0.0
+    score_sjf = round(sum(jur_scores) / len(jur_scores), 1) if jur_scores else None
 
     # Conteo de tesis problemáticas (mismatch de rubro o no encontradas)
     tesis_total_invocadas = sum(1 for r in refs if r.get("type") == "jurisprudencia")
@@ -1716,6 +2012,21 @@ def audit(
         if s.get("ref_type") == "jurisprudencia" and s.get("vvca", {}).get("rubro_mismatch")
     )
     tesis_rojas = tesis_no_encontradas + tesis_mismatch
+    # R4c (ronda 2): las trazas de tesis cuentan en el veredicto como las normativas. Una
+    # tesis localizada con puntaje < 85 (p. ej. aislada, 72) queda ``partial``: antes contaba
+    # como "ok" y un escrito con solo esa tesis salía 🟢. ``tesis_ok`` = solo verificadas.
+    trazas_jurisprudencia = [
+        t for t in verification_traces
+        if t.get("claim", {}).get("type") == "jurisprudencia"
+    ]
+    tesis_ok = sum(
+        1 for t in trazas_jurisprudencia
+        if t.get("verification", {}).get("status") == "verified"
+    )
+    tesis_parciales = sum(
+        1 for t in trazas_jurisprudencia
+        if t.get("verification", {}).get("status") == "partial"
+    )
 
     # Tesis con criterio superado/interrumpido/sustituido (falso verde). Por defecto 0:
     # el corpus solo marca vigencia si el scraper la capturó (sección NOTAS del SJF).
@@ -1750,11 +2061,20 @@ def audit(
                 tesis_por_fuerza[sello] = tesis_por_fuerza.get(sello, 0) + 1
 
     # ── Veredicto binario — las tesis rojas son bloqueantes por sí solas
+    # R4c: con ``articulos_total`` el veredicto distingue "sin artículos" de "artículos con
+    # verificación insuficiente" (R4-D12) y la razón del 🟢 enuncia solo lo verificado (D11).
+    articulos_total = len(trazas_normativas)
     veredicto = veredicto_global(
         score_rag, score_sjf, tesis_mismatch, tesis_no_encontradas,
         tesis_total_invocadas, tesis_superadas,
         normativa_refutada, normativa_no_verificable,
+        articulos_total=articulos_total,
+        tesis_parciales=tesis_parciales,
     )
+    # Semáforo por dimensión (R4-D12): neutro sin citas; sin puntaje, 🟡 (o 🔴 si hay
+    # refutadas); con puntaje, el del promedio de siempre.
+    semaforo_rag = semaforo_dimension(score_rag, articulos_total, normativa_refutada)
+    semaforo_sjf = semaforo_dimension(score_sjf, tesis_total_invocadas, tesis_mismatch)
 
     # Conteo por estado de verificación, no por el promedio ni sólo por las citas
     # recuperadas. Así cada referencia procesada aparece exactamente en un bucket.
@@ -1779,18 +2099,20 @@ def audit(
         "cosine_threshold": COSINE_THRESHOLD,
         "vvca_summary": {
             "score_rag":           score_rag,
-            "semaforo_rag":        vvca_semaforo(score_rag),
+            "semaforo_rag":        semaforo_rag,
             "articulos_ok":        sum(
                 1 for t in trazas_normativas
                 if t.get("verification", {}).get("status") == "verified"
             ),
-            "articulos_total":     len(trazas_normativas),
+            "articulos_total":     articulos_total,
             "normativa_refutada":  normativa_refutada,
             "normativa_no_verificable": normativa_no_verificable,
             "score_sjf":           score_sjf,
-            "semaforo_sjf":        vvca_semaforo(score_sjf),
+            "semaforo_sjf":        semaforo_sjf,
             "tesis_total":         tesis_total_invocadas,
-            "tesis_ok":            len(jur_scores) - tesis_mismatch,
+            # R4c (ronda 2): solo las verificadas (antes contaba las parciales).
+            "tesis_ok":            tesis_ok,
+            "tesis_parciales":     tesis_parciales,
             "tesis_rojas":         tesis_rojas,
             "tesis_mismatch":      tesis_mismatch,
             "tesis_no_encontradas": tesis_no_encontradas,
@@ -1801,17 +2123,23 @@ def audit(
             "verdes":   verdes,
             "amarillos": amarillos,
             "rojos":     rojos,
+            # R4c (campos añadidos): dimensiones sin citas (R4-D12) y alcance de la
+            # verificación: un 🟢 acredita existencia y ubicación en el corpus local, no que
+            # lo citado diga lo que el escrito afirma.
+            "rag_sin_citas": articulos_total == 0,
+            "sjf_sin_citas": tesis_total_invocadas == 0,
+            "alcance_verificacion": ALCANCE_NORMATIVA,
+            "alcance_verificacion_tesis": ALCANCE_JURISPRUDENCIA,
         },
         "alerts": alerts,
         "retrieved_sources": retrieved_sources,
         "traceability": traceability_bundle(verification_traces),
         "summary": (
-            f"RAG {score_rag} {vvca_semaforo(score_rag)} "
-            f"({len(art_scores)} arts) · "
-            f"SJF {score_sjf} {vvca_semaforo(score_sjf)} "
-            f"({tesis_total_invocadas - tesis_rojas}/{tesis_total_invocadas} tesis ok)"
-            + (f" — {tesis_mismatch} rubro discrepante" if tesis_mismatch else "")
-            + (f", {tesis_no_encontradas} no encontradas" if tesis_no_encontradas else "")
+            _resumen_rag(score_rag, semaforo_rag, articulos_total,
+                         normativa_no_verificable, normativa_refutada)
+            + " · "
+            + _resumen_sjf(score_sjf, semaforo_sjf, tesis_total_invocadas, tesis_ok,
+                           tesis_mismatch, tesis_no_encontradas, tesis_parciales)
             + f" · Veredicto: {veredicto['semaforo']} {veredicto['razon']}"
         ),
     }
@@ -1918,6 +2246,49 @@ def OpenNotebook_query(text: str, n: int = 5, law: Optional[str] = None, json_ou
     """Convenience wrapper: crea instancia de OpenNotebook y ejecuta query semántico."""
     notebook = OpenNotebook()
     return notebook.query(text, n=n, law=law, json_output=json_output, verbose=verbose)
+
+
+def formato_telegram(result: Dict) -> str:
+    """Bloque de texto de ``audit --format telegram`` (función aparte para probarla)."""
+    vs = result["vvca_summary"]
+    # R4c (R4-D12): una dimensión sin citas se muestra como tal, no como "0.0 🔴".
+    rag = ("sin citas" if vs.get("rag_sin_citas")
+           else f"{_puntaje(vs['score_rag'])} {vs['semaforo_rag']}")
+    sjf = ("sin citas" if vs.get("sjf_sin_citas")
+           else f"{_puntaje(vs['score_sjf'])} {vs['semaforo_sjf']}")
+    lines = [
+        f"📋 <b>Auditoría VVCA</b> · {result['total_references_found']} refs · {result['alerts_count']} alertas",
+        f"RAG: {rag} · SJF: {sjf}"
+        f"  🟢{vs['verdes']} 🟡{vs['amarillos']} 🔴{vs['rojos']}"
+        f"  · Veredicto: {vs['veredicto']['semaforo']} {vs['veredicto']['razon']}",
+        "",
+    ]
+    if vs["veredicto"]["semaforo"] == "🟢":
+        # R4c: alcance del 🟢 (no significa que lo citado diga lo que se afirma) de cada
+        # dimensión con citas (ronda 2: el de las tesis cuando las hay; ambos si hay ambos).
+        alcances = []
+        if not vs.get("rag_sin_citas"):
+            alcances.append(f"Alcance (normas): {vs['alcance_verificacion']}")
+        if not vs.get("sjf_sin_citas"):
+            alcances.append(f"Alcance (tesis): {vs['alcance_verificacion_tesis']}")
+        lines[2:2] = alcances
+    for s in result["retrieved_sources"]:
+        v = s.get("vvca", {})
+        sem = v.get("semaforo", "⬜")
+        score = v.get("score", "?")
+        ref = s.get("reference", "?")[:40]
+        ctx = v.get("C_contextualizacion", "")[:50]
+        lines.append(f"{sem} <b>{score}</b> · {ref} · {ctx}")
+    if result["alerts"]:
+        lines.append("")
+        for a in result["alerts"][:3]:
+            lines.append(f"⚠️ {a[:120]}")
+    if result.get("corpus_warning"):
+        lines.append("")
+        lines.append(f"⚠️ {result['corpus_warning']}")
+    lines.append("")
+    lines.append("🔗 Fuentes: sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx")
+    return "\n".join(lines)
 
 
 def main():
@@ -2115,31 +2486,7 @@ Ejemplos:
             result = audit(draft_text, verbose=args.verbose, allow_incomplete_corpus=True)
 
         if args.format == "telegram":
-            vs = result["vvca_summary"]
-            lines = [
-                f"📋 <b>Auditoría VVCA</b> · {result['total_references_found']} refs · {result['alerts_count']} alertas",
-                f"RAG: {vs['score_rag']} {vs['semaforo_rag']} · SJF: {vs['score_sjf']} {vs['semaforo_sjf']}"
-                f"  🟢{vs['verdes']} 🟡{vs['amarillos']} 🔴{vs['rojos']}"
-                f"  · Veredicto: {vs['veredicto']['semaforo']} {vs['veredicto']['razon']}",
-                "",
-            ]
-            for s in result["retrieved_sources"]:
-                v = s.get("vvca", {})
-                sem = v.get("semaforo", "⬜")
-                score = v.get("score", "?")
-                ref = s.get("reference", "?")[:40]
-                ctx = v.get("C_contextualizacion", "")[:50]
-                lines.append(f"{sem} <b>{score}</b> · {ref} · {ctx}")
-            if result["alerts"]:
-                lines.append("")
-                for a in result["alerts"][:3]:
-                    lines.append(f"⚠️ {a[:120]}")
-            if result.get("corpus_warning"):
-                lines.append("")
-                lines.append(f"⚠️ {result['corpus_warning']}")
-            lines.append("")
-            lines.append("🔗 Fuentes: sjf2.scjn.gob.mx · dof.gob.mx · cjf.gob.mx")
-            print("\n".join(lines))
+            print(formato_telegram(result))
         else:
             print(json.dumps(result, ensure_ascii=False, indent=2))
 

@@ -233,6 +233,58 @@ class ArticleHeaderTests(unittest.TestCase):
         self.assertIn("no que el escrito cite ese ordenamiento", cuerpo)
         self.assertIn("UBICACIÓN", cuerpo)   # la página se sigue mostrando (con advertencia)
 
+    def _item(self, **cambios) -> dict:
+        item = {
+            "reference": "artículo 64",
+            "article": "64",
+            "semaforo": "🟡",
+            "source_file": "CODIGO SINTETICO.pdf",
+            "expected_source": "CODIGO SINTETICO.pdf",
+            "coincide_fuente": True,
+            "ley_identificada": True,
+            "retrieved_text_full": "Artículo 64.- (Se deroga).",
+        }
+        item.update(cambios)
+        return item
+
+    def test_R4c_popup_de_precepto_derogado_lleva_advertencia_visible(self) -> None:
+        self.assertNotIn("PRECEPTO DEROGADO", capturar_rag.build_popup_html(self._item()))
+        cuerpo = capturar_rag.build_popup_html(self._item(
+            precepto_derogado=True, ley_por_confirmar=True,
+            motivo_ley="ley inferida de otro párrafo: confirmar el ordenamiento",
+        )).split("</style>")[1]
+        self.assertIn("⚠️ PRECEPTO DEROGADO — el texto vigente del corpus", cuerpo)
+        self.assertIn("régimen transitorio", cuerpo)
+        # La advertencia de R4b se conserva junto a la nueva, y la página se sigue mostrando.
+        self.assertIn("⚠️ LEY POR CONFIRMAR", cuerpo)
+        self.assertIn("UBICACIÓN", cuerpo)
+
+    def test_R4c_popup_de_unidad_y_evidencia_incompleta(self) -> None:
+        cuerpo = capturar_rag.build_popup_html(self._item(
+            retrieved_text_full="Artículo 31.- Texto.\nI.\n(Se deroga).",
+            article="31", unidad_derogada="fracción I", evidencia_incompleta=True,
+        )).split("</style>")[1]
+        self.assertIn("⚠️ PRECEPTO DEROGADO — la fracción I citada dice que se deroga", cuerpo)
+        self.assertIn("⚠️ EVIDENCIA INCOMPLETA", cuerpo)
+        cuerpo = capturar_rag.build_popup_html(self._item(
+            retrieved_text_full="Artículo 31.- Texto.", article="31",
+            unidad_no_cotejada="el párrafo segundo no se puede ubicar con certeza",
+            derogacion_ambigua=True,
+        )).split("</style>")[1]
+        self.assertIn("⚠️ UNIDAD CITADA NO COTEJADA — el párrafo segundo", cuerpo)
+        self.assertIn("⚠️ POSIBLE DEROGACIÓN", cuerpo)
+
+    def test_R4c_popup_de_otro_ordenamiento_usa_el_semaforo_de_la_cita(self) -> None:
+        cuerpo = capturar_rag.build_popup_html(self._item(
+            coincide_fuente=False, source_file="OTRO CODIGO SINTETICO.pdf",
+            ley_por_confirmar=True, motivo_ley="ley inferida de otro párrafo",
+        )).split("</style>")[1]
+        self.assertIn("🟡 artículo 64 — FUENTE NO COINCIDE", cuerpo)
+        self.assertNotIn("🔴", cuerpo)
+        self.assertIn("no acredita ni refuta la cita", cuerpo)
+        self.assertIn("⚠️ LEY POR CONFIRMAR", cuerpo)
+        self.assertNotIn("page-img", cuerpo)
+
 
 if __name__ == "__main__":
     unittest.main()

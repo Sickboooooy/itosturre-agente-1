@@ -117,6 +117,7 @@ HTML_TEMPLATE = """\
   .score-green {{ color: #16A34A; }}
   .score-yellow {{ color: #D97706; }}
   .score-red {{ color: #DC2626; }}
+  .score-none {{ color: #6B7280; }}
   .footer {{
     color: #6B7280;
     font-size: 10px;
@@ -151,7 +152,9 @@ HTML_TEMPLATE = """\
 </html>
 """
 
-def semaforo(score: int) -> tuple[str, str]:
+def semaforo(score: int | None) -> tuple[str, str]:
+    # R4c: un puntaje nulo ("sin citas" o sin evidencia evaluable) no es un 0 rojo.
+    if score is None: return "⚪", "score-none"
     if score >= 85: return "🟢", "score-green"
     if score >= 60: return "🟡", "score-yellow"
     return "🔴", "score-red"
@@ -161,11 +164,12 @@ def build_html(chunks: list[dict], leyes: int = 42) -> str:
     for c in chunks:
         score = c.get("score_rag", 0)
         sem, css = semaforo(score)
+        puntaje = "—" if score is None else score
         rows.append(f"""
       <tr>
         <td class="precepto">{c['precepto']}</td>
         <td>{c['aplicacion']}</td>
-        <td class="score {css}">{score}/100</td>
+        <td class="score {css}">{puntaje}/100</td>
         <td class="semaforo">{sem}</td>
       </tr>""")
     return HTML_TEMPLATE.format(
@@ -315,6 +319,15 @@ POPUP_MISMATCH_TEMPLATE = """\
     font-weight: 600;
     margin-bottom: 16px;
   }}
+  .aviso {{
+    background: #FFFBEB;
+    border-left: 4px solid #D97706;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #78350F;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }}
   .compare {{ display: flex; gap: 16px; margin-bottom: 16px; }}
   .compare-col {{ flex: 1; }}
   .compare-label {{ font-size: 10px; text-transform: uppercase; color: #6B7280; font-weight: 700; margin-bottom: 4px; }}
@@ -326,10 +339,11 @@ POPUP_MISMATCH_TEMPLATE = """\
 </head>
 <body>
   <div class="header">
-    <span class="header-title">🔴 {reference} — FUENTE NO COINCIDE</span>
+    <span class="header-title">{semaforo} {reference} — FUENTE NO COINCIDE</span>
   </div>
   <div class="body">
-    <div class="alert">La ley citada y la ley donde realmente se encontró el texto NO coinciden. No se muestra ubicación en PDF — verificar manualmente antes de citar.</div>
+    {aviso}
+    <div class="alert">La ley citada y la ley donde realmente se encontró el texto NO coinciden: es evidencia de otro ordenamiento y no acredita ni refuta la cita. No se muestra ubicación en PDF — verificar manualmente antes de citar.</div>
     <div class="compare">
       <div class="compare-col">
         <div class="compare-label">LEY CITADA</div>
@@ -507,10 +521,24 @@ def build_popup_html(item: dict) -> str:
             date=date,
         )
 
+    # R4b/R4c: advertencias visibles que acompañan la página (no la sustituyen).
+    avisos = []
+    if item.get("ley_por_confirmar"):
+        motivo = _escape(item.get("motivo_ley") or "ley inferida de otro párrafo")
+        avisos.append(
+            f'<div class="aviso">⚠️ LEY POR CONFIRMAR — {motivo}. La página acredita la '
+            "ubicación del precepto en el candidato, no que el escrito cite ese "
+            "ordenamiento.</div>"
+        )
+
     # Caso 2: ley identificada, pero el chunk recuperado vino de OTRA ley — la
-    # bandera roja del P0 de integridad del corpus haciéndose visible.
+    # bandera roja del P0 de integridad del corpus haciéndose visible. Desde R4c (R4-D09)
+    # es alcanzable (audit() ya no borra la fuente esperada) y la cita queda 🟡: la
+    # evidencia de otro ordenamiento no acredita ni refuta la cita.
     if not item.get("coincide_fuente", True):
         return POPUP_MISMATCH_TEMPLATE.format(
+            semaforo=sem,
+            aviso="".join(avisos),
             reference=reference,
             expected_source=_escape(item.get("expected_source") or "(no identificada)"),
             source_file=_escape(item.get("source_file") or "?"),
@@ -547,19 +575,43 @@ def build_popup_html(item: dict) -> str:
     else:
         page_block = '<div class="missing-pdf">⚠️ PDF no disponible localmente — no se pudo renderizar la página para verificación visual.</div>'
 
-    # R4b: ley inferida de otro párrafo. La página se muestra, pero con la advertencia de que
-    # acredita la ubicación del precepto en el candidato, no que el escrito cite esa ley.
-    aviso = ""
-    if item.get("ley_por_confirmar"):
-        motivo = _escape(item.get("motivo_ley") or "ley inferida de otro párrafo")
-        aviso = (
-            f'<div class="aviso">⚠️ LEY POR CONFIRMAR — {motivo}. La página acredita la '
-            "ubicación del precepto en el candidato, no que el escrito cite ese "
-            "ordenamiento.</div>"
+    # R4b: ley inferida de otro párrafo (aviso ya preparado arriba): la página se muestra,
+    # pero acredita la ubicación del precepto en el candidato, no que el escrito cite esa ley.
+    # R4c (R4-D08): precepto derogado: la página acredita la derogación, no el contenido.
+    if item.get("precepto_derogado"):
+        avisos.append(
+            '<div class="aviso">⚠️ PRECEPTO DEROGADO — el texto vigente del corpus solo indica '
+            "que el artículo se deroga: no contiene norma. Verificar si el escrito cita una "
+            "versión anterior del precepto o un régimen transitorio. La página acredita la "
+            "derogación, no el contenido que el escrito le atribuye.</div>"
+        )
+    elif item.get("unidad_derogada"):
+        # R4c, ronda 2: la unidad citada (fracción, inciso) está derogada; el artículo no.
+        avisos.append(
+            f'<div class="aviso">⚠️ PRECEPTO DEROGADO — la {_escape(item["unidad_derogada"])} '
+            "citada dice que se deroga (el resto del artículo no se declara derogado). "
+            "Verificar si el escrito cita una versión anterior o un régimen transitorio.</div>"
+        )
+    elif item.get("derogacion_ambigua"):
+        avisos.append(
+            '<div class="aviso">⚠️ POSIBLE DEROGACIÓN — junto al encabezado hay una fórmula de '
+            "derogación que no es inequívoca: verificar qué parte del precepto está vigente."
+            "</div>"
+        )
+    if item.get("unidad_no_cotejada"):
+        avisos.append(
+            f'<div class="aviso">⚠️ UNIDAD CITADA NO COTEJADA — '
+            f"{_escape(str(item['unidad_no_cotejada']))}. La página acredita el artículo, no "
+            "la unidad citada.</div>"
+        )
+    if item.get("evidencia_incompleta"):
+        avisos.append(
+            '<div class="aviso">⚠️ EVIDENCIA INCOMPLETA — el fragmento trae el encabezado pero '
+            "no cuerpo suficiente: cotejar el precepto completo en la fuente oficial.</div>"
         )
 
     return POPUP_MATCH_TEMPLATE.format(
-        aviso=aviso,
+        aviso="".join(avisos),
         reference=reference,
         semaforo=sem,
         badge_class=badge_class,

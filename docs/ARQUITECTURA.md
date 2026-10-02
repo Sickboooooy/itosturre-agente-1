@@ -223,6 +223,74 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
   (y un warning del paso `cobertura`), que `capturar_rag.py --cobertura-pendiente N` añade al
   resumen del envío opcional, sin captura para lo no auditado.
 
+## Veredicto honesto (R4c)
+
+Corrige R4-D08, D09, D11 y D12 sin tocar umbrales (85/60) ni la fórmula de `vvca_score`;
+R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 son de R4d.
+
+- **Precepto derogado (D08):** `itosturre/audit/evidence.py::precepto_derogado(texto,
+  artículo)` (pura) reconoce "(Se deroga)", "Se deroga." o "(Derogado)" solo como lo primero
+  que sigue al encabezado exacto del precepto citado (el mismo que acredita
+  `has_exact_article_heading`). `audit()` la aplica únicamente a evidencia de la ley citada
+  con encabezado exacto; `build_vvca(..., derogado=True)` limita el puntaje a 60–84, la traza
+  queda `partial` y la alerta "🟡 PRECEPTO DEROGADO" sustituye a COTEJAR / ALERTA ALTA. 🟡 es
+  el criterio por defecto (documentado en `docs/PROTOCOLO_VVCA.md`).
+- **Fuente esperada (D09):** el respaldo sin filtro ya no hace `expected_source = None`;
+  `_preferir_fuente` reduce los resultados a la ley citada si alguno lo es, y `source_match`
+  compara de verdad. Evidencia de otro ordenamiento: −15 de `vvca_score` (ahora alcanzable) y
+  límite 60–84 en `build_vvca`, traza `not_verifiable`, alerta "🟡 EVIDENCIA DE OTRO
+  ORDENAMIENTO", `metadata_hit` solo con fuente coincidente y `filtro_fuente_fallido` en la
+  explicabilidad. La rama "LEY NO IDENTIFICADA — coincidencia por número" quedó inalcanzable
+  y se retiró.
+- **Veredicto y resumen (D11, D12):** `veredicto_global(..., articulos_total=None)` (nuevo
+  argumento opcional): sin artículos la regla "RAG < 70" no aplica; sin artículos ni tesis,
+  🟡 "Sin citas detectadas"; el 🟢 enuncia solo lo verificado. `policy.semaforo_dimension`
+  da ⚪ (`SEMAFORO_SIN_CITAS`) a una dimensión sin citas y 🟡/🔴 a una sin puntaje;
+  `score_rag`/`score_sjf` valen `None` sin evidencia evaluable (antes 0.0). El `summary`
+  dice "sin citas" y cuenta las no verificables y refutadas junto al subpuntaje.
+- **Ronda 2 (revisión de Codex y del coordinador):**
+  - `evidence.py`: `clasificar_derogacion` (fórmula inequívoca → `DEROGADO`; fórmula que
+    empieza como derogación pero no lo es → `DEROGACION_AMBIGUA`), sobre la primera línea con
+    contenido tras el encabezado, saltando el ruido de página; `reconstruir_cuerpo` (cuerpo
+    hasta el encabezado de otro artículo, con la continuación del mismo precepto: misma
+    fuente y etiqueta, `chunk_index` consecutivo); `cuerpo_suficiente`; `cotejar_unidad`
+    (fracción por romano al inicio de línea e inciso por "a)", solo si la marca es única;
+    párrafo, apartado, base, "in fine" → no cotejada) y `cotejar_precepto`, que `audit()`
+    aplica a la evidencia de la ley citada con encabezado exacto.
+  - `referencias.py`: `unidad_citada` por referencia (`unidades_citadas`: fracción,
+    fracciones, párrafo, inciso, apartado, "in fine"…, entre el artículo y su ley, también
+    tras un ordinal con punto: "artículo 1o., párrafo tercero"; `unidades_previas`: la cadena
+    que precede a la cabeza y termina pegada a ella con "del"/"de la"/"de los": "párrafo
+    tercero del artículo 1o.", "inciso a) de la fracción III del artículo 107") y la clave
+    de fracción ya no vive dentro de otra palabra ("frente a") y admite "fracc.".
+  - `build_vvca(..., *, unidad_derogada, derogacion_ambigua, unidad_no_cotejada,
+    evidencia_incompleta)`: derogación de la unidad o ambigua → 60–84 (traza `partial`);
+    unidad no cotejada o evidencia incompleta → tope 84 sin piso (la rama de R4-D10 no cambia).
+  - `veredicto_global(..., tesis_parciales=0)`: tesis `partial` → 🟡; `tesis_ok` = solo
+    verificadas. `RETENER_VERDE_SOLO_TESIS` (transitorio hasta R4d) retiene el 🟢 de "solo
+    tesis". `OpenNotebook.formato_telegram` (función aparte) muestra el alcance de cada
+    dimensión con citas. `capturar_rag.semaforo(None)` → ⚪; `evaluate_gold_set` admite
+    `null` en `score_rag`/`score_sjf` solo con `articulos_total: 0` / `tesis_total: 0`.
+- **Alcance explícito:** `policy.ALCANCE_NORMATIVA` / `ALCANCE_JURISPRUDENCIA` en cada
+  referencia (`alcance_verificacion`) y en `vvca_summary` (`alcance_verificacion`,
+  `alcance_verificacion_tesis`); el `disclaimer` 🟢 lo dice al abogado.
+- **Contrato JSON:** solo campos añadidos (`precepto_derogado`, `alcance_verificacion`,
+  `rag_sin_citas`, `sjf_sin_citas`, `alcance_verificacion_tesis`, `tesis_parciales`; por
+  referencia, `unidad_citada` (también en `extract_references`), `unidad_cotejada`,
+  `unidad_derogada`, `unidad_no_cotejada`, `derogacion_ambigua`, `evidencia_incompleta`; en la
+  explicabilidad, `precepto_derogado`, `unidad_derogada`, `derogacion_ambigua`,
+  `unidad_no_cotejada`, `evidencia_incompleta`, `fragmentos_continuacion` y
+  `filtro_fuente_fallido` solo cuando aplican). Cambio de significado pedido en la ronda 2:
+  `tesis_ok` cuenta solo las tesis verificadas. Cambio de tipo
+  pedido por D12: `score_rag`/`score_sjf` pueden ser `null` y `semaforo_*` puede ser ⚪.
+  Consumidores revisados: `vvca_full.py` (ítem del pop-up con `precepto_derogado`; conteos
+  `precepto_derogado` y `fuente_no_coincide` en el paso), `capturar_rag.py` (aviso "PRECEPTO
+  DEROGADO" junto al de "LEY POR CONFIRMAR"; pop-up "FUENTE NO COINCIDE" con el semáforo de la
+  cita), la salida `--format telegram` (muestra "sin citas" y el alcance),
+  `itosturre/memoria/puente.py` (guarda los puntajes tal cual; admite `null`),
+  `scripts/run_regression.py` y `scripts/evaluate_gold_set.py` (sin cambios) y la skill
+  `menu-itosturre` (MENÚ 1: `null` = sin citas).
+
 ## Fuentes canónicas
 
 1. `CLAUDE.md` contiene la política operativa compartida. `AGENTS.md` es su adaptación
@@ -244,7 +312,7 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
-| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b) |
+| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b; D08, D09, D11 y D12 en R4c) |
 | Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-017, que el Gold Set no admite porque no tiene paquete. Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
@@ -265,7 +333,9 @@ la lógica del núcleo con dobles, pero no la recuperación real.
   Las siguientes extracciones serán incrementales, conservarán la CLI y pasarán la regresión.
   Desde R4a el módulo se importa sin dependencias pesadas y `audit()` es probable con
   dobles; las correcciones del núcleo (R4b–R4d) cambian las pruebas de caracterización a
-  sabiendas. R4b movió la extracción y la resolución de ley a `itosturre/audit/referencias.py`.
+  sabiendas. R4b movió la extracción y la resolución de ley a `itosturre/audit/referencias.py`;
+  R4c, la detección de derogación (`evidence.py`) y el semáforo por dimensión y el alcance
+  (`policy.py`).
 - `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
   permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.

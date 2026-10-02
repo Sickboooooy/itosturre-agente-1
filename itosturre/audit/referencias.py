@@ -96,8 +96,10 @@ _ORDINAL = rf"(?:(?-i:[oa]){_FIN_PALABRA}|[ºª])"
 _LETRA = rf"(?:\.?-[A-Za-z]{_FIN_PALABRA}(?!\))|(?-i:[A-Z]){_FIN_PALABRA})"
 _LATINO = rf"(?:\.?\s*-?\s*{_LATINO_ALT}{_FIN_PALABRA})"
 _DESIGNACION = rf"\d+{_ORDINAL}?{_LETRA}?{_LATINO}?"
-# Fracción: la misma expresión de siempre (no forma parte de R4b).
-_FRACCION = r"(?:\s*[,;]?\s*(?:fr(?:acci[oó]n)?\.?|frac\.?)\s*([\w\.]+))?"
+# Fracción. R4c (ronda 2): la palabra clave no puede seguir dentro de otra palabra
+# ("frente a" ya no es la fracción "ente") y admite "fracc." ("fracc. III" ya no es "acc.").
+_CLAVE_FRACCION = r"(?:fracci[oó]n(?![^\W\d_])|fracc?(?:\.|(?![^\W\d_]))|fr(?:\.|(?![^\W\d_])))"
+_FRACCION = rf"(?:\s*[,;]?\s*{_CLAVE_FRACCION}\s*([\w\.]+))?"
 # Cabeza: "art", "arts", "artículo(s)"; no dentro de otra palabra ("Smart 5", "apart. 3").
 _CABEZA = r"(?<![^\W_])art[íi]?(?:culo)?s?\.?\s*"
 
@@ -117,7 +119,7 @@ _CALIFICADOR_PREVIO_RE = re.compile(
 )
 _ITEM_RE = re.compile(
     rf"(?P<num>\d+)(?P<ord>{_ORDINAL})?(?P<letra>{_LETRA})?(?P<latino>{_LATINO})?(?P<grado>°)?"
-    r"(?:\s*[,;]?\s*(?:fr(?:acci[oó]n)?\.?|frac\.?)\s*(?P<fraccion>[\w\.]+))?",
+    rf"(?:\s*[,;]?\s*{_CLAVE_FRACCION}\s*(?P<fraccion>[\w\.]+))?",
     re.IGNORECASE,
 )
 # Continuación de una enumeración: "14, 16 y 19" · rango: "467 a 471", "155–157", "247-250".
@@ -1279,9 +1281,129 @@ def _resolver_unidades(
             u.resolucion = _resolver_previo(texto, u, menciones, cortes)
 
 
+# ── Unidad citada (R4c, ronda 2) ───────────────────────────────────────────────────────
+# Calificadores pegados al artículo que designan una unidad del precepto: "fracción I",
+# "fracciones I y II", "párrafo segundo" / "segundo párrafo" / "párrafo 2°", "inciso a)",
+# "apartado B", "in fine", "parte final", "base V", "numeral 3". La auditoría coteja la
+# unidad en la evidencia: una cita de fracción no se acredita con el encabezado del artículo.
+# Ajuste previo al commit: el punto de un ordinal ("artículo 1o., párrafo tercero") también
+# separa el artículo de su unidad.
+_SEP_UNIDAD = r"[\s,;().]*(?:(?:y|e)\s+)?"
+_ROMANO_UNIDAD = r"(?-i:[IVXLC]+)(?![^\W\d_])"
+_ORDINAL_SIMPLE = (
+    r"primer[oa]?|segund[oa]|tercer[oa]?|cuart[oa]|quint[oa]|sext[oa]|s[eé]ptim[oa]"
+    r"|octav[oa]|noven[oa]"
+)
+_ORDINAL_PARRAFO = (
+    rf"(?:d[eé]cim[oa](?:\s+(?:{_ORDINAL_SIMPLE}))?|{_ORDINAL_SIMPLE}"
+    r"|[uú]ltim[oa]|pen[uú]ltim[oa]"
+    r"|\d{1,2}\s*(?:[°ºª]|[oa](?![^\W\d_])\.?)?)(?![^\W\d_])"
+)
+_UNIDADES_RE = (
+    ("fraccion", re.compile(
+        _SEP_UNIDAD + rf"fracciones\s+(?P<v>{_ROMANO_UNIDAD}(?:\s*(?:,\s*(?:y|e)?|y|e)\s*"
+        rf"{_ROMANO_UNIDAD})*)", re.IGNORECASE)),
+    ("fraccion", re.compile(
+        _SEP_UNIDAD + _CLAVE_FRACCION + rf"\s*(?P<v>{_ROMANO_UNIDAD}|\d{{1,2}}(?!\d))\.?",
+        re.IGNORECASE)),
+    ("parrafo", re.compile(
+        _SEP_UNIDAD + rf"(?:(?:p[aá]rrafos?|p[aá]rr\.)\s*(?P<v>{_ORDINAL_PARRAFO})"
+        rf"|(?P<w>{_ORDINAL_PARRAFO})\s+p[aá]rrafos?(?![^\W\d_]))", re.IGNORECASE)),
+    ("inciso", re.compile(
+        _SEP_UNIDAD + r"(?:incisos?|inc\.)\s*(?P<v>[a-z])\)?(?![^\W\d_])", re.IGNORECASE)),
+    ("apartado", re.compile(
+        _SEP_UNIDAD + r"(?:apartados?|ap\.)\s*(?P<v>(?-i:[A-Z]))(?![^\W\d_])", re.IGNORECASE)),
+    ("otra", re.compile(
+        _SEP_UNIDAD + r"(?P<v>in\s+fine|parte\s+final|base\s+(?-i:[IVXLC]+)|numeral\s+\d+)"
+        r"(?![^\W\d_])", re.IGNORECASE)),
+)
+
+
+# Unidad que PRECEDE al artículo: "párrafo tercero del artículo 1o.", "fracción II del
+# artículo 31", "inciso a) de la fracción III del artículo 107", "último párrafo del artículo
+# 16". La cadena de unidades (unidas por "de la"/"del") debe terminar pegada a la cabeza con
+# "del"/"de la"/"de los": una unidad de otro contexto ("el 2o. párrafo de la sentencia …
+# el artículo 16") o de una ley ("fracción II de la Ley de Amparo") no se asocia.
+_UNIDAD_SUELTA = (
+    rf"(?:fracci[oó]n(?:es)?\s+{_ROMANO_UNIDAD}(?:\s*(?:,\s*(?:y|e)?|y|e)\s*{_ROMANO_UNIDAD})*"
+    rf"|fracc?\.\s*{_ROMANO_UNIDAD}"
+    rf"|fr\.\s*{_ROMANO_UNIDAD}"
+    rf"|(?:p[aá]rrafos?|p[aá]rr\.)\s*{_ORDINAL_PARRAFO}|{_ORDINAL_PARRAFO}\s+p[aá]rrafos?"
+    r"|(?:incisos?|inc\.)\s*[a-z]\)?|(?:apartados?|ap\.)\s*(?-i:[A-Z])"
+    rf"|in\s+fine|parte\s+final|base\s+{_ROMANO_UNIDAD}|numeral\s+\d+)(?![^\W\d_])"
+)
+_CONECTOR_UNIDAD = r"\s*,?\s*(?:de\s+la|del|de)\s+"
+_CADENA_PREVIA_RE = re.compile(
+    rf"(?<![^\W_])(?P<cadena>{_UNIDAD_SUELTA}(?:{_CONECTOR_UNIDAD}{_UNIDAD_SUELTA})*)"
+    r"\s*,?\s*(?:de\s+los|de\s+la|del|de)\s*$",
+    re.IGNORECASE,
+)
+_CONECTOR_UNIDAD_RE = re.compile(_CONECTOR_UNIDAD, re.IGNORECASE)
+
+
+def unidades_previas(texto: str, cabeza: int) -> list[dict]:
+    """Unidades citadas inmediatamente ANTES de la cabeza del artículo ("párrafo tercero
+    del artículo 1o."). [] si la cabeza no está precedida por una cadena de unidades."""
+    ventana_inicio = max(0, cabeza - 200)
+    m = _CADENA_PREVIA_RE.search(texto, ventana_inicio, cabeza)
+    if not m:
+        return []
+    return unidades_citadas(texto, m.start("cadena"), m.end("cadena"), conectores=True)
+
+
+def unidades_citadas(
+    texto: str, desde: int, hasta: int, *, conectores: bool = False
+) -> list[dict]:
+    """Unidades del precepto nombradas en ``texto[desde:hasta]`` justo tras el artículo
+    (calificadores consecutivos; se detiene en la primera palabra que no lo es). Con
+    ``conectores`` admite "de la"/"del" entre unidades (cadena previa al artículo)."""
+    unidades: list[dict] = []
+    posicion = desde
+    while posicion < hasta:
+        if conectores and unidades:
+            conector = _CONECTOR_UNIDAD_RE.match(texto, posicion, hasta)
+            if conector:
+                posicion = conector.end()
+        for tipo, patron in _UNIDADES_RE:
+            m = patron.match(texto, posicion, hasta)
+            if m and m.end() > posicion:
+                break
+        else:
+            break
+        valor = (m.group("v") if "w" not in patron.groupindex else (m.group("v") or m.group("w")))
+        valor = re.sub(r"\s+", " ", valor.strip())
+        if tipo == "fraccion" and re.search(r"[\s,]", valor):
+            unidades.extend({"tipo": "fraccion", "valor": v}
+                            for v in re.findall(r"[IVXLC]+", valor))
+        else:
+            unidades.append({"tipo": tipo, "valor": valor.lower() if tipo == "inciso" else valor})
+        posicion = m.end()
+    return unidades
+
+
+def _unidad_del_item(texto: str, u: _Unidad, i: int, item: _Item) -> list[dict]:
+    """Unidad citada de un artículo: la que precede a la cabeza ("párrafo tercero del
+    artículo 1o.", para los artículos del primer segmento), su fracción pegada y, para el
+    último del segmento, los calificadores entre él y su ley ("artículo 107, fracción V,
+    inciso a), de la …")."""
+    unidades = unidades_previas(texto, u.cabeza) if u.primera else []
+    if item.fraccion.strip().rstrip(".,;"):
+        unidades.append({"tipo": "fraccion", "valor": item.fraccion.strip().rstrip(".,;")})
+    if i == len(u.items) - 1:
+        if u.enlace:
+            hasta = u.enlace.elementos[0].inicio
+        else:
+            # Sin ley a la derecha: hasta el fin de la oración o la siguiente cabeza.
+            siguiente = _CABEZA_RE.search(texto, u.fin)
+            hasta = min(u.oracion[1], u.fin + 160, len(texto),
+                        siguiente.start() if siguiente else len(texto))
+        unidades.extend(unidades_citadas(texto, u.fin, max(u.fin, hasta)))
+    return unidades
+
+
 def _referencia(
     texto: str, u: _Unidad, articulo: str, fraccion: str, fin_raw: int, r: Resolucion,
-    group_raw: str, *, cobertura: Optional[str] = None,
+    group_raw: str, *, cobertura: Optional[str] = None, unidad: Optional[list[dict]] = None,
 ) -> dict:
     return {
         "type": "article",
@@ -1296,6 +1418,8 @@ def _referencia(
         "group_raw": group_raw,
         "law_requires_confirmation": r.confirmar,
         "coverage_gap": cobertura,
+        # R4c (ronda 2): unidad del precepto citada ([] = el artículo completo).
+        "unidad_citada": unidad or [],
     }
 
 
@@ -1326,7 +1450,7 @@ def extraer_articulos(texto: str, catalogo: CatalogoLeyes) -> list[dict]:
         for i, item in enumerate(u.items):
             r = u.por_item[i] if u.por_item else u.resolucion
             refs.append(_referencia(texto, u, item.articulo, item.fraccion, item.fin_raw, r,
-                                    group_raw))
+                                    group_raw, unidad=_unidad_del_item(texto, u, i, item)))
         for a, b, total in u.excedidos:
             refs.append(_referencia(
                 texto, u, f"{a + 1} a {b - 1}", "", u.fin, u.por_item[0] if u.por_item
