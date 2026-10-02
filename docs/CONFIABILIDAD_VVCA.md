@@ -76,7 +76,9 @@ incluidas las que no pudieron verificarse. Cada registro contiene:
 - referencia y tipo;
 - archivo, URL y localizador de la fuente;
 - método y fecha de recuperación;
-- estado: `verified`, `partial`, `not_verifiable` o `refuted`;
+- estado: `verified`, `partial`, `not_verifiable` o `refuted` (una cita normativa solo queda
+  `refuted` con prueba positiva de inexistencia en el cuerpo de la ley indexada, método
+  `corpus_estructura`, D10; una tesis, con rubro discrepante o sentido invertido);
 - score, semáforo y razón;
 - SHA-256 del fragmento recuperado;
 - metadata explicativa del cálculo;

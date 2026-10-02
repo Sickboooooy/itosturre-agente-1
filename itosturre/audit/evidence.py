@@ -63,13 +63,15 @@ def _encabezado_exacto(article: str) -> re.Pattern | None:
 # con mayúscula inicial, número (con ordinal y sufijo) y cierre ("Artículo 43.-",
 # "ARTÍCULO 69.", "Artículo 2o.-B."). Una remisión que el PDF dejó al inicio de una línea
 # ("artículo 42, fracción XIII", "Artículo 42 de esta Ley") no corta: va en minúscula o
-# sin cierre.
+# sin cierre. R4-D10: el grupo ``designacion`` (número, ordinal y sufijos) no cambia qué se
+# reconoce; lo usa ``itosturre.audit.inexistencia`` para ordenar los encabezados del cuerpo.
 _SUFIJO_GENERICO = (
     r"(?:[ \t]*\.?[ \t]*-?[ \t]*(?:(?-i:[A-Z])|bis|ter|quater|quinquies|sexies|septies"
     r"|octies|nonies|decies)(?![^\W\d_]))"
 )
 _ENCABEZADO_SIGUIENTE = re.compile(
-    rf"^[ \t]*(?-i:A)rt(?:iculo)?\.?[ \t]+\d+(?:[oaºª°](?![^\W\d_]))?{_SUFIJO_GENERICO}*"
+    rf"^[ \t]*(?-i:A)rt(?:iculo)?\.?[ \t]+"
+    rf"(?P<designacion>\d+(?:[oaºª°](?![^\W\d_]))?{_SUFIJO_GENERICO}*)"
     r"[ \t]*(?:\.\-|\.(?=\s)|\.$|-(?=\s)|:)",
     re.IGNORECASE | re.MULTILINE,
 )
