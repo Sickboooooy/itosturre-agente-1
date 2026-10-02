@@ -2167,10 +2167,12 @@ class AuditoriaTests(AuditoriaBase):
         ])
         self.assertEqual((resultado["alerts_count"], resultado["avisos_count"]), (1, 1))
         resumen = resultado["vvca_summary"]
+        # V1 (piloto PEN-01, corregido): la tesis no encontrada es 🟡 NO VERIFICABLE, no
+        # "roja"; antes ``tesis_rojas`` valía 1 aquí con veredicto 🟡 y ``rojos`` 0.
         self.assertEqual(
             (resumen["tesis_total"], resumen["tesis_ok"], resumen["tesis_no_encontradas"],
-             resumen["tesis_rojas"], resumen["tesis_por_fuerza"]),
-            (2, 1, 1, 1, {"[J-TCC]": 1}),
+             resumen["tesis_rojas"], resumen["rojos"], resumen["tesis_por_fuerza"]),
+            (2, 1, 1, 0, 0, {"[J-TCC]": 1}),
         )
         self.assertEqual((resumen["tesis_por_cotejo_rubro"], resumen["tesis_por_vigencia"]),
                          ({"coincide": 1}, {"no_consultada": 1}))
@@ -2228,7 +2230,8 @@ class AuditoriaTests(AuditoriaBase):
         resumen = resultado["vvca_summary"]
         self.assertEqual((resumen["score_sjf"], resumen["semaforo_sjf"]), (None, "🟡"))
         self.assertTrue(resultado["summary"].startswith(
-            "RAG sin citas · SJF — 🟡 (0/1 tesis ok), 1 no encontradas · Veredicto: 🟡"))
+            "RAG sin citas · SJF — 🟡 (0/1 tesis ok), 1 no encontradas (🟡 no verificables) · "
+            "Veredicto: 🟡"))
 
     def test_R4_D12_subpuntaje_verde_dice_cuantas_quedaron_sin_verificar(self) -> None:
         consulta = "Artículo 16 cpeum"
@@ -2271,6 +2274,35 @@ class AuditoriaTests(AuditoriaBase):
         self.assertEqual(resumen["tesis_superadas"], 1)
         self.assertEqual(resumen["veredicto"]["semaforo"], "🔴")
         self.assertEqual(resumen["disclaimer"]["nivel"], "🔴")
+
+    def test_V1_tesis_rojas_solo_cuenta_rojas_reales(self) -> None:
+        # Piloto PEN-01 (V1): ``tesis_rojas`` sumaba las tesis no encontradas, que son 🟡 NO
+        # VERIFICABLE ("🟡 no es 🔴"), y no contaba la vigencia perdida. Ahora cuenta solo
+        # rubro discrepante o invertido y vigencia perdida, una vez por tesis; el veredicto se
+        # calcula con los conteos de siempre y no cambia.
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        literal = ("Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+                   "COMPUTABLE, registro digital: 0000001.")
+        invertido = ("Se invoca RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO NO ES COMPUTABLE, "
+                     "registro digital: 0000001.")
+        casos = (
+            # (vigencia registrada, texto, tesis_rojas, semáforo del veredicto)
+            ("superada", literal, 1, "🔴"),
+            ("vigente", invertido, 1, "🔴"),
+            ("superada", invertido, 1, "🔴"),  # la misma tesis no cuenta dos veces
+            ("vigente", "Tesis con registro digital: 0000009 (registro ficticio).", 0, "🟡"),
+        )
+        for vigencia, texto, rojas, semaforo in casos:
+            with self.subTest(vigencia=vigencia, texto=texto[:30]):
+                self.guardar_tesis([_tesis_ficticia(estado_vigencia=vigencia)])
+                resultado = self.auditar(texto)
+                resumen = resultado["vvca_summary"]
+                self.assertEqual(resumen["tesis_rojas"], rojas)
+                self.assertEqual(resumen["veredicto"]["semaforo"], semaforo)
+        resultado = self.auditar(literal.replace("0000001", "0000009"))
+        self.assertIn("no encontradas (🟡 no verificables)", resultado["summary"])
+        self.guardar_tesis([_tesis_ficticia(estado_vigencia="superada")])
+        self.assertIn("1 con vigencia perdida", self.auditar(literal)["summary"])
 
     def test_R4_D07_tesis_en_mayusculas_entra_a_la_auditoria(self) -> None:
         # Antes la tesis desaparecía: 0 referencias, ninguna traza y 🟡 "Sin citas detectadas".

@@ -30,6 +30,25 @@ Decisiones de esquema:
       fuente cambia, deja de valer), declara todos los códigos de la fuente, trae una
       resolución no vacía y su responsable es humano; para sostener un VERIFICADO,
       además, la decisión debe estar APROBADA. ``bloquea`` por sí solo no basta.
+
+  - Identificación del criterio por tipo de fuente (piloto PEN-01, D8). Llave opcional
+    ``afirmaciones[].identificacion_criterio.tipo_fuente``, que interpreta PL-007:
+
+    * ``"tesis_sjf"`` (por omisión): los diez campos ``CAMPOS_CRITERIO`` de la tesis del
+      SJF (rubro, clave, órgano, época, registro, integración, publicación,
+      obligatoriedad, fuerza vinculante y alcance), sin cambios.
+    * ``"sentencia_internacional"`` (p. ej. Corte IDH): ``CAMPOS_SENTENCIA_INTERNACIONAL``
+      — ``caso`` ("… vs. México"), ``serie_numero`` ("Serie C No. …"), ``fecha`` (de la
+      sentencia) y ``parrafo`` (párrafo o punto resolutivo citado). Una sentencia no tiene
+      rubro, clave, época ni registro digital: exigírselos era imposible de satisfacer.
+
+    Sin ``tipo_fuente``, una identificación cuyas evidencias citadas son todas de
+    ``HOSTS_SENTENCIA_INTERNACIONAL`` se lee como sentencia internacional; cualquier otra,
+    como tesis del SJF. Un ``tipo_fuente`` fuera de ``TIPOS_FUENTE_CRITERIO`` es hallazgo
+    PL-007 (y se exigen los campos de tesis). El tipo declarado debe ser compatible con las
+    evidencias (ronda 2): ``sentencia_internacional`` exige al menos una de la Corte IDH y
+    ninguna de ``HOSTS_TESIS``; ``tesis_sjf`` no puede citar sentencias de la Corte IDH. Si
+    no lo es, PL-007.
 """
 from __future__ import annotations
 
@@ -72,6 +91,20 @@ CAMPOS_CRITERIO = (
     "fuerza_vinculante",
     "alcance",
 )
+# Identificación del criterio por tipo de fuente (piloto PEN-01, D8). Ver el docstring.
+TESIS_SJF = "tesis_sjf"
+SENTENCIA_INTERNACIONAL = "sentencia_internacional"
+TIPOS_FUENTE_CRITERIO = (TESIS_SJF, SENTENCIA_INTERNACIONAL)
+CAMPOS_SENTENCIA_INTERNACIONAL = ("caso", "serie_numero", "fecha", "parrafo")
+CAMPOS_POR_TIPO_FUENTE = {
+    TESIS_SJF: CAMPOS_CRITERIO,
+    SENTENCIA_INTERNACIONAL: CAMPOS_SENTENCIA_INTERNACIONAL,
+}
+# Hosts cuyas evidencias, si son todas las que cita el criterio, lo hacen sentencia
+# internacional cuando la identificación no declara ``tipo_fuente``.
+HOSTS_SENTENCIA_INTERNACIONAL = frozenset({"www.corteidh.or.cr"})
+# Hosts de tesis: una ``sentencia_internacional`` declarada no puede citarlos (ronda 2).
+HOSTS_TESIS = frozenset({"sjf2.scjn.gob.mx", "sjfsemanal.scjn.gob.mx"})
 
 _FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 

@@ -312,6 +312,17 @@ class LimpiezaVariantesTests(unittest.TestCase):
 
 
 class UbicacionArticulosTests(unittest.TestCase):
+    def test_fecha_ultima_reforma_de_la_linea_del_encabezado(self) -> None:
+        # Piloto PEN-01 (D3): el cotejo del encabezado lee la fecha de la línea literal.
+        from itosturre.evidencia.leyesbiblio import fecha_ultima_reforma
+
+        self.assertEqual(fecha_ultima_reforma("Última Reforma DOF 28-11-2025 "), "2025-11-28")
+        self.assertEqual(fecha_ultima_reforma("Últimas Reformas DOF 02-06-2026"), "2026-06-02")
+        self.assertEqual(documento("CNPP").ultima_reforma_dof, fecha_ultima_reforma("Última Reforma DOF 28-11-2025"))
+        for linea in ("Última Reforma DOF 31-02-1800", "Reforma DOF 28-11-2025", "CÓDIGO NACIONAL", None):
+            with self.subTest(linea=linea):
+                self.assertIsNone(fecha_ultima_reforma(linea))
+
     def test_cnpp_articulo_167_en_pagina_no_contigua_es_indeterminado(self) -> None:
         # El fixture trae las páginas 1, 52, 54, 139 y 155: entre la 1 y la 52 faltan
         # páginas, así que no se acredita que la 52 esté antes de la frontera real.

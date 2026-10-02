@@ -285,6 +285,19 @@ def limpiar_pagina(texto: str, numero: int) -> PaginaLimpia:
     )
 
 
+def fecha_ultima_reforma(linea: str) -> str | None:
+    """``AAAA-MM-DD`` si la línea es exactamente "Última(s) Reforma(s) DOF dd-mm-aaaa"
+    (comparación sin acentos ni mayúsculas); ``None`` si no lo es o la fecha es imposible."""
+    if not isinstance(linea, str):
+        return None
+    coincidencia = _ULTIMA_REFORMA_RE.match(normalizar_para_cotejo(linea))
+    if coincidencia is None:
+        return None
+    dia, mes, anio = coincidencia.groups()
+    fecha = fecha_iso(f"{anio}-{mes}-{dia}")
+    return fecha.isoformat() if fecha else None
+
+
 def es_subsecuencia(corta: Sequence[str], larga: Sequence[str]) -> bool:
     """``True`` si ``corta`` aparece en ``larga`` en el mismo orden (con huecos)."""
     iterador = iter(larga)

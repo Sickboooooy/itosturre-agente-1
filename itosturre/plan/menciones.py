@@ -9,24 +9,48 @@ Reconoce tres tipos de mención en un documento:
   ``PC.III.P. J/12 P``) y jurisprudencia de TCC (``I.3o.C. J/12``). Se conservan
   la letra de materia y la época: ``PR.A.CS. J/1 P (11a.)`` ≠ ``PR.A.CS. J/1 A (11a.)``.
 * **Artículos** — con límite de palabra (``apart. 3`` y ``Smart 5`` no cuentan),
-  enumeraciones (``artículos 14, 16 y 17`` → 14, 16 y 17), sufijos
+  enumeraciones (``artículos 14, 16 y 17`` → 14, 16 y 17), rangos (``arts. 105,
+  108-112 y 114`` → 105, 108, 109, 110, 111, 112 y 114), sufijos
   ``bis``/``ter``/``quáter``/``quinquies``… (``art. 19 Ter`` ≠ ``art. 19``) y el
   ordenamiento si aparece a la derecha (≤ 40 caracteres) con una sigla o nombre del
   diccionario ``LEYES`` (``art. 19 CNPP`` ≠ ``art. 19 CPEUM``).
+* **Citas "SIGLA número"** (piloto PEN-01, D4) — ``CNPP 167``, ``CFF 113 Bis``,
+  ``CPEUM 1º``, ``LAmp 217``: la sigla del diccionario ``LEYES`` seguida del número del
+  artículo, sin "art.", es una mención de ese artículo **de esa ley**. Para no confundir
+  siglas ni números que no son artículos: solo siglas del diccionario (``DOF``, ``SAT`` o
+  ``IUS`` nunca cuentan) y nunca ``LA`` (es también el artículo "la" en mayúsculas: usar
+  ``LAmp``); de 1 a 3 dígitos (``CFF 2026`` es un año); nunca una fecha (``CNPP
+  28-11-2025``), un monto o decimal (``CFF 1,500``, ``CFF 10.5``), una fracción (``LGS
+  3/2019``), un número seguido de unidad o de mes (``CNPP 3 días``, ``CPEUM 19 de
+  junio``), una letra pegada (``LA 1A.``) ni un número precedido de "folio", "oficio",
+  "expediente", "número"… Admite enumeraciones y rangos como la forma con "art.".
+* **Letra del artículo** (ronda 2) — ``29-A`` y ``4o.-A`` (mayúscula pegada al guion) son
+  otros artículos: ``art. 29-A`` ≠ ``art. 29``, en ambas formas. Cada número de una
+  enumeración o extremo de rango pasa la misma validación que el primero (fecha, unidad,
+  decimal, miles, letra suelta): "CFF 28, 29-A y 30" da tres menciones y "CFF 28, 10.5"
+  solo una.
+
+Rangos (PEN-01 D5): el contrato es el del VVCA (``itosturre/audit/referencias.py``): se
+expanden hasta ``MAX_RANGO`` artículos (el mismo valor; una prueba lo comprueba); uno
+mayor conserva sus extremos y deja una mención ``RANGO`` de **cobertura incompleta**
+con los intermedios (nunca desaparecen en silencio); un rango invertido conserva sus
+extremos. Solo entre números simples (sin sufijo) y nunca si el extremo final va
+seguido de una unidad ("16 a 20 días").
 
 Cobertura: una mención del documento queda cubierta por una mención de una
 afirmación con el mismo tipo y clave si cada calificador que trae el documento
 (ordenamiento, materia, época) coincide. Lo que el documento no especifica no se
 exige: ``art. 19`` sin ley lo cubre cualquier ``art. 19``; si nadie lo cubre, el
-hallazgo se marca como ambiguo.
+hallazgo se marca como ambiguo. Una mención ``RANGO`` solo la cubre el mismo rango.
 
 Es independiente de ``ARTICLE_RE`` de ``OpenNotebook.py`` a propósito (ese patrón
 tiene defectos conocidos y pertenece al pipeline VVCA).
 
 Limitaciones conocidas: solo se reconoce el ordenamiento escrito a la derecha del
-artículo (no ``la Ley de Amparo, en su artículo 217``) y solo las leyes del
-diccionario; no se expanden rangos (``artículos 14 a 17``); una enumeración se corta
-en ``fracción`` o ``párrafo``; no se reconocen artículos escritos con letra.
+artículo o la sigla pegada a su izquierda ("CNPP 167"), no ``la Ley de Amparo, en su
+artículo 217`` ni ``CPEUM art. 19`` (decisión pendiente del responsable), y solo las
+leyes del diccionario; una enumeración se corta en ``fracción``, ``párrafo`` o ``;``
+("CFF 108; 92 fr. I" solo da el 108); no se reconocen artículos escritos con letra.
 """
 from __future__ import annotations
 
@@ -38,8 +62,14 @@ from typing import Iterable
 ARTICULO = "articulo"
 REGISTRO = "registro"
 CLAVE = "clave"
+# Intermedios de un rango de más de ``MAX_RANGO`` artículos: cobertura incompleta.
+RANGO = "rango"
 
 VENTANA_LEY = 40
+# Tope de expansión de un rango: mismo contrato que el VVCA
+# (``itosturre.audit.referencias.MAX_RANGO``). No se importa de ``audit`` para no crear
+# la dependencia plan → audit (D2); una prueba comprueba que los dos valores coinciden.
+MAX_RANGO = 20
 
 
 @dataclass(frozen=True)
@@ -47,8 +77,9 @@ class Mencion:
     """Mención localizada en un texto.
 
     ``clave`` es la forma base que se compara (``art. 19 ter``, ``registro 2006224``,
-    ``pr.a.cs. j/1``). Los calificadores ``ley`` (artículos), ``materia`` y ``epoca``
-    (claves de tesis) se comparan aparte para decidir la cobertura.
+    ``pr.a.cs. j/1``, ``arts. 2 a 99``). Los calificadores ``ley`` (artículos y rangos),
+    ``materia`` y ``epoca`` (claves de tesis) se comparan aparte para decidir la
+    cobertura. ``detalle`` explica una mención ``RANGO`` (cobertura incompleta).
     """
 
     tipo: str
@@ -58,6 +89,10 @@ class Mencion:
     linea: int
     materia: str | None = None
     ley: str | None = None
+    detalle: str | None = None
+    # Índice en el texto original donde empieza la cita (la cabeza de su enumeración):
+    # permite leer qué la precede ("remite al art. …"). No se compara para la cobertura.
+    posicion: int | None = None
 
     @property
     def calificadores(self) -> tuple[str | None, str | None, str | None]:
@@ -65,12 +100,12 @@ class Mencion:
 
     @property
     def ambigua(self) -> bool:
-        """Artículo sin ordenamiento identificable."""
-        return self.tipo == ARTICULO and self.ley is None
+        """Artículo (o rango) sin ordenamiento identificable."""
+        return self.tipo in (ARTICULO, RANGO) and self.ley is None
 
     @property
     def normalizada(self) -> str:
-        if self.tipo == ARTICULO:
+        if self.tipo in (ARTICULO, RANGO):
             return f"{self.clave} {self.ley}" if self.ley else self.clave
         if self.tipo == CLAVE:
             texto = self.clave
@@ -113,7 +148,8 @@ LEYES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "CNPP": (("CNPP",), ("codigo nacional de procedimientos penales",)),
     "CPF": (("CPF",), ("codigo penal federal",)),
     "CFF": (("CFF",), ("codigo fiscal de la federacion",)),
-    "LA": (("LA",), ("ley de amparo",)),
+    # "LAmp": abreviatura del archivo de LeyesBiblio, usual en la cita "LAmp 217".
+    "LA": (("LA", "LAmp"), ("ley de amparo",)),
     "LNEP": (("LNEP",), ("ley nacional de ejecucion penal",)),
     "LNMASCMP": (
         ("LNMASCMP",),
@@ -159,7 +195,10 @@ _CORTE_RE = re.compile(r"\n|;|\.\s+(?=[A-Z])")
 _SUFIJOS = "bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies"
 _NUM_ARTICULO = (
     r"(?P<num>\d{1,4})(?![\d/])"
-    r"(?:\s*[°º]\.?|o(?![a-z0-9])\.?)?"
+    r"(?P<ord>\s*[°º]\.?|o(?![a-z0-9])\.?)?"
+    # Letra pegada al guion y en mayúscula ("29-A", "4o.-A"): otro artículo, no el 29 ni
+    # el 4 (ronda 2, D4). Con espacio ("1o.- A quien…") o en minúscula es texto.
+    r"(?P<letra>\.?[-‐‑–](?-i:[A-Z])(?![A-Za-z])(?!\)))?"
     rf"(?:\s*[-‐-–]?\s*(?P<suf>{_SUFIJOS})(?![a-z]))?"
 )
 _ARTICULO_RE = re.compile(
@@ -168,10 +207,48 @@ _ARTICULO_RE = re.compile(
 _CONTINUACION_RE = re.compile(
     r"(?:\s*,\s*(?:(?:y|e)\s+)?|\s+(?:y|e)\s+)" + _NUM_ARTICULO, re.IGNORECASE
 )
-# Un número tras una coma seguido de una unidad no es artículo:
-# "artículo 471, 3 días" no menciona el artículo 3.
+_ITEM_RE = re.compile(_NUM_ARTICULO, re.IGNORECASE)
+# Rango entre dos números: "108-112", "155–157", "467 a 471", "19 al 21" (como el VVCA).
+_RANGO_RE = re.compile(r"\s*(?:[-‐‑–—]|\s(?:a|al)\s)\s*(?=\d)", re.IGNORECASE)
+_MESES = (
+    "enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|"
+    "noviembre|diciembre"
+)
+# Un número seguido de una unidad o de un mes no es artículo: "artículo 471, 3 días" no
+# menciona el artículo 3, ni "CPEUM 19 de junio" el 19 (misma lista que el VVCA).
 _UNIDAD_RE = re.compile(
-    r"\s*(?:dias?|mes(?:es)?|anos?|horas?|semanas?|%|por\s+ciento)(?![a-z])",
+    r"\s*(?:dias?|mes(?:es)?|anos?|horas?|semanas?|veces|fojas?|%|por\s+ciento"
+    rf"|de\s+(?:{_MESES}))(?![a-z])",
+    re.IGNORECASE,
+)
+# Una fecha numérica ("28-11-2025", "01/04/2025") nunca es un artículo ni un rango.
+_FECHA_NUMERICA_RE = re.compile(r"\d{1,2}[-/.‐‑–]\d{1,2}[-/.‐‑–]\d{2,4}(?!\d)")
+# Un ordinal seguido de "párrafo", "fracción"… es un adjetivo ("2o. párrafo"), no un
+# artículo (como el VVCA). Solo se aplica a continuaciones y a la forma "SIGLA número".
+_ORDINAL_ADJETIVO_RE = re.compile(
+    r"\.?\s*(?:parrafo|fraccion|apartado|inciso|base|numeral)", re.IGNORECASE
+)
+
+# ── Citas "SIGLA número" (PEN-01 D4) ────────────────────────────────────────────────
+# "LA" no: en mayúsculas también es el artículo "la" ("DE LA 2A. SALA").
+_SIGLAS_CORTAS = {
+    sigla: ley for ley, (siglas, _) in LEYES.items() for sigla in siglas if sigla != "LA"
+}
+_SIGLA_NUMERO_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?P<sigla>"
+    + "|".join(re.escape(s) for s in sorted(_SIGLAS_CORTAS, key=len, reverse=True))
+    + r")[ \t" + chr(0xA0) + r"]+(?=\d)"  # espacio, tabulador o espacio duro (U+00A0)
+)
+_DIGITOS_SIGLA = 3  # "CFF 2026" es un año: ninguna ley del diccionario llega a 1000 artículos
+# Tras cada número de una cita "SIGLA número" y de cada continuación o extremo de rango:
+# nada de letras pegadas ("1A.", "2a."), decimales o miles ("10.5", "1,500") ni una letra
+# tras el guion que no sea la de un artículo con letra ("29-a", "29- A"). La letra en
+# mayúscula pegada al guion ("29-A") ya la consumió el número: es otro artículo.
+_COLA_INVALIDA = re.compile(r"[A-Za-z]|[.,]\d|\.?[-‐‑–]\s?[A-Za-z](?![A-Za-z])")
+# Palabras que, justo antes de la sigla, convierten el número en folio, oficio o número.
+_PREVIO_NO_ARTICULO = re.compile(
+    r"(?:\bfolios?|\boficios?|\bexpedientes?|\bexp\.|\bnumeros?|\bnum\.|\bno\.|\bclaves?"
+    r"|\btomos?|\blibros?|\bpaginas?|\bpag\.)\s*:?\s*$",
     re.IGNORECASE,
 )
 
@@ -241,10 +318,196 @@ def _ley_a_la_derecha(norma: str, anclaje: int) -> str | None:
     return mejor[1] if mejor else None
 
 
+# Nombres que solo identifican un ordenamiento pegados a un artículo ("19 constitucional"):
+# sueltos en el texto no lo nombran ("control constitucional").
+_NOMBRES_CONTEXTUALES = frozenset({"constitucional"})
+_LEY_PATRONES_LIBRES = tuple(
+    (
+        ley,
+        re.compile("|".join(_patron_sigla(s) for s in siglas)),
+        re.compile(
+            "|".join(_patron_nombre(n) for n in nombres if n not in _NOMBRES_CONTEXTUALES),
+            re.IGNORECASE,
+        ),
+    )
+    for ley, (siglas, nombres) in LEYES.items()
+)
+
+
+# Palabra genérica de un ordenamiento; seguida de un nombre propio ("Código Civil del
+# Estado de Jalisco", "Ley General contra la Extorsión") es una denominación concreta.
+_GENERICO_ORDENAMIENTO = re.compile(
+    r"\b(?:codigos?|leyes|ley|constitucion|reglamentos?|decretos?|estatutos?|convencion|pacto|"
+    r"tratados?)\b",
+    re.IGNORECASE,
+)
+_PALABRA = re.compile(r"[ \t]+([^\W\d_]+)")
+_CONECTORES_NOMBRE = frozenset({"de", "del", "la", "las", "los", "el", "para", "sobre", "contra", "en", "y"})
+
+
+@dataclass(frozen=True)
+class OrdenamientosDelTexto:
+    """Ordenamientos que un texto nombra: siglas de ``LEYES`` (sigla o nombre, en orden) y
+    denominaciones concretas que no son del diccionario (``ajenos``, texto sin acentos)."""
+
+    reconocidos: tuple[str, ...]
+    ajenos: tuple[str, ...]
+    # Tramos (inicio, fin) de los reconocidos en ``normalizar_texto(texto)``.
+    tramos: tuple[tuple[int, int], ...] = ()
+
+
+def ordenamientos_del_texto(texto: str) -> OrdenamientosDelTexto:
+    """Ordenamientos nombrados en cualquier parte del texto (PEN-01 D3, ronda 2).
+
+    Para las afirmaciones sobre un documento entero (el encabezado de un compilado), que
+    nombran la ley sin citar un artículo ("CPEUM: última reforma…"). "constitucional" suelto
+    no cuenta. Una palabra genérica ("Código", "Ley"…) fuera de un nombre del diccionario y
+    seguida de un nombre propio es un ordenamiento **ajeno** al catálogo: su identidad no se
+    puede acreditar con la cabecera de otro.
+    """
+    norma = normalizar_texto(texto or "")
+    tramos: list[tuple[int, int]] = []
+    encontradas: list[tuple[int, str]] = []
+    for ley, siglas, nombres in _LEY_PATRONES_LIBRES:
+        for patron in (siglas, nombres):
+            if not patron.pattern:
+                continue
+            for coincidencia in patron.finditer(norma):
+                tramos.append((coincidencia.start(), coincidencia.end()))
+                encontradas.append((coincidencia.start(), ley))
+    ajenos: list[str] = []
+    for generico in _GENERICO_ORDENAMIENTO.finditer(norma):
+        if any(inicio <= generico.start() < fin for inicio, fin in tramos):
+            continue
+        posicion, fin_nombre = generico.end(), None
+        for _ in range(4):  # conectores y, después, el nombre propio
+            palabra = _PALABRA.match(norma, posicion)
+            if not palabra:
+                break
+            posicion = palabra.end()
+            if palabra.group(1)[0].isupper():
+                fin_nombre = posicion
+                break
+            if palabra.group(1).lower() not in _CONECTORES_NOMBRE:
+                break
+        if fin_nombre is not None:
+            while (palabra := _PALABRA.match(norma, fin_nombre)) and (
+                palabra.group(1)[0].isupper() or palabra.group(1).lower() in _CONECTORES_NOMBRE
+            ):
+                fin_nombre = palabra.end()
+            ajenos.append(norma[generico.start():fin_nombre].strip())
+    return OrdenamientosDelTexto(
+        tuple(dict.fromkeys(ley for _, ley in sorted(encontradas))),
+        tuple(dict.fromkeys(ajenos)),
+        tuple(sorted(tramos)),
+    )
+
+
+def ordenamientos_mencionados(texto: str) -> list[str]:
+    """Siglas de ``LEYES`` que el texto nombra en cualquier parte (sigla o nombre), en orden."""
+    return list(ordenamientos_del_texto(texto).reconocidos)
+
+
 def _clave_articulo(coincidencia: re.Match) -> str:
-    numero = str(int(coincidencia.group("num")))
-    sufijo = coincidencia.group("suf")
-    return f"art. {numero} {sufijo.lower()}" if sufijo else f"art. {numero}"
+    """``art. 29``, ``art. 29-A``, ``art. 113 bis``, ``art. 32-B quater``: el número, la
+    letra (si la trae) y el sufijo latino; el ordinal no distingue ("1" y "1o.")."""
+    clave = f"art. {int(coincidencia.group('num'))}"
+    if coincidencia.group("letra"):
+        clave += f"-{coincidencia.group('letra')[-1].upper()}"
+    if coincidencia.group("suf"):
+        clave += f" {coincidencia.group('suf').lower()}"
+    return clave
+
+
+def _simple(coincidencia: re.Match) -> bool:
+    """Sin letra ni sufijo latino: solo los números simples forman rangos."""
+    return not (coincidencia.group("letra") or coincidencia.group("suf"))
+
+
+@dataclass(frozen=True)
+class _Articulo:
+    """Un artículo leído de una enumeración: posición, clave y fin del tramo citado."""
+
+    lugar: int
+    clave: str
+    fin: int
+
+
+@dataclass(frozen=True)
+class _RangoLargo:
+    """Rango de más de ``MAX_RANGO`` artículos: solo se extraen sus extremos."""
+
+    lugar: int
+    desde: int
+    hasta: int
+    fin: int
+
+
+def _item_valido(norma: str, item: re.Match | None, max_digitos: int | None) -> bool:
+    """¿El número de una continuación, de un extremo de rango o de una cita "SIGLA número" es
+    un artículo? No si es una fecha, si lo sigue una unidad o un mes, si excede
+    ``max_digitos`` (forma "SIGLA número") o si lo sigue una cola inválida (letra pegada,
+    decimal, miles o letra tras el guion que no es la de un artículo con letra). La
+    validación se aplica a **cada** número, no solo al primero (ronda 2, D4)."""
+    if item is None:
+        return False
+    if max_digitos is not None and len(item.group("num")) > max_digitos:
+        return False
+    if _FECHA_NUMERICA_RE.match(norma, item.start("num")):
+        return False
+    if item.group("ord") and _ORDINAL_ADJETIVO_RE.match(norma, item.end("ord")):
+        return False
+    if _COLA_INVALIDA.match(norma, item.end()):
+        return False
+    return not _UNIDAD_RE.match(norma, item.end())
+
+
+def _leer_enumeracion(
+    norma: str, primero: re.Match, *, max_digitos: int | None = None
+) -> tuple[list[_Articulo], list[_RangoLargo], int]:
+    """Artículos de una enumeración que empieza en ``primero`` (", N", " y N" y rangos).
+
+    Devuelve los artículos, los rangos demasiado largos y el fin de la enumeración. Un
+    rango (PEN-01 D5) solo une números simples y se expande hasta ``MAX_RANGO``; uno mayor
+    conserva sus extremos y queda en la lista de rangos largos (cobertura incompleta).
+    """
+    articulos = [_Articulo(primero.start("num"), _clave_articulo(primero), primero.end())]
+    largos: list[_RangoLargo] = []
+    anterior = primero
+    en_rango = False  # el anterior ya cerró un rango ("108-112-115" no encadena)
+    posicion = primero.end()
+    while True:
+        rango = _RANGO_RE.match(norma, posicion)
+        if (rango and not en_rango and _simple(anterior)
+                and not _FECHA_NUMERICA_RE.match(norma, anterior.start("num"))):
+            final = _ITEM_RE.match(norma, rango.end())
+            if _item_valido(norma, final, max_digitos) and _simple(final):
+                a, b = int(anterior.group("num")), int(final.group("num"))
+                if a < b and b - a + 1 <= MAX_RANGO:
+                    # Los intermedios comparten el tramo del extremo final (como el VVCA).
+                    articulos += [_Articulo(final.start("num"), f"art. {n}", final.end())
+                                  for n in range(a + 1, b)]
+                elif a < b:
+                    largos.append(_RangoLargo(anterior.start("num"), a, b, final.end()))
+                articulos.append(_Articulo(final.start("num"), _clave_articulo(final), final.end()))
+                anterior, en_rango, posicion = final, True, final.end()
+                continue
+        continuacion = _CONTINUACION_RE.match(norma, posicion)
+        if continuacion and _item_valido(norma, continuacion, max_digitos):
+            articulos.append(
+                _Articulo(continuacion.start("num"), _clave_articulo(continuacion), continuacion.end())
+            )
+            anterior, en_rango, posicion = continuacion, False, continuacion.end()
+            continue
+        return articulos, largos, posicion
+
+
+def _sigla_numero(norma: str, coincidencia: re.Match) -> re.Match | None:
+    """Primer número de una cita "SIGLA número" si lo es (``None`` si no: ver el módulo)."""
+    if _PREVIO_NO_ARTICULO.search(norma, max(0, coincidencia.start() - 24), coincidencia.start()):
+        return None
+    item = _ITEM_RE.match(norma, coincidencia.end())
+    return item if _item_valido(norma, item, _DIGITOS_SIGLA) else None
 
 
 def _clave_tesis(coincidencia: re.Match) -> str:
@@ -273,32 +536,44 @@ def extraer_menciones(texto: str) -> list[Mencion]:
             return ""
         return texto[mapa[inicio] : mapa[fin - 1] + 1].strip()
 
-    for cabeza in _ARTICULO_RE.finditer(norma):
-        inicio = cabeza.start()
-        numeros = [(inicio, cabeza)]
-        posicion = cabeza.end()
-        while True:
-            continuacion = _CONTINUACION_RE.match(norma, posicion)
-            if not continuacion or _UNIDAD_RE.match(norma, continuacion.end()):
-                break
-            numeros.append((continuacion.start("num"), continuacion))
-            posicion = continuacion.end()
-        # El ordenamiento escrito tras la enumeración aplica a todos sus artículos.
-        ley = _ley_a_la_derecha(norma, posicion)
-        for lugar, coincidencia in numeros:
+    def agregar_articulos(inicio: int, articulos: list[_Articulo], largos: list[_RangoLargo],
+                          ley: str | None) -> None:
+        linea = _linea(norma, inicio)
+        posicion = mapa[inicio] if inicio < len(mapa) else None
+        for articulo in articulos:
             encontradas.append(
-                (
-                    lugar,
-                    Mencion(
-                        ARTICULO,
-                        _clave_articulo(coincidencia),
-                        None,
-                        original(inicio, coincidencia.end()),
-                        _linea(norma, inicio),
-                        ley=ley,
-                    ),
-                )
+                (articulo.lugar,
+                 Mencion(ARTICULO, articulo.clave, None, original(inicio, articulo.fin), linea, ley=ley,
+                         posicion=posicion))
             )
+        for rango in largos:
+            total = rango.hasta - rango.desde + 1
+            encontradas.append((rango.lugar, Mencion(
+                RANGO, f"arts. {rango.desde + 1} a {rango.hasta - 1}", None,
+                original(inicio, rango.fin), linea, ley=ley,
+                detalle=(f"rango de {total} artículos ({rango.desde} a {rango.hasta}): solo se "
+                         f"extraen los extremos; los {total - 2} intermedios no se cubren "
+                         "(cobertura incompleta)"),
+                posicion=posicion,
+            )))
+
+    tramos: list[tuple[int, int]] = []  # tramos ya leídos con "art.": la sigla no los repite
+    for cabeza in _ARTICULO_RE.finditer(norma):
+        articulos, largos, posicion = _leer_enumeracion(norma, cabeza)
+        # El ordenamiento escrito tras la enumeración aplica a todos sus artículos.
+        agregar_articulos(cabeza.start(), articulos, largos, _ley_a_la_derecha(norma, posicion))
+        tramos.append((cabeza.start(), posicion))
+
+    # Citas "SIGLA número" (PEN-01 D4): la ley es la sigla, a la izquierda del número.
+    for sigla in _SIGLA_NUMERO_RE.finditer(norma):
+        if any(inicio <= sigla.start() < fin for inicio, fin in tramos):
+            continue
+        primero = _sigla_numero(norma, sigla)
+        if primero is None:
+            continue
+        articulos, largos, posicion = _leer_enumeracion(norma, primero, max_digitos=_DIGITOS_SIGLA)
+        agregar_articulos(sigla.start(), articulos, largos, _SIGLAS_CORTAS[sigla.group("sigla")])
+        tramos.append((sigla.start(), posicion))
 
     for coincidencia in _REGISTRO_RE.finditer(norma):
         encontradas.append(
