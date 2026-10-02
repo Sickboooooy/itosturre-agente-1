@@ -442,6 +442,84 @@ class ReglasTests(unittest.TestCase):
                 self.assertIn(f"no es texto ({type(valor).__name__})", mensajes[0])
                 self.assertIn("fuerza_vinculante", mensajes[0])
 
+    def test_pl007_esquema_segun_el_tipo_de_fuente(self) -> None:
+        # Piloto PEN-01 (D8): una sentencia de la Corte IDH no tiene rubro, clave, época ni
+        # registro digital; antes PL-007 le exigía los diez campos de la tesis del SJF.
+        ledger = ledger_limpio()
+        ledger["evidencias"].append(_evidencia(
+            "E9", naturaleza="publicacion_oficial",
+            url="https://www.corteidh.or.cr/docs/casos/articulos/seriec_sintetica_de_prueba.pdf",
+            ubicacion="Puntos resolutivos (dato sintético de prueba)",
+        ))
+        ledger["afirmaciones"].append(_afirmacion(
+            "A9", "Resolutivo de una sentencia internacional (afirmación sintética).",
+            tipo="criterio_judicial", autor="humano", evidencias=("E9",),
+            identificacion_criterio={"organo": "Corte Interamericana de Derechos Humanos"},
+        ))
+
+        def pl007() -> list[str]:
+            return [h["mensaje"] for h in lint_ledger(ledger) if h["regla"] == "PL-007"]
+
+        (mensaje,) = pl007()
+        self.assertIn("(sentencia internacional)", mensaje)
+        for campo in ("caso", "serie_numero", "fecha", "parrafo"):
+            self.assertIn(f"{campo} (ausente)", mensaje)
+        for campo in ("rubro", "clave", "epoca", "registro", "alcance"):
+            self.assertNotIn(f"{campo} (", mensaje)
+        _af(ledger, "A9")["identificacion_criterio"].update({
+            "caso": "Caso Sintético de Prueba vs. Estado Ficticio",
+            "serie_numero": "Serie C No. 0 (dato sintético de prueba)",
+            "fecha": "1 de enero de 1800 (dato sintético de prueba)",
+            "parrafo": "Punto resolutivo 1 (dato sintético de prueba)",
+        })
+        self.assertEqual(pl007(), [])
+        # Un tipo fuera de vocabulario falla cerrado: se exigen los campos de la tesis.
+        _af(ledger, "A9")["identificacion_criterio"]["tipo_fuente"] = "laudo"
+        (mensaje,) = pl007()
+        self.assertIn("fuera de vocabulario", mensaje)
+        self.assertIn("rubro (ausente)", mensaje)
+        # Declarado como tesis del SJF, exige los diez campos aunque la evidencia sea de la Corte IDH.
+        _af(ledger, "A9")["identificacion_criterio"]["tipo_fuente"] = "tesis_sjf"
+        self.assertIn("rubro (ausente)", pl007()[0])
+        # Declarado como sentencia internacional basta con sus campos.
+        _af(ledger, "A9")["identificacion_criterio"]["tipo_fuente"] = "sentencia_internacional"
+        self.assertEqual(pl007(), [])
+        # Sin tipo declarado y con una evidencia que no es de la Corte IDH: tesis del SJF.
+        del _af(ledger, "A9")["identificacion_criterio"]["tipo_fuente"]
+        _af(ledger, "A9")["verificacion"]["evidencias"] = ["E9", "E2"]
+        self.assertIn("rubro (ausente)", pl007()[0])
+
+    def test_pl007_tipo_de_fuente_declarado_debe_ser_compatible(self) -> None:
+        # Ronda 2 (D8, Codex): declarar "sentencia_internacional" sobre una tesis del SJF eludía
+        # los diez campos de la tesis sin ningún hallazgo.
+        ledger = ledger_limpio()
+        identificacion = _af(ledger, "A2")["identificacion_criterio"]  # A2 cita E2 (SJF)
+        for campo in list(identificacion):
+            del identificacion[campo]
+        identificacion.update({
+            "tipo_fuente": "sentencia_internacional",
+            "caso": "Caso Sintético de Prueba vs. Estado Ficticio",
+            "serie_numero": "Serie C No. 0 (dato sintético de prueba)",
+            "fecha": "1 de enero de 1800 (dato sintético de prueba)",
+            "parrafo": "Párrafo 1 (dato sintético de prueba)",
+        })
+        mensajes = [h["mensaje"] for h in lint_ledger(ledger) if h["regla"] == "PL-007"]
+        self.assertEqual(len(mensajes), 1, mensajes)
+        self.assertIn("incompatible", mensajes[0])
+        # Mezcla: una sentencia y una tesis del SJF también es incompatible.
+        ledger["evidencias"].append(_evidencia(
+            "E9", naturaleza="publicacion_oficial",
+            url="https://www.corteidh.or.cr/docs/casos/articulos/seriec_sintetica_de_prueba.pdf",
+            ubicacion="Puntos resolutivos (dato sintético de prueba)"))
+        _af(ledger, "A2")["verificacion"]["evidencias"] = ["E2", "E9"]
+        self.assertIn("incompatible", [h["mensaje"] for h in lint_ledger(ledger) if h["regla"] == "PL-007"][0])
+        # Solo con la sentencia de la Corte IDH es compatible y basta con sus campos.
+        _af(ledger, "A2")["verificacion"]["evidencias"] = ["E9"]
+        self.assertNotIn("PL-007", _reglas(ledger))
+        # "tesis_sjf" declarado con una sentencia de la Corte IDH: incompatible.
+        identificacion["tipo_fuente"] = "tesis_sjf"
+        self.assertIn("incompatible", [h["mensaje"] for h in lint_ledger(ledger) if h["regla"] == "PL-007"][0])
+
     def test_pl008_inexistente(self) -> None:
         ledger = ledger_limpio()
         self.assertNotIn("PL-008", _reglas(ledger))
@@ -583,6 +661,39 @@ class ReglasTests(unittest.TestCase):
         self.assertNotIn("PL-014", _reglas(ledger, documento="Ver art. 20."))
         self.assertIn("PL-014", _reglas(ledger, documento="Ver art. 20 CNPP."))
 
+    def test_pl014_ve_citas_sigla_numero_y_rangos(self) -> None:
+        # Piloto PEN-01 (D4, D5): antes PL-014 no veía "CFF 113 Bis" ni lo que sigue a "108-112".
+        ledger = ledger_limpio()
+        ledger["afirmaciones"].append(_afirmacion(
+            "A9", "Querella para los arts. 108 y 112 CFF (sintética).", estado="CANDIDATO"))
+        mensajes = [h["mensaje"] for h in lint_ledger(
+            ledger, documento="Ver CFF 113 Bis y los arts. 108-112 y 114 CFF.") if h["regla"] == "PL-014"]
+        self.assertEqual(len(mensajes), 5, mensajes)  # 113 Bis, 109, 110, 111 y 114
+        self.assertIn("«CFF 113 Bis» (art. 113 bis CFF)", mensajes[0])
+        self.assertTrue(any("(art. 109 CFF)" in m for m in mensajes))
+        self.assertTrue(any("(art. 114 CFF)" in m for m in mensajes))
+        self.assertNotIn("PL-014", _reglas(ledger, documento="Ver los arts. 108 y 112 CFF."))
+        # Un rango largo solo lo cubre el mismo rango.
+        documento = "Ver arts. 1-40 CFF."
+        mensajes = [h["mensaje"] for h in lint_ledger(ledger, documento=documento) if h["regla"] == "PL-014"]
+        self.assertTrue(any("cobertura incompleta" in m for m in mensajes), mensajes)
+        ledger["afirmaciones"].append(_afirmacion("A10", "Arts. 1-40 CFF (sintética).", estado="CANDIDATO"))
+        self.assertNotIn("PL-014", _reglas(ledger, documento=documento))
+
+    def test_pl014_sin_cobertura_espuria_por_letra(self) -> None:
+        # Ronda 2 (D4): "art. 29 CFF" no cubre "CFF 29-A", ni "art. 4 CFF" cubre "art. 4o.-A CFF".
+        ledger = ledger_limpio()
+        ledger["afirmaciones"].append(_afirmacion(
+            "A9", "Los arts. 4o., 28, 29 y 30 CFF (afirmación sintética).", estado="CANDIDATO"))
+        mensajes = [h["mensaje"] for h in lint_ledger(
+            ledger, documento="Conforme al CFF 28, 29-A y 30 y al art. 4o.-A CFF.") if h["regla"] == "PL-014"]
+        self.assertEqual(len(mensajes), 2, mensajes)
+        self.assertIn("(art. 29-A CFF)", mensajes[0])
+        self.assertIn("(art. 4-A CFF)", mensajes[1])
+        ledger["afirmaciones"].append(_afirmacion(
+            "A10", "Arts. 4o.-A y 29-A CFF (afirmación sintética).", estado="CANDIDATO"))
+        self.assertNotIn("PL-014", _reglas(ledger, documento="Conforme al CFF 28, 29-A y 30 y al art. 4o.-A CFF."))
+
     def test_pl014_clave_con_materia_distinta(self) -> None:
         ledger = ledger_limpio()
         ledger["afirmaciones"].append(
@@ -669,6 +780,85 @@ class MencionesTests(unittest.TestCase):
         menciones = extraer_menciones("Primera línea\nVer artículos 14 y 16.")
         self.assertEqual(menciones[1].original, "artículos 14 y 16")
         self.assertEqual(menciones[1].linea, 2)
+
+    # ── Piloto PEN-01 (D4 y D5): fallan con el extractor de main@6ae8f4d ─────────
+    def test_d4_citas_sigla_numero(self) -> None:
+        casos = {
+            "CFF 113 Bis: de 2 a 9 años": ["art. 113 bis CFF"],
+            "El CNPP 167, párr. 3 (sintético)": ["art. 167 CNPP"],
+            "CNPP 94: no se cuentan sábados": ["art. 94 CNPP"],
+            "Fuerza vinculante: LAmp 217.": ["art. 217 LA"],
+            "Catálogo del CPEUM 19.": ["art. 19 CPEUM"],
+            "CPEUM 1º, párr. 1": ["art. 1 CPEUM"],
+            "CNPP 167, 168 y 169": ["art. 167 CNPP", "art. 168 CNPP", "art. 169 CNPP"],
+            "Ver CNPP 471 (10 días)": ["art. 471 CNPP"],
+        }
+        for texto, esperado in casos.items():
+            with self.subTest(texto=texto):
+                self.assertEqual(self._claves(texto), esperado)
+        (mencion,) = extraer_menciones("Ver CFF 113 Bis.")
+        self.assertEqual((mencion.original, mencion.ley, mencion.ambigua), ("CFF 113 Bis", "CFF", False))
+
+    def test_d4_sin_falsos_positivos(self) -> None:
+        # Siglas que no son leyes del diccionario y números que no son artículos.
+        for texto in (
+            "apelación CNPP 3 días", "reforma del CNPP del 28-11-2025", "DOF 28-11-2025",
+            "CNPP 28-11-2025", "CFF 2026", "CFF 1,500 pesos", "CFF 10.5", "LGS 3/2019",
+            "CPEUM 19 de junio", "DE LA 2A. SALA", "LA 217", "folio CNPP 123", "oficio CFF 45",
+            "expediente CNPP 12", "SAT 2025", "PPO 5", "CFF 29-a", "CFF 29- A", "CNPP 2a. Sala",
+            "CADH 8.1",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(self._claves(texto), [])
+        self.assertEqual(self._claves("IUS 2006224"), ["registro 2006224"])
+
+    def test_d4_cada_numero_se_valida_y_conserva_su_letra(self) -> None:
+        # Ronda 2: antes "CFF 28, 29-A y 30." daba 28 y 29 (el 29-A leído como 29; el 30, perdido)
+        # y la validación de la cola solo se aplicaba al primer número.
+        casos = {
+            "Conforme al CFF 28, 29-A y 30.": ["art. 28 CFF", "art. 29-A CFF", "art. 30 CFF"],
+            "Ver arts. 29-A y 30 CFF.": ["art. 29-A CFF", "art. 30 CFF"],
+            "Ver art. 4o.-A CFF.": ["art. 4-A CFF"],  # antes "art. 4 CFF": cobertura espuria
+            "CFF 29-A Bis y 32-B Quáter": ["art. 29-A bis CFF", "art. 32-B quater CFF"],
+            # Decimales, miles o letras tras un número posterior cortan la enumeración.
+            "CFF 28, 10.5 y 30": ["art. 28 CFF"],
+            "CFF 28 y 1,500": ["art. 28 CFF"],
+            "CFF 28, 29-a y 30": ["art. 28 CFF"],
+            "arts. 14 y 8.1": ["art. 14"],
+            "CFF 108-112 y 8.5": [f"art. {n} CFF" for n in range(108, 113)],
+            "CFF 28-30.5": ["art. 28 CFF"],  # el extremo final es un decimal: no hay rango
+            "art. 1o.- A quien": ["art. 1"],  # con espacio, la "A" es texto
+        }
+        for texto, esperado in casos.items():
+            with self.subTest(texto=texto):
+                self.assertEqual(self._claves(texto), esperado)
+
+    def test_d5_rangos_y_lo_que_sigue_al_rango(self) -> None:
+        self.assertEqual(
+            self._claves("querella para los arts. 105, 108-112 y 114"),
+            ["art. 105", "art. 108", "art. 109", "art. 110", "art. 111", "art. 112", "art. 114"],
+        )
+        self.assertEqual(self._claves("artículos 467 a 471 CNPP"),
+                         [f"art. {n} CNPP" for n in range(467, 472)])
+        self.assertEqual(self._claves("del art. 19 al 21"), ["art. 19", "art. 20", "art. 21"])
+        self.assertEqual(self._claves("CFF 108-110"), ["art. 108 CFF", "art. 109 CFF", "art. 110 CFF"])
+        self.assertEqual(self._claves("arts. 112-108"), ["art. 112", "art. 108"])  # invertido: extremos
+        self.assertEqual(self._claves("art. 16 a 20 días"), ["art. 16"])  # unidad: no es rango
+        self.assertEqual(self._claves("artículo 19, 2o. párrafo"), ["art. 19"])  # ordinal adjetivo
+        self.assertEqual(self._claves("artículo 19, 01-04-2025"), ["art. 19"])  # fecha
+        self.assertEqual(self._claves("art. 19 Bis-20"), ["art. 19 bis"])  # con sufijo no hay rango
+
+    def test_d5_rango_largo_deja_cobertura_incompleta(self) -> None:
+        from itosturre.audit.referencias import MAX_RANGO as MAX_RANGO_VVCA
+        from itosturre.plan.menciones import MAX_RANGO, RANGO
+
+        self.assertEqual(MAX_RANGO, MAX_RANGO_VVCA)  # mismo contrato que el VVCA
+        menciones = extraer_menciones(f"Arts. 1-{MAX_RANGO + 5} CFF.")
+        self.assertEqual([m.normalizada for m in menciones],
+                         ["art. 1 CFF", f"arts. 2 a {MAX_RANGO + 4} CFF", f"art. {MAX_RANGO + 5} CFF"])
+        self.assertEqual(menciones[1].tipo, RANGO)
+        self.assertIn("cobertura incompleta", menciones[1].detalle)
+        self.assertEqual(len(extraer_menciones(f"Arts. 1-{MAX_RANGO} CFF.")), MAX_RANGO)
 
 
 class ReporteTests(unittest.TestCase):

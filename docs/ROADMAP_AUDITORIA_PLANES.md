@@ -1,6 +1,6 @@
 # Hoja de ruta: auditoría de planeación legal de alto nivel
 
-**Estado:** v1.6 · 2-oct-2026 · base `main@f8b0ea8`
+**Estado:** v1.7 · 2-oct-2026 · base `main@6ae8f4d`
 **Origen:** cuatro propuestas independientes (producto, evidencia oficial, motor de planes,
 remediación del núcleo), crítica externa de Codex sobre la hoja de ruta y revisión de código
 cruzada de los dos primeros PR. Toda decisión jurídica sigue siendo del responsable.
@@ -45,7 +45,8 @@ FIDELIDAD → APROBACIÓN HUMANA → INCORPORACIÓN.
 | R4b | `fix/vvca-extraccion-ley` (propuesta) | Extracción de referencias y resolución de ley (R4-D01…D06) en `itosturre/audit/referencias.py`. Ronda 1: designación con sufijo (`247 Ter`, `2o. Bis`, `4o.-A`, `32-B Quáter`), una referencia por artículo en enumeraciones y rangos, ley por palabra completa, "constitución" sola no es la CPEUM, encabezado exacto sin sufijos no pedidos, ley no identificada → 🟡 NO VERIFICABLE con motivo, sufijo sin encabezado → 🟡. Ronda 2 (rechazo de Codex, 7 hallazgos + 2 del coordinador): la ley solo se asocia por **vínculo sintáctico** (derecha pegada al precepto; izquierda pegada o posesiva; vínculos en conflicto → no identificada; varias leyes solo con "respectivamente"); ordenamiento concreto fuera del catálogo o de otra entidad bloquea la inferencia; claves estatales con la entidad completa; sufijo en minúscula; enumeraciones por segmentos con leyes intercaladas; rangos > 20 y números no extraídos con certeza → 🟡 COBERTURA INCOMPLETA; contexto previo solo de oraciones anteriores y, desde otro párrafo sin encabezado inequívoco, ley por confirmar (🟡). Ronda 3 (segunda revisión de Codex, 6 hallazgos): "respectivamente" sin repetir la preposición y reparto que no cuadra → grupo no identificado; rangos largos con ordinales → extremos + cobertura incompleta; `;` no hace desaparecer un miembro de la enumeración; ordenamientos fuera del catálogo cuentan como antecedentes del genérico (dos o más → ambiguo); "numeral"/"precepto" como cabeza y "Carta Magna" como genérico; pop-up con advertencia "LEY POR CONFIRMAR" y aviso de cobertura pendiente sin captura falsa; criterio del responsable (1-oct-2026) fijado por prueba. Sin re-ingesta. Campos añadidos `law_method`, `law_unidentified_reason`, `group_raw`, `law_requires_confirmation`, `coverage_gap` (ronda 3: `law_requires_confirmation` en `retrieved_sources`, `ley_por_confirmar`/`motivo_ley` en el pop-up, `cobertura_pendiente` en `vvca_full.json`). Puerta antes/después sobre el corpus real con cada diferencia atribuida; `run_regression` 🟢 | Integrado en `main` |
 | R4c | `fix/vvca-veredicto-honesto` (propuesta) | Veredicto honesto (R4-D08, D09, D11, D12) sin tocar umbrales ni la fórmula de `vvca_score`: precepto derogado ("Artículo N.- (Se deroga)" tras el encabezado exacto, en la ley citada) → 🟡 PRECEPTO DEROGADO, nunca 🟢 (criterio por defecto); la fuente esperada nunca se borra (evidencia de otro ordenamiento → 🟡, −15 alcanzable, "Fuente correcta" solo si coincide; preferencia por la ley citada en el respaldo sin filtro); el 🟢 enuncia solo lo verificado; dimensión sin citas = `null` + ⚪ (sin artículos ni tesis → 🟡 "Sin citas detectadas"); conteo de no verificables junto al subpuntaje; alcance explícito (`alcance_verificacion`, disclaimer 🟢). Pop-ups con "PRECEPTO DEROGADO" junto a "LEY POR CONFIRMAR"; "FUENTE NO COINCIDE" con el semáforo de la cita. R4-D10 pendiente de decisión del responsable (diseño preparado). Ronda 2 (rechazo de Codex + coordinador): la unidad citada (fracción, inciso, párrafo…) se coteja en el texto (fracción derogada → 🟡 PRECEPTO DEROGADO de la unidad; no ubicable → 🟡 UNIDAD CITADA NO COTEJADA); variantes inequívocas de la fórmula ("DEROGADO.", "Derogado", "(Se deroga.)", "Se derogan.") y fórmula ambigua → 🟡 POSIBLE DEROGACIÓN; encabezado sin cuerpo → continuación del mismo precepto o 🟡 EVIDENCIA INCOMPLETA; tesis `partial` cuentan en el veredicto (`tesis_ok` solo verificadas); 🟢 de "solo tesis" retenido (🟡) hasta R4d; alcance de tesis en Telegram; `None` tolerado en `capturar_rag` y en el Gold Set solo con "sin citas". Puerta ronda 1 → ronda 2 sin 🟢 nuevos; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Integrado en `main` |
 | R4d | `fix/vvca-jurisprudencia` (propuesta) | Jurisprudencia determinista (R4-D07, D13, D14) en `itosturre/audit/jurisprudence.py`, sin tocar umbrales ni la clasificación [PR]/[SCJN-I]: registros en cualquier caja ("REGISTRO DIGITAL", "Registro Digital", "registro IUS"; "Registro", "Reg." o "IUS" solo con contexto de tesis; 6 o 7 dígitos, nunca "N/AAAA"; enumeraciones con ",", "y", "o", "y/o", "/" y conector no reconocido → 🟡 COBERTURA INCOMPLETA); contexto del rubro sin cruzar el registro anterior y marcador pegado a la derecha ("registro digital N, de rubro: «…»"); rubro invocado extraído (marcador, comillas o mayúsculas, sin encabezados ni órganos) y cotejado normalizado (NFKD sin acentos, casefold, sin puntuación no numérica: "1.4.14" ≠ "1/4/14"): 🟢 solo con igualdad literal sin marca de supresión ni texto omitido tras el marcador; marca de supresión → 🟡 RUBRO PARCIAL; otra mención de tesis entre rubro y registro → 🟡 RUBRO NO ASOCIADO; polaridad invertida (lista cerrada de negaciones y antónimos) o traslape < 40 % → 🔴; otra diferencia → 🟡; sin rubro invocado → 🟡 (solo acredita el registro). Vigencia nunca "vigente" sin fuente (`no_consultada`/`no_reconocida` como aviso ℹ️ en `avisos`, sin cambiar el semáforo; pérdida en cualquier campo prevalece; conflicto → 🟡; `promover_tesis.py` ya no la asume); el puente de memoria solo bloquea por pérdida. Telegram: todas las alertas completas y avisos aparte. Ronda 2 (rechazo de Codex y del coordinador): cuatro falsos verdes del cotejo, vigencia en conflicto, encabezado u órgano como rubro, falsos positivos de registro, Telegram, puente; la retención del 🟢 de "solo tesis" **se mantiene** (adjudicación del 2-oct-2026). Puerta antes/después sobre el corpus real; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Integrado en `main` |
-| D10 | `fix/vvca-inexistencia-acreditada` (propuesta) | R4-D10 con el criterio del responsable (2-oct-2026, opción C): un artículo no localizado en una ley indexada solo es 🔴 con prueba positiva de inexistencia sobre el cuerpo de la ley (antes de la primera línea TRANSITORIOS); si no, 🟡 NO LOCALIZADO (nunca "alucinación"). Función pura `itosturre/audit/inexistencia.py` (`preparar_ley` una vez por ley); la prueba se busca en todas las rutas de "no localizado"; 🔴 ARTÍCULO INEXISTENTE ACREDITADO con la prueba, la página y la versión indexada (traza `refuted`, método `corpus_estructura`); distancia alta sin metadata → 60–84. Ronda 2 (rechazo de Codex por falsos rojos; la prueba se abstiene ante cualquier ambigüedad): vecinos solo DENTRO DE UN MISMO FRAGMENTO y sin ninguna línea candidata entre ellos ("3 Bis.-", "3o.-", "ARTÍ-\nCULO 3 BIS.-", "Art 3 Bis", "artículo 42…", números) ni mención del citado en el texto (enumeraciones, rangos, "N Bis" suelto); número solo con margen (N ≥ último + max(10, ⌈5 %⌉); entre último + 1 y el margen, 🟡 POSTERIOR AL ÚLTIMO ARTÍCULO de la versión indexada), sin candidata mayor en el cuerpo, sin frontera dudosa y con control de densidad de páginas; identidad documental (título o decreto con la denominación del catálogo); solo con la ley ligada por vínculo sintáctico explícito; contexto previo con dos ordenamientos → ley no identificada; versión indexada en toda alerta. Regla 4 de `CLAUDE.md`/`AGENTS.md` separa tesis y normas (pendiente de aprobación). Puerta antes/después sobre el corpus real: "art. 9999" 🔴 en 30 leyes íntegras y verificables; último + 1 siempre 🟡; ningún otro 🔴 nuevo; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Implementado y probado (ronda 2) |
+| D10 | `fix/vvca-inexistencia-acreditada` (propuesta) | R4-D10 con el criterio del responsable (2-oct-2026, opción C): un artículo no localizado en una ley indexada solo es 🔴 con prueba positiva de inexistencia sobre el cuerpo de la ley (antes de la primera línea TRANSITORIOS); si no, 🟡 NO LOCALIZADO (nunca "alucinación"). Función pura `itosturre/audit/inexistencia.py` (`preparar_ley` una vez por ley); la prueba se busca en todas las rutas de "no localizado"; 🔴 ARTÍCULO INEXISTENTE ACREDITADO con la prueba, la página y la versión indexada (traza `refuted`, método `corpus_estructura`); distancia alta sin metadata → 60–84. Ronda 2 (rechazo de Codex por falsos rojos; la prueba se abstiene ante cualquier ambigüedad): vecinos solo DENTRO DE UN MISMO FRAGMENTO y sin ninguna línea candidata entre ellos ("3 Bis.-", "3o.-", "ARTÍ-\nCULO 3 BIS.-", "Art 3 Bis", "artículo 42…", números) ni mención del citado en el texto (enumeraciones, rangos, "N Bis" suelto); número solo con margen (N ≥ último + max(10, ⌈5 %⌉); entre último + 1 y el margen, 🟡 POSTERIOR AL ÚLTIMO ARTÍCULO de la versión indexada), sin candidata mayor en el cuerpo, sin frontera dudosa y con control de densidad de páginas; identidad documental (título o decreto con la denominación del catálogo); solo con la ley ligada por vínculo sintáctico explícito; contexto previo con dos ordenamientos → ley no identificada; versión indexada en toda alerta. Regla 4 de `CLAUDE.md`/`AGENTS.md` separa tesis y normas (pendiente de aprobación). Puerta antes/después sobre el corpus real: "art. 9999" 🔴 en 30 leyes íntegras y verificables; último + 1 siempre 🟡; ningún otro 🔴 nuevo; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Integrado en `main` |
+| Kit PEN-01 | `fix/kit-piloto-pen01` (propuesta) | Correcciones del kit tras el piloto PEN-01 (defectos D1–D10 del informe local del piloto; no confundir con las decisiones D1–D7 de esta hoja): **D4** citas "SIGLA número" en `menciones.py` ("CNPP 167", "CFF 113 Bis", "CPEUM 1º", "LAmp 217"; sin siglas ajenas ni números que no son artículos; nunca "LA"); **D5** rangos con el contrato del VVCA (`MAX_RANGO`, `RANGO` de cobertura incompleta) sin perder lo que sigue ("105, 108-112 y 114"); **D1** remisión documentada por la fuente (mención en el extracto CONFORME de una ley de la misma afirmación → nota visible, no cobertura); **D3** ubicación "Encabezado…" cotejada por igualdad contra título y última reforma del registro (+ `LNMASCMP.pdf` en `ARCHIVOS_LEYESBIBLIO`); **D2** extracto de tesis contra la región del render (rubro, texto, fuente, precedentes); **D10** evidencia de tesis para un hecho sin `identificacion_criterio` (URL, registro y extracto literal); **D8** PL-007 por tipo de fuente (`tipo_fuente`: tesis del SJF o sentencia internacional: caso, serie y número, fecha, párrafo); **D6** PL-018 ADVERTENCIA "evidencia citada sin cotejar" en un agregado CONFORME (y `es_hallazgo`); **D7** caché por documento y extractor (piloto: 36 → 7 re-extracciones, 22 → 7 s); **D9** aviso de CRLF en `agregar-tesis` con las dos huellas; comando `evidencia articulo` (texto exacto que usa el cotejo); **V1** `tesis_rojas` del VVCA solo cuenta rojas reales (sin cambiar veredictos). Puerta del piloto: los 4 hallazgos verdaderos siguen; de los 20 falsos positivos, 11 desaparecen y 9 quedan justificados (6 tipos no soportados DOF/Corte IDH; 3 PL-007 de sentencias ahora con un esquema satisfacible); PL-014 ve 57 menciones (antes 30), todas cubiertas; ningún falso verde nuevo (comprobado contra los originales). **Ronda 2** (rechazo de Codex y del coordinador; principio: relajar una regla nunca crea un CONFORME sobre algo que no se cotejó): D1 solo exime un artículo citado con la misma ley que le da el extracto, fuera de `referencias` y presentado como remisión, y aun así advierte (PL-019); D3 exige identidad reconocida del ordenamiento afirmado y no acredita vigencia ni contenido normativo; D10 nunca acepta el banner ni el pie y solo un `hecho_aportado` omite la identificación; D2 no acepta para un criterio extractos de precedentes, contendientes ni notas; D4 conserva la letra ("29-A") y valida cada número; D8 exige compatibilidad del `tipo_fuente` declarado. Piloto: 23 BLOQUEANTES + 2 ADVERTENCIAS (ronda 1: 18 + 3); los 4 verdaderos siguen; vuelven a bloquear AF-SCT01-06, AF-SCT05-02 y AF-SCT05-07 (D1) y se suman AF-SCT03-02 y AF-SCT03-04 (D2: hechos sobre la ficha tipificados como criterio judicial). D11 (responsables "Itosturre/JustIA") queda para el responsable | Implementado y probado (ronda 2) |
 
 PR-2 corrige la lectura de la época en la capa Python; el scraper TypeScript
 (`services/itosturre-scraper`, `vvca_audit.ts:418`) sigue tomando la época del banner
@@ -69,7 +70,7 @@ cotejo de fidelidad.
    - **R4d · Jurisprudencia determinista** (detección de registros y cotejo de rubro):
      R4-D07, R4-D13 y R4-D14 — integrado en `main`.
    - **D10 · Artículo no localizado** (criterio del responsable, 2-oct-2026: opción C):
-     R4-D10 — implementado y probado (rama propuesta `fix/vvca-inexistencia-acreditada`).
+     R4-D10 — integrado en `main`.
 
    | ID | PR | Defecto (comportamiento actual, fijado en R4a) | Comportamiento correcto esperado |
    |---|---|---|---|
@@ -91,8 +92,10 @@ cotejo de fidelidad.
 2. **PR-4 · Fidelidad determinista** (plazos, modales, negaciones, excepciones,
    cuantificadores) sobre pares ya CONFORME en identidad; nunca emite CONFORME por sí sola.
 3. **Exposición**: MENÚ 16 y regla absoluta "APROBADO solo humano" cuando el CLI esté
-   probado con un piloto (re-correr PEN-01 con el kit: `evidencia agregar-*` →
-   ledger → `cotejar`).
+   probado con un piloto. El piloto PEN-01 (2-oct-2026) ya re-corrió el kit
+   (`evidencia agregar-*` → ledger → `cotejar` → `lint`); sus correcciones son el PR
+   "Kit PEN-01". Antes de exponerlo faltan el soporte de DOF y Corte IDH (C8) y la
+   decisión D11.
 
 Pendientes derivados de PR-2, sin lugar asignado en el orden: **R5** (época del scraper
 anclada en "Registro digital:") y **C8** (descarga y caché de evidencia fuera del repo:
@@ -112,11 +115,13 @@ Pendientes derivados de PR-3:
   encabezado: si el encabezado "N de M" discrepa del PDF, `agregar-ley` rechaza el
   registro (falla cerrado, pero no admite esa ley hasta ajustar `integridad.py`).
 - Correspondencia archivo → ordenamiento (`ARCHIVOS_LEYESBIBLIO`): CPEUM, CNPP, CPF, CFF,
-  LAmp y LNEP, siempre confirmada con el título del encabezado. Otras leyes: las menciones
-  de artículo **con** ley quedan SIN_EVIDENCIA hasta agregarlas.
+  LAmp, LNEP y (desde el kit PEN-01) LNMASCMP, siempre confirmada con el título del
+  encabezado. Otras leyes: las menciones de artículo **con** ley quedan SIN_EVIDENCIA hasta
+  agregarlas.
 - `menciones.py` no expande enumeraciones de registros ("registros digitales 1 y 2"):
   solo cuenta el primero; tampoco reconoce claves de tesis aisladas de TCC (se suplen con
-  búsqueda literal de la clave de la fuente).
+  búsqueda literal de la clave de la fuente). Los rangos de artículos sí se expanden desde
+  el kit PEN-01.
 - Los artículos con letra ("4o.-A") no tienen clave en `menciones.py`: una afirmación que
   los menciona queda SIN_EVIDENCIA, nunca CONFORME.
 - La relación original–texto solo se acredita con el mismo extractor y versión: un
@@ -220,6 +225,33 @@ Pendientes derivados de D10:
   ("407. …" al inicio de línea), CPJal, Notariado, Movilidad Jal., LIVA e INFONAVIT (frontera
   dudosa: "455 ter", "935 ter", "2016 Bis", "Artículo 123" tras TRANSITORIOS).
 
+Pendientes derivados del kit PEN-01 (piloto del 2-oct-2026):
+
+- DOF y Corte IDH siguen sin cotejo de identidad (SIN_EVIDENCIA, "tipo no soportado"):
+  en el piloto quedan 6 PL-016 por eso. Es C8 (identidad de la nota del DOF por `codigo`
+  y fecha, huella del contenido y no del HTML, que incrusta la URL).
+- PL-014 cubre por mención, no por verificación: copiar el texto del documento en las
+  afirmaciones basta para cubrirlo (en el piloto, las 57 menciones quedan cubiertas). No
+  se reconocen "N SIGLA" ("167 CNPP"), "CPEUM art. 19" ni la ley a la izquierda (decisión
+  pendiente), ni lo que sigue a ";" en "CFF 108; 92 fr. I", ni "LA N" (ambigua con el
+  artículo "la"; usar "LAmp N").
+- La remisión documentada (D1) solo vale para extractos de leyes que nombran el artículo
+  con su ley; un "artículo 40 de esta Constitución" o "los artículos 105, 108…" (sin ley)
+  no eximen, y el marcador de remisión es una lista cerrada ("remite", "remisión"). En el
+  piloto, AF-SCT01-06, AF-SCT05-02 y AF-SCT05-07 vuelven a bloquear por eso: o se
+  reescriben como remisión con ley o se cita la evidencia del artículo remitido.
+- Para un criterio judicial, los extractos de precedentes, contendientes y notas no valen
+  (ronda 2): los hechos sobre la ficha (integración, notas) van como `hecho_aportado`.
+- Afirmaciones compuestas: una parte sin cotejar que no genera menciones (una fecha del
+  DOF) solo produce PL-018; se recomienda descomponerlas (el kit no lo impone).
+- Fidelidad (PR-4): el piloto dejó defectos que la identidad no ve (CFF 113 Bis exige
+  querella y el entregable infiere denuncia; una afirmación generaliza la fr. III del CFF 92
+  y ya no la bloquea PL-016, porque su identidad es correcta; omisiones en CNPP 94 y CFF 92).
+- D12 (la nota de reforma del compilado sostiene fechas DOF a lo sumo VERIFICADO) y D13
+  (la política D7 depende de desde qué checkout se ejecuta `plan_audit.py`) no se tocaron.
+- VVCA: V2 (`HF_HUB_OFFLINE=1` por defecto en `audit`), V3 (citas "SIGLA N" en
+  `referencias.py`) y V4 (versión del corpus frente a la del paquete) siguen abiertos.
+
 ## Qué no construir
 
 Un juez LLM que califique planes; equivalencias entre 🟢 VVCA y VERIFICADO; consumo del
@@ -232,6 +264,8 @@ contradicciones; interfaz web.
 - Regla 3 de `CLAUDE.md` (el RAG como fuente de verificación) frente a D4.
 - Cuarentena de `agentes/vigilancia_jurisprudencial.py`, que consume el microservicio interno.
 - Lista de responsables no humanos: hoy rechaza cargos como "Agente del MP" (falla cerrado).
+- D11 del piloto PEN-01: PL-012 acepta "Itosturre / JustIA" como responsable de una
+  decisión, y "Itosturre" es también el nombre del agente que redactó el entregable.
 - Cobertura cuando la ley aparece a la izquierda del artículo ("la Ley de Amparo, en su
   artículo 217"): hoy produce hallazgos de más, nunca un falso verde.
 - ~~R4-D10: severidad de "no localizado en una ley indexada"~~ — decidido (opción C,

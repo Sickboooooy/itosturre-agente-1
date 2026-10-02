@@ -1,4 +1,4 @@
-"""Reglas observables del auditor de planes (PL-001 … PL-014, y PL-015 … PL-017 con paquete).
+"""Reglas observables del auditor de planes (PL-001 … PL-014, y PL-015 … PL-019 con paquete).
 
 Cada regla verifica algo que se puede comprobar mirando el ledger (y, para PL-014,
 el documento): campos presentes, vocabulario, hosts, fechas, hashes y referencias.
@@ -6,12 +6,23 @@ Ninguna regla hace inferencia semántica ni decide si un criterio es pertinente 
 caso — eso sigue siendo Capa 2, decisión del abogado.
 
 Con un paquete de evidencia (``paquete=`` o un ``cotejo=`` ya calculado) se agregan
-las reglas del cotejo de identidad (``identidad.py``), PL-015 … PL-017. Viven en
-``REGLAS_COTEJO`` y no en ``REGLAS``: sin paquete el lint es idéntico al de PR-1 y el
-Gold Set de planes (que no admite paquete) sigue midiendo PL-001 … PL-014.
+las reglas del cotejo de identidad (``identidad.py``), PL-015 … PL-019. Viven en
+``REGLAS_COTEJO`` y no en ``REGLAS``: sin paquete el lint es el de PR-1 (el resumen
+trae además la clave ``ADVERTENCIA``, siempre en 0) y el Gold Set de planes (que no
+admite paquete) sigue midiendo PL-001 … PL-014.
+
+PL-007 exige los campos de identificación según el tipo de fuente del criterio
+(``ledger.CAMPOS_POR_TIPO_FUENTE``, piloto D8): los diez de la tesis del SJF o los de una
+sentencia internacional (caso, serie y número, fecha, párrafo). El tipo lo declara
+``identificacion_criterio.tipo_fuente``; sin él, se infiere de las evidencias citadas
+(todas de la Corte IDH → sentencia internacional) y, si no, es tesis del SJF.
 
 Un hallazgo es un dict ``{regla, severidad, objetivo, mensaje}``. El plan queda
-bloqueado si existe al menos un hallazgo ``BLOQUEANTE``.
+bloqueado si existe al menos un hallazgo ``BLOQUEANTE``; ``ADVERTENCIA`` (PL-018: evidencia
+citada sin cotejar en un agregado CONFORME; PL-019: artículo remitido sin cotejar) nunca
+bloquea. Una afirmación compuesta cuya parte sin cotejar no genera menciones (p. ej. una
+fecha del DOF) solo produce PL-018: se recomienda descomponerla para que cada parte cite su
+propia evidencia (el kit no lo hace por el operador).
 """
 from __future__ import annotations
 
@@ -45,18 +56,24 @@ from .identidad import (
     problemas_decision_advertencias,
 )
 from .ledger import (
-    CAMPOS_CRITERIO,
+    CAMPOS_POR_TIPO_FUENTE,
+    HOSTS_SENTENCIA_INTERNACIONAL,
+    HOSTS_TESIS,
     NATURALEZAS_OFICIALES,
+    SENTENCIA_INTERNACIONAL,
+    TESIS_SJF,
+    TIPOS_FUENTE_CRITERIO,
     LedgerInvalido,
     fecha_iso,
     validar_esquema,
 )
-from .menciones import esta_cubierta, extraer_menciones, indice_cobertura
+from .menciones import RANGO, esta_cubierta, extraer_menciones, indice_cobertura
 
 BLOQUEANTE = "BLOQUEANTE"
 ALTA = "ALTA"
 MEDIA = "MEDIA"
-SEVERIDADES = (BLOQUEANTE, ALTA, MEDIA)
+ADVERTENCIA = "ADVERTENCIA"  # visible y nunca bloquea (PL-018, PL-019)
+SEVERIDADES = (BLOQUEANTE, ALTA, MEDIA, ADVERTENCIA)
 _RANGO = {severidad: indice for indice, severidad in enumerate(SEVERIDADES)}
 
 REGLAS = {
@@ -81,6 +98,8 @@ REGLAS_COTEJO = {
     "PL-015": "VERIFICADO con evidencia DISCREPANTE en el cotejo de identidad",
     "PL-016": "VERIFICADO sin ninguna evidencia CONFORME en el cotejo de identidad",
     "PL-017": "Advertencias de la fuente sin decisión humana que las atienda",
+    "PL-018": "Evidencia citada sin cotejar en una afirmación CONFORME",
+    "PL-019": "Artículo remitido sin cotejar",
 }
 
 ACCIONES = {
@@ -90,7 +109,10 @@ ACCIONES = {
     "PL-004": "Indicar la ubicación exacta en la fuente (artículo, página o registro).",
     "PL-005": "Transcribir el extracto literal (20 caracteres o más) de la fuente.",
     "PL-006": "Registrar la fecha real de consulta (AAAA-MM-DD, no posterior al documento).",
-    "PL-007": "Completar los diez campos de identificación del criterio desde el SJF.",
+    "PL-007": (
+        "Completar la identificación del criterio según su fuente: los diez campos de la tesis "
+        "desde el SJF, o caso, serie_numero, fecha y parrafo de la sentencia internacional."
+    ),
     "PL-008": "Aportar fuente oficial que acredite la inexistencia o cambiar a NO VERIFICABLE.",
     "PL-009": "Reclasificar como CANDIDATO o REQUIERE DECISIÓN HUMANA y pedir aprobación humana.",
     "PL-010": "Recabar nueva aprobación humana sobre el contenido vigente.",
@@ -101,6 +123,15 @@ ACCIONES = {
     "PL-015": "Corregir el ledger o la evidencia según la fuente registrada, o degradar a NO VERIFICADO.",
     "PL-016": "Registrar la evidencia en el paquete y completar el vínculo, o degradar a NO VERIFICABLE.",
     "PL-017": "Registrar una decisión humana APROBADA con advertencias_fuente (evidencia, sha256_documento, códigos y resolución).",
+    "PL-018": (
+        "Revisar a mano lo que solo sostiene esa evidencia (tipo de fuente no soportado o sin "
+        "vínculo) o sustituirla por evidencia cotejable; el CONFORME no lo cubre. Mejor: "
+        "descomponer la afirmación para que cada parte cite su propia evidencia."
+    ),
+    "PL-019": (
+        "Si la afirmación dice algo del artículo remitido, citar su propia evidencia; si solo "
+        "describe la remisión, revisar a mano que el artículo remitido sea el que se afirma."
+    ),
 }
 
 EXTRACTO_MINIMO = 20
@@ -292,19 +323,59 @@ class _Auditoria:
                 f"fecha del documento ({self.fecha_documento.isoformat()}).",
             )
 
+    def tipo_fuente_criterio(self, afirmacion: dict) -> tuple[str, str | None]:
+        """``(tipo de fuente, problema)`` del criterio (PEN-01 D8): el declarado en
+        ``identificacion_criterio.tipo_fuente`` o, sin él, el que indican las evidencias
+        citadas (todas de un host de sentencias internacionales → sentencia internacional);
+        por omisión, tesis del SJF. Un valor fuera de vocabulario es un problema y se
+        exigen los campos de tesis (falla cerrado)."""
+        identificacion = afirmacion.get("identificacion_criterio") or {}
+        declarado = identificacion.get("tipo_fuente") if isinstance(identificacion, dict) else None
+        hosts = [
+            host_de(evidencia.get("url"))
+            for ev_id in self.evidencias_citadas(afirmacion)
+            for evidencia in self.evidencias_por_id.get(ev_id, [])
+        ]
+        de_sentencia = [h for h in hosts if h in HOSTS_SENTENCIA_INTERNACIONAL]
+        de_tesis = [h for h in hosts if h in HOSTS_TESIS]
+        if declarado is not None:
+            if not (isinstance(declarado, str) and declarado.strip().lower() in TIPOS_FUENTE_CRITERIO):
+                return TESIS_SJF, (
+                    f"tipo_fuente {declarado!r} fuera de vocabulario ({', '.join(TIPOS_FUENTE_CRITERIO)})"
+                )
+            tipo = declarado.strip().lower()
+            # Ronda 2: el tipo declarado debe corresponder a la fuente de las evidencias; si
+            # no, el hallazgo impide eludir los campos de un tipo declarando el otro.
+            if tipo == SENTENCIA_INTERNACIONAL and (de_tesis or not de_sentencia):
+                return tipo, (
+                    "tipo_fuente 'sentencia_internacional' incompatible con las evidencias citadas "
+                    "(se requiere al menos una sentencia de la Corte IDH y ninguna tesis del SJF)"
+                )
+            if tipo == TESIS_SJF and de_sentencia:
+                return tipo, (
+                    "tipo_fuente 'tesis_sjf' incompatible con las evidencias citadas (cita "
+                    "sentencias de la Corte IDH)"
+                )
+            return tipo, None
+        if hosts and len(de_sentencia) == len(hosts):
+            return SENTENCIA_INTERNACIONAL, None
+        return TESIS_SJF, None
+
     def _revisar_identificacion_criterio(self, afirmacion: dict) -> None:
         identificacion = afirmacion.get("identificacion_criterio") or {}
-        faltantes = []
-        for campo in CAMPOS_CRITERIO:
+        tipo, problema = self.tipo_fuente_criterio(afirmacion)
+        faltantes = [problema] if problema else []
+        for campo in CAMPOS_POR_TIPO_FUENTE[tipo]:
             motivo = _problema_campo(identificacion.get(campo))
             if motivo:
                 faltantes.append(f"{campo} ({motivo})")
         if faltantes:
+            etiqueta = "" if tipo == TESIS_SJF else " (sentencia internacional)"
             self.emitir(
                 "PL-007",
                 BLOQUEANTE,
                 afirmacion["id"],
-                "Identificación del criterio incompleta: " + ", ".join(faltantes) + ".",
+                f"Identificación del criterio{etiqueta} incompleta: " + ", ".join(faltantes) + ".",
             )
 
     # ── PL-008 ──────────────────────────────────────────────────────────────
@@ -470,7 +541,7 @@ class _Auditoria:
                         f"Bloquea el elemento inexistente {bloqueado}.",
                     )
 
-    # ── PL-015 … PL-017 (cotejo de identidad) ───────────────────────────────
+    # ── PL-015 … PL-019 (cotejo de identidad) ───────────────────────────────
     def cotejo_de_identidad(self, cotejo: CotejoLedger) -> None:
         # Un cotejo calculado sobre otro contenido no se reutiliza: es un error de uso
         # (entrada equivocada), no una propiedad del plan; por eso ValueError y no un
@@ -517,6 +588,33 @@ class _Auditoria:
             for par in agregado.pares:
                 if par.resultado == CONFORME and par.requiere_decision_humana:
                     self._decision_sobre_advertencias(objetivo, verificada, par)
+            # PL-018 (PEN-01 D6): el CONFORME descansa en las demás evidencias; lo que solo
+            # sostienen las no cotejadas queda sin verificar. Visible, no bloquea.
+            sin_cotejar = agregado.pares_sin_cotejar
+            if sin_cotejar:
+                detalle = "; ".join(
+                    f"{par.evidencia}: {par.resultado}"
+                    + (f" ({par.motivos[0].resumen()})" if par.motivos else "")
+                    for par in sin_cotejar
+                )
+                self.emitir(
+                    "PL-018",
+                    ADVERTENCIA,
+                    objetivo,
+                    f"Evidencia citada sin cotejar en una afirmación que quedó CONFORME por sus demás "
+                    f"evidencias ({detalle}). Lo que solo esa evidencia sostiene no queda verificado "
+                    "por el cotejo de identidad.",
+                )
+            # PL-019 (D1, ronda 2): artículo eximido como remisión documentada por la fuente.
+            if agregado.remitidos:
+                self.emitir(
+                    "PL-019",
+                    ADVERTENCIA,
+                    objetivo,
+                    f"Artículo remitido sin cotejar: {', '.join(agregado.remitidos)}. La afirmación lo "
+                    "presenta como remisión y el extracto CONFORME de la ley citada lo nombra con la "
+                    "misma ley, pero su contenido no se cotejó.",
+                )
 
     def _decision_sobre_advertencias(self, objetivo: str, verificada: bool, par: Any) -> None:
         """PL-017. Una decisión atiende las advertencias de la fuente de una evidencia solo
@@ -577,6 +675,8 @@ class _Auditoria:
                 f"Mención «{mencion.original}» ({mencion.normalizada}) sin afirmación "
                 "que la cubra."
             )
+            if mencion.tipo == RANGO and mencion.detalle:
+                mensaje += f" {mencion.detalle[:1].upper()}{mencion.detalle[1:]}: solo la cubre el mismo rango."
             if mencion.ambigua:
                 mensaje += " Mención ambigua: no identifica el ordenamiento."
             self.emitir("PL-014", BLOQUEANTE, f"documento:L{mencion.linea}", mensaje)
@@ -594,7 +694,7 @@ def lint_ledger(
     """Aplica PL-001 … PL-014 y devuelve los hallazgos ordenados por severidad y regla.
 
     Lanza ``LedgerInvalido`` si el ledger no cumple el esquema ``plan-ledger/1.0``.
-    PL-014 solo se evalúa cuando se pasa ``documento``. PL-015 … PL-017 solo se evalúan
+    PL-014 solo se evalúa cuando se pasa ``documento``. PL-015 … PL-019 solo se evalúan
     con un paquete de evidencia ya cargado (``paquete``) o con su ``cotejo`` ya
     calculado (``identidad.cotejar_ledger``); sin ninguno de los dos, el resultado es
     idéntico al del lint sin cotejo. Un ``cotejo`` calculado sobre otro contenido del

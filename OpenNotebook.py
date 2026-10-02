@@ -1509,16 +1509,20 @@ def _resumen_rag(score: Optional[float], semaforo: str, total: int,
 
 
 def _resumen_sjf(score: Optional[float], semaforo: str, total: int, ok: int,
-                 discrepantes: int, no_encontradas: int, parciales: int = 0) -> str:
+                 discrepantes: int, no_encontradas: int, parciales: int = 0,
+                 vigencia_perdida: int = 0) -> str:
     """Parte de jurisprudencia del ``summary`` (R4c, R4-D12): "sin citas" si no se invocó
     ninguna tesis (antes "SJF 0.0 🔴 (0/0 tesis ok)"). "ok" cuenta solo las verificadas
-    (ronda 2); las parciales se dicen aparte."""
+    (ronda 2); las parciales se dicen aparte. V1 (piloto PEN-01): las rojas reales (rubro
+    discrepante, vigencia perdida) van primero; las no encontradas se dicen 🟡 (no
+    verificables, no confirmadas como falsas)."""
     if total == 0:
         return "SJF sin citas"
     return (
         f"SJF {_puntaje(score)} {semaforo} ({ok}/{total} tesis ok)"
         + (f" — {discrepantes} rubro discrepante" if discrepantes else "")
-        + (f", {no_encontradas} no encontradas" if no_encontradas else "")
+        + (f", {vigencia_perdida} con vigencia perdida" if vigencia_perdida else "")
+        + (f", {no_encontradas} no encontradas (🟡 no verificables)" if no_encontradas else "")
         + (f", {_plural(parciales, 'parcial', 'parciales')}" if parciales else "")
     )
 
@@ -2628,14 +2632,24 @@ def audit(
     ]
     score_sjf = round(sum(jur_scores) / len(jur_scores), 1) if jur_scores else None
 
-    # Conteo de tesis problemáticas (mismatch de rubro o no encontradas)
+    # Conteo de tesis problemáticas: rubro discrepante o invertido (🔴), no encontradas (🟡)
     tesis_total_invocadas = sum(1 for r in refs if r.get("type") == "jurisprudencia")
     tesis_no_encontradas  = tesis_total_invocadas - len(jur_scores)
     tesis_mismatch        = sum(
         1 for s in retrieved_sources
         if s.get("ref_type") == "jurisprudencia" and s.get("vvca", {}).get("rubro_mismatch")
     )
-    tesis_rojas = tesis_no_encontradas + tesis_mismatch
+    # V1 (piloto PEN-01): solo rojas reales —rubro discrepante o invertido, o vigencia
+    # perdida—, cada tesis una vez. Antes sumaba las no encontradas, que son 🟡 NO
+    # VERIFICABLE ("🟡 no es 🔴"): un escrito 🟡 con rojos 0 reportaba tesis_rojas > 0.
+    # Solo informa: el veredicto se calcula con los conteos de siempre y no cambia.
+    tesis_rojas = sum(
+        1 for s in retrieved_sources
+        if s.get("ref_type") == "jurisprudencia" and (
+            s.get("vvca", {}).get("rubro_mismatch")
+            or s.get("vvca", {}).get("estado_vigencia") in VIGENCIA_PERDIDA
+        )
+    )
     # R4c (ronda 2): las trazas de tesis cuentan en el veredicto como las normativas. Una
     # tesis localizada con puntaje < 85 (p. ej. aislada, 72) queda ``partial``: antes contaba
     # como "ok" y un escrito con solo esa tesis salía 🟢. ``tesis_ok`` = solo verificadas.
@@ -2786,7 +2800,8 @@ def audit(
                          normativa_no_verificable, normativa_refutada)
             + " · "
             + _resumen_sjf(score_sjf, semaforo_sjf, tesis_total_invocadas, tesis_ok,
-                           tesis_mismatch, tesis_no_encontradas, tesis_parciales)
+                           tesis_mismatch, tesis_no_encontradas, tesis_parciales,
+                           tesis_superadas)
             + f" · Veredicto: {veredicto['semaforo']} {veredicto['razon']}"
         ),
     }

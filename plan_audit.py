@@ -3,10 +3,11 @@
 
 Valida reglas observables (PL-001 … PL-014) sobre el ledger de afirmaciones,
 evidencias, contradicciones y decisiones de un plan y, si se pasa el documento,
-que cada artículo, registro digital o clave de tesis mencionado esté cubierto por
-una afirmación. Con un paquete de evidencia (``--paquete``) coteja además la identidad
-de cada evidencia citada (PL-015 … PL-017). Sin red y sin LLM: no sustituye la
-verificación VVCA ni la decisión del abogado.
+que cada artículo (también en la forma "CNPP 167" y con rangos "108-112"), registro
+digital o clave de tesis mencionado esté cubierto por una afirmación. Con un paquete de
+evidencia (``--paquete``) coteja además la identidad de cada evidencia citada
+(PL-015 … PL-019). Sin red y sin LLM: no sustituye la verificación VVCA ni la decisión
+del abogado.
 
 Uso:
   python plan_audit.py lint --ledger plan.ledger.json
@@ -20,10 +21,14 @@ Uso:
   python plan_audit.py evidencia agregar-ley --paquete DIR --pdf LEY.pdf \\
       --url https://www.diputados.gob.mx/LeyesBiblio/pdf/LEY.pdf --fecha-consulta AAAA-MM-DD \\
       [--paginas-json paginas.json --extractor … --version-extractor …]
+  python plan_audit.py evidencia articulo --paquete DIR --articulo N \\
+      (--sha256 HUELLA_DEL_PDF | --url https://www.diputados.gob.mx/LeyesBiblio/pdf/LEY.pdf)
 
 Códigos de salida de ``lint``: 0 sin hallazgos BLOQUEANTES · 1 con BLOQUEANTES ·
 2 entrada inválida (archivo ilegible, JSON roto, esquema inválido, paquete inexistente,
 --json/--md que coinciden entre sí o con una entrada, o destino no escribible).
+PL-018 (evidencia citada sin cotejar en una afirmación CONFORME) y PL-019 (artículo
+remitido sin cotejar) son ADVERTENCIA: se muestran y nunca bloquean.
 
 ``cotejar`` (cotejo de identidad, C9): por cada par (afirmación, evidencia citada)
 informa CONFORME, DISCREPANTE o SIN_EVIDENCIA (NO_COTEJADO para afirmaciones
@@ -39,11 +44,26 @@ El cotejo también exige que la afirmación mencione el documento de su evidenci
 texto extraído provenga del PDF: se re-extrae con PyMuPDF si el registro declara ese
 mismo extractor y versión; si no es posible, la evidencia queda SIN_EVIDENCIA.
 
+Ubicaciones admitidas en una evidencia de ley: "Artículo N" (un único artículo) o
+"Encabezado…" ("Encabezado de la página 1 de 414"), cuyo extracto debe ser igual al
+título o a la línea "Última(s) Reforma(s) DOF dd-mm-aaaa" del encabezado. En una tesis,
+el extracto puede venir de cualquier campo del render (rubro, texto, fuente,
+precedentes, notas); una afirmación que no es criterio judicial (un hecho sobre el
+portal) no necesita ``identificacion_criterio``.
+
+``evidencia articulo`` imprime el texto exacto del artículo que usará el cotejo (zona,
+páginas y advertencias de ubicación) y los datos del encabezado, para copiar extractos
+literales: 0 artículo ubicado · 1 no ubicado sin ambigüedad o relación original–texto
+no comprobable · 2 entrada inválida.
+
 ``evidencia agregar-tesis`` / ``agregar-ley`` registran un documento oficial ya obtenido
 (innerText del SJF o PDF de LeyesBiblio; sin red) en el paquete, solo si el registro
 pasa la comprobación de integridad, e imprimen el ``sha256_documento`` y un bloque de
 evidencia listo para pegar en el ledger. La fecha de consulta la da siempre el
-operador. ``agregar-ley`` extrae el texto con PyMuPDF (``fitz``; origen "extraido") o lo
+operador. ``agregar-tesis`` advierte si el archivo trae fines de línea CRLF (el
+innerText de un navegador usa LF: el archivo se reescribió en modo texto) e imprime las
+dos huellas: la del archivo, que es el ``sha256_documento``, y la del texto con LF.
+``agregar-ley`` extrae el texto con PyMuPDF (``fitz``; origen "extraido") o lo
 toma de ``--paginas-json`` (formato de ``tests/fixtures/evidencia/leyesbiblio_*.json``;
 origen "declarado"): las páginas declaradas se rechazan si el extractor declarado está
 disponible y no las reproduce desde ese PDF; y se rechaza un documento cuyo título de
@@ -100,6 +120,7 @@ from itosturre.plan.identidad import (  # noqa: E402
     PASOS,
     RESULTADOS,
     Extractor,
+    consultar_articulo,
     titulo_corresponde,
 )
 
@@ -422,9 +443,13 @@ def _fecha_ledger(fecha_consulta: str) -> str:
     return fecha_consulta[:10]
 
 
-def _imprimir_registro(registro: dict, huella: str, bloques: list[tuple[str, dict]]) -> None:
+def _imprimir_registro(
+    registro: dict, huella: str, bloques: list[tuple[str, dict]], avisos: tuple[str, ...] = ()
+) -> None:
     print(f"Registro guardado: registros/{huella}.json ({registro['tipo']})")
     print(f"sha256_documento: {registro['original']['sha256']}")
+    for aviso in avisos:
+        print(f"⚠ {aviso}")
     for aviso in registro.get("advertencias") or []:
         print(f"⚠ advertencia de la fuente [{aviso.get('codigo')}]: {aviso.get('mensaje')}")
     for titulo, bloque in bloques:
@@ -459,6 +484,27 @@ def _comprobar_comunes(args: argparse.Namespace) -> list[str]:
             "zona explícita (la da el operador; nunca se toma del reloj)"
         )
     return errores
+
+
+def aviso_fines_de_linea(original: bytes) -> str | None:
+    """Aviso si el innerText trae CRLF (PEN-01 D9): un navegador entrega LF, así que el archivo se
+    reescribió (p. ej. en modo texto en Windows) y su huella no es la del texto capturado.
+
+    Se imprimen las dos huellas: la del archivo (``sha256_documento``, la que usa el
+    paquete) y la del mismo texto con LF (la que se habría calculado al capturar)."""
+    crlf, lf = b"\r\n", b"\n"
+    if crlf not in original:
+        return None
+    # Python 3.11: sin barras invertidas dentro de las expresiones de un f-string.
+    huella_lf = sha256_bytes(original.replace(crlf, lf))
+    return (
+        "el archivo trae fines de línea CRLF; el innerText de un navegador usa LF, así que se "
+        "reescribió después de capturarse. Huella del archivo (sha256_documento, la que usa el "
+        f"paquete): {sha256_bytes(original)} · huella del mismo texto con LF (la del innerText "
+        f"capturado): {huella_lf}. Si el plan cita la huella de la captura, no coincidirá con la "
+        "del archivo preservado: preservar el archivo tal como se capturó (escritura binaria o "
+        "newline=\"\")."
+    )
 
 
 def cmd_agregar_tesis(args: argparse.Namespace) -> int:
@@ -512,6 +558,7 @@ def cmd_agregar_tesis(args: argparse.Namespace) -> int:
         "fuerza_vinculante": FUERZA_POR_TIPO.get(metadatos["tipo_tesis"] or "", ASIGNAR),
         "alcance": ASIGNAR,
     }
+    aviso = aviso_fines_de_linea(original)
     _imprimir_registro(
         registro,
         huella,
@@ -523,6 +570,7 @@ def cmd_agregar_tesis(args: argparse.Namespace) -> int:
                 identificacion,
             ),
         ],
+        (aviso,) if aviso else (),
     )
     return SALIDA_OK
 
@@ -704,6 +752,58 @@ def cmd_agregar_ley(args: argparse.Namespace) -> int:
     return SALIDA_OK
 
 
+def cmd_articulo(args: argparse.Namespace) -> int:
+    """Texto exacto del artículo que usará el cotejo (fricción n.º 1 del piloto PEN-01)."""
+    if not args.sha256 and not args.url:
+        return _entrada_invalida(["hay que indicar --sha256 (huella del PDF registrado) o --url"])
+    try:
+        paquete = cargar_paquete(args.paquete)
+    except (ErrorPaquete, OSError) as exc:
+        return _entrada_invalida([f"paquete de evidencia: {exc}"])
+    try:
+        consulta = consultar_articulo(
+            paquete, articulo=args.articulo, sha256=args.sha256, url=args.url,
+            extractores=_extractores_disponibles(),
+        )
+    except ValueError as exc:
+        return _entrada_invalida([str(exc)])
+
+    print(f"Documento: {consulta.archivo or '—'} · {consulta.url}")
+    print(f"sha256_documento: {consulta.sha256_documento}")
+    if consulta.motivos:
+        print("No se puede mostrar el texto que usaría el cotejo (pasos a–c):")
+        for motivo in consulta.motivos:
+            print(f"  - {motivo.resumen()}")
+        return SALIDA_BLOQUEADO
+    ordenamiento = consulta.ordenamiento or f"sin correspondencia ({consulta.motivo_ordenamiento})"
+    print(f"Título: {consulta.titulo or '—'} · ordenamiento: {ordenamiento}")
+    print(f"Última reforma DOF (registro): {consulta.ultima_reforma_dof or '—'} · "
+          f"línea del encabezado: «{consulta.linea_ultima_reforma or '—'}» · "
+          f"total de páginas: {consulta.total_paginas or '—'}")
+    ubicacion = consulta.ubicacion
+    for aviso in ubicacion.advertencias:
+        print(f"  ! ubicación [{aviso.get('codigo')}]: {aviso.get('mensaje')}")
+    if consulta.tramo is None:
+        print(f"El artículo {consulta.articulo!r} no se ubica sin ambigüedad en el cuerpo: el cotejo "
+              "daría SIN_EVIDENCIA (esto no acredita que no exista).")
+        for coincidencia in (*ubicacion.coincidencias, *ubicacion.variantes_cercanas):
+            print(f"  · p. {coincidencia.pagina} · zona {coincidencia.zona} · «{coincidencia.linea.strip()}»")
+        return SALIDA_BLOQUEADO
+    tramo = consulta.tramo
+    unica = ubicacion.unica
+    paginas = (f"página {tramo.pagina_inicial}" if tramo.pagina_inicial == tramo.pagina_final
+               else f"páginas {tramo.pagina_inicial}–{tramo.pagina_final}")
+    print(f"Artículo {unica.identificador} · zona {unica.zona} · {paginas} · ubicación para el ledger: "
+          f"\"Artículo {unica.identificador}\"")
+    if tramo.truncado:
+        print("  ! el texto puede continuar en páginas no incluidas en el registro (truncado)")
+    print("──── texto que usa el cotejo (el extracto debe ser subcadena literal; se compara sin "
+          "acentos, mayúsculas ni espacios repetidos) ────")
+    print(tramo.texto)
+    print("──── fin del artículo ────")
+    return SALIDA_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     _utf8()
     parser = argparse.ArgumentParser(
@@ -713,12 +813,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    lint = sub.add_parser("lint", help="Aplicar las reglas PL-001 … PL-014 (y PL-015 … PL-017 con --paquete)")
+    lint = sub.add_parser("lint", help="Aplicar las reglas PL-001 … PL-014 (y PL-015 … PL-019 con --paquete)")
     lint.add_argument("--ledger", required=True, help="Ledger JSON plan-ledger/1.0")
     lint.add_argument("--documento", help="Documento del plan (.md/.txt) para PL-014")
     lint.add_argument("--json", help="Escribir los hallazgos en este archivo JSON")
     lint.add_argument("--md", help="Escribir el reporte Markdown en este archivo")
-    lint.add_argument("--paquete", help="Paquete de evidencia: agrega el cotejo de identidad (PL-015 … PL-017)")
+    lint.add_argument("--paquete", help="Paquete de evidencia: agrega el cotejo de identidad (PL-015 … PL-019)")
     lint.set_defaults(func=cmd_lint)
 
     hash_ = sub.add_parser("hash", help="Calcular el contenido_sha256 de las afirmaciones")
@@ -734,7 +834,9 @@ def main(argv: list[str] | None = None) -> int:
     cotejar.add_argument("--json", action="store_true", help="Imprimir el cotejo como JSON")
     cotejar.set_defaults(func=cmd_cotejar)
 
-    evidencia = sub.add_parser("evidencia", help="Registrar evidencia oficial ya obtenida en un paquete (sin red)")
+    evidencia = sub.add_parser(
+        "evidencia", help="Registrar evidencia oficial ya obtenida en un paquete (sin red) o consultar un artículo"
+    )
     acciones = evidencia.add_subparsers(dest="accion", required=True)
 
     tesis = acciones.add_parser("agregar-tesis", help="Registrar el innerText del detalle de una tesis del SJF")
@@ -754,6 +856,16 @@ def main(argv: list[str] | None = None) -> int:
     ley.add_argument("--extractor", help="Extractor del texto (obligatorio con --paginas-json si el JSON no lo trae)")
     ley.add_argument("--version-extractor", help="Versión del extractor (ídem)")
     ley.set_defaults(func=cmd_agregar_ley)
+
+    articulo = acciones.add_parser(
+        "articulo",
+        help="Imprimir el texto exacto de un artículo que usará el cotejo (para copiar extractos)",
+    )
+    articulo.add_argument("--paquete", required=True, help="Directorio del paquete de evidencia")
+    articulo.add_argument("--articulo", required=True, help="Artículo: 19, 1o., 113 Bis o \"Artículo 19\"")
+    articulo.add_argument("--sha256", help="sha256_documento del PDF registrado (lo imprime agregar-ley)")
+    articulo.add_argument("--url", help="URL exacta de LeyesBiblio con la que se registró")
+    articulo.set_defaults(func=cmd_articulo)
 
     args = parser.parse_args(argv)
     return int(args.func(args))

@@ -59,7 +59,9 @@ from itosturre.plan import (
     esta_bloqueado,
     lint_ledger,
     reporte_markdown,
+    resumen_severidades,
 )
+from itosturre.plan import identidad
 from itosturre.plan.identidad import (
     articulo_de_ubicacion,
     clave_articulo,
@@ -82,7 +84,7 @@ FECHA_2031931 = "2026-10-01T19:57Z"  # aportada por el operador (manifiesto de f
 # PDF sintéticos (los originales reales no se versionan): bytes que no son ningún PDF oficial.
 PDF_SINTETICO = {
     nombre: f"%PDF sintetico de prueba ({nombre}): no es un documento oficial\n".encode("ascii")
-    for nombre in ("CNPP", "CPF", "OTRA")
+    for nombre in ("CNPP", "CPF", "OTRA", "SINTETICA")
 }
 EXTRACTOR_PRUEBA = "extractor sintético de prueba (PDF sintético → páginas del fixture)"
 VERSION_PRUEBA = "0"
@@ -141,6 +143,46 @@ CNPP_ART_3O = "Para los efectos de este Código, según corresponda, se entender
 CNPP_ULTIMA_REFORMA = "2025-11-28"
 # Código Penal Federal, página 1 (fixture). El "ARTICULO 1°.-" de la p. 151 es de un decreto.
 CPF_ART_1O = "Este Código se aplicará en toda la República para los delitos del orden federal."
+# Art. 2o. CPF, fracción I (fixture, página 1): remisión interna al artículo 4o. del mismo
+# Código, partida en dos líneas en el PDF ("…en el artículo" / "4o. de este Código…").
+CPF_ART_2O_REMISION = "se actualicen los requisitos previstos en el artículo 4o. de este Código"
+# Encabezado de la página 1 del CNPP (fixture) y su paginación.
+CNPP_TITULO = "CÓDIGO NACIONAL DE PROCEDIMIENTOS PENALES"
+CNPP_LINEA_REFORMA = "Última Reforma DOF 28-11-2025"
+# Render del SJF 2006224 (fixture): campo "Fuente" (dos líneas en el render) y banner del
+# portal, anterior al ancla "Registro digital:" (piloto PEN-01, D2 y D10).
+FUENTE_2006224 = (
+    "Gaceta del Semanario Judicial de la Federación. Libro 5, Abril de 2014, Tomo I, página 202"
+)
+BANNER_SJF = (
+    'Duodécima Época "De la Justicia Pluricultural, la Igualdad Sustantiva y la Inclusión en México"'
+)
+# Secciones de la ficha de 2006224 que no son el criterio de la tesis (ronda 2, D2): el rubro
+# de OTRA tesis (contendientes), el precedente y la nota; y la frase de publicación, que sí.
+CONTENDIENTE_2006224 = "CONTROL DE CONVENCIONALIDAD EN SEDE INTERNA. LOS TRIBUNALES MEXICANOS ESTÁN OBLIGADOS A EJERCERLO."
+PRECEDENTE_2006224 = (
+    "Contradicción de tesis 293/2011. Entre las sustentadas por el Primer Tribunal Colegiado en "
+    "Materias Administrativa y de Trabajo del Décimo Primer Circuito"
+)
+NOTA_2006224 = "Esta tesis fue objeto de la denuncia relativa a la contradicción de criterios 278/2023"
+PUBLICACION_2006224 = (
+    "Esta tesis se publicó el viernes 25 de abril de 2014 a las 09:32 horas en el Semanario Judicial "
+    "de la Federación"
+)
+# Ley sintética rotulada (ronda 2, D1): ninguna ley real; el "artículo 9999" del CPF no
+# existe. Solo sirve para probar una remisión con la ley nombrada en el propio texto legal.
+LEY_SINTETICA = "\n".join([
+    "LEY SINTÉTICA DE PRUEBA",
+    "CÁMARA DE DIPUTADOS DEL H. CONGRESO DE LA UNIÓN",
+    "Secretaría General",
+    "Secretaría de Servicios Parlamentarios",
+    "Última Reforma DOF 01-01-1800",
+    "1 de 1",
+    "Artículo 1o.- Texto sintético de prueba que remite al artículo 9999 del Código Penal Federal "
+    "para la sanción.",
+    "Artículo 2o.- Otro texto sintético de prueba, sin remisiones.",
+])
+REMISION_SINTETICA = "remite al artículo 9999 del Código Penal Federal"
 
 
 # ── Extractor sintético y constructores ──────────────────────────────────────
@@ -165,6 +207,8 @@ def extraer_prueba(original: bytes) -> list[str]:
             return paginas_completas(nombre)
     if original == PDF_SINTETICO["OTRA"]:
         return paginas_completas("CPF")  # "otro PDF": páginas que no son las del CNPP
+    if original == PDF_SINTETICO["SINTETICA"]:
+        return [LEY_SINTETICA]
     raise ValueError("no es un PDF sintético de prueba")
 
 
@@ -204,6 +248,20 @@ def agregar_ley(raiz: Path, nombre: str = "CNPP", fecha: str = FECHA_SINTETICA, 
         original_bytes=len(pdf),
         extractor=EXTRACTOR_PRUEBA,
         version_extractor=VERSION_PRUEBA,
+    )
+    guardar_evidencia(raiz, evidencia, original=pdf, derivado=documento.texto,
+                      texto_extraido=documento.texto_extraido)
+    return evidencia
+
+
+def agregar_ley_sintetica(raiz: Path) -> dict:
+    """Registra la ley sintética rotulada (``LEY_SINTETICA``) con su PDF sintético."""
+    documento = limpiar_documento([LEY_SINTETICA], numeros=[1], total_paginas=1)
+    pdf = PDF_SINTETICO["SINTETICA"]
+    evidencia = registro_ley(
+        documento, archivo="SINTETICA.pdf", url=url_leyesbiblio("SINTETICA.pdf"),
+        fecha_consulta=FECHA_SINTETICA, original_sha256=sha256_bytes(pdf), original_bytes=len(pdf),
+        extractor=EXTRACTOR_PRUEBA, version_extractor=VERSION_PRUEBA,
     )
     guardar_evidencia(raiz, evidencia, original=pdf, derivado=documento.texto,
                       texto_extraido=documento.texto_extraido)
@@ -352,6 +410,17 @@ class LiteralesTests(unittest.TestCase):
         primera = paginas_fixture("CNPP")["paginas"][0]["texto"]
         self.assertIn(" ".join(CNPP_ART_2O.split()), " ".join(primera.split()))
         self.assertIn("Última Reforma DOF 28-11-2025", primera)
+        encabezado = [linea.strip() for linea in primera.split("\n")[:10]]
+        self.assertIn(CNPP_LINEA_REFORMA, encabezado)
+        self.assertIn(CNPP_TITULO, encabezado)
+        self.assertIn("1 de 168", encabezado)
+        cpf = paginas_fixture("CPF")["paginas"][0]["texto"]
+        self.assertIn(CPF_ART_2O_REMISION, " ".join(cpf.split()))
+        render = (FIXTURES / "sjf_2006224.txt").read_bytes().decode("utf-8")
+        self.assertIn(BANNER_SJF, render)
+        self.assertIn(FUENTE_2006224, " ".join(render.split()))
+        for literal in (CONTENDIENTE_2006224, PRECEDENTE_2006224, NOTA_2006224, PUBLICACION_2006224):
+            self.assertIn(literal, render)
 
 
 # ── Paquete de evidencia ─────────────────────────────────────────────────────
@@ -1022,7 +1091,9 @@ class LectoresTests(unittest.TestCase):
 
     def test_clave_articulo(self) -> None:
         casos = {"1o": "art. 1", "167": "art. 167", "19 Ter": "art. 19 ter", "10 Octies": "art. 10 octies",
-                 "427 Quinquies": "art. 427 quinquies", "4o.-A": None, "Único": None}
+                 "427 Quinquies": "art. 427 quinquies", "Único": None,
+                 # Ronda 2 (D4): la letra cuenta; antes "4o.-A" no tenía clave (None).
+                 "4o.-A": "art. 4-A", "29-A": "art. 29-A", "32-B Quáter": "art. 32-B quater"}
         for identificador, esperado in casos.items():
             with self.subTest(identificador=identificador):
                 self.assertEqual(clave_articulo(identificador), esperado)
@@ -1088,7 +1159,10 @@ class AgregadoTests(_ConPaquete):
         self.assertFalse(cotejo.todo_conforme)
         self.assertEqual(cotejo.resumen()[NO_COTEJADO], 1)
         hallazgos = {a.afirmacion for a in cotejo.afirmaciones if a.es_hallazgo}
-        self.assertEqual(hallazgos, {"A1", "A3", "A4", "A5", "A6"})  # A8: CANDIDATO sin evidencias
+        # A8: CANDIDATO sin evidencias. A2 (CONFORME con un par SIN_EVIDENCIA) es hallazgo
+        # desde el piloto PEN-01 (D6): antes contaba como "todo conforme".
+        self.assertEqual(hallazgos, {"A1", "A2", "A3", "A4", "A5", "A6"})
+        self.assertEqual([p.evidencia for p in cotejo.afirmaciones[1].pares_sin_cotejar], ["E3"])
 
     # Punto 7: un agregado sin pares cuenta como hallazgo.
     def test_verificado_sin_evidencias_no_es_todo_conforme(self) -> None:
@@ -1301,6 +1375,409 @@ class LintConCotejoTests(_ConPaquete):
         self.assertIn("resolución: Se adopta la época del campo de época", reporte)
 
 
+# ── Correcciones del kit tras el piloto PEN-01 (D1–D10) ──────────────────────
+# Cada prueba falla con el kit de main@6ae8f4d y pasa con las correcciones. Los datos
+# reales salen de los fixtures (LiteralesTests lo comprueba); lo sintético va rotulado.
+
+
+def _contador_de_extracciones() -> tuple[list, tuple[Extractor, ...]]:
+    llamadas: list = []
+
+    def extraer(original: bytes) -> list[str]:
+        llamadas.append(len(original))
+        return extraer_prueba(original)
+
+    return llamadas, (Extractor(EXTRACTOR_PRUEBA, VERSION_PRUEBA, extraer),)
+
+
+DOF_SINTETICO = {  # evidencia de un tipo de fuente que el cotejo no soporta (DOF)
+    "id": "E2",
+    "naturaleza": "publicacion_oficial",
+    "url": "https://dof.gob.mx/nota_detalle.php?codigo=0000001&fecha=01/01/1800",
+    "ubicacion": "Artículo Único (dato sintético de prueba)",
+    "extracto": "Extracto sintético de prueba de una nota del DOF.",
+    "fecha_consulta": FECHA_SINTETICA,
+    "sha256_documento": "0" * 64,
+    "consulta": None,
+    "resultados": None,
+}
+
+
+class PilotoRemisionTests(_ConPaquete):
+    """D1, endurecida en la ronda 2: relajar la cobertura nunca crea un CONFORME sobre algo
+    que no se cotejó. Solo se exime un artículo citado con ley, la MISMA que le da el extracto
+    CONFORME de la ley citada, fuera de ``referencias`` y presentado como remisión; aun así
+    queda como advertencia PL-019."""
+
+    def _libro_sintetico(self, texto: str, referencias: list[str] | None = None) -> dict:
+        agregar_ley_sintetica(self.raiz)
+        return ledger([afirmacion("A1", ["E1"], texto=texto, referencias=referencias)],
+                      [evidencia_ley("E1", "Artículo 1o.", REMISION_SINTETICA, "SINTETICA",
+                                     archivo="SINTETICA.pdf")])
+
+    def _lint(self, libro: dict) -> list[tuple[str, str]]:
+        return [(h["regla"], h["severidad"])
+                for h in lint_ledger(libro, paquete=self.paquete(), extractores=EXTRACTORES)]
+
+    def test_remision_presentada_como_tal_queda_como_advertencia(self) -> None:
+        libro = self._libro_sintetico("El art. 1o. remite al art. 9999 del CPF (afirmación sintética).")
+        agregado = self.cotejar(libro).afirmaciones[0]
+        self.assertEqual(agregado.pares[0].resultado, CONFORME, agregado.pares[0].motivos)
+        self.assertEqual(agregado.resultado, CONFORME, agregado.motivos)
+        self.assertEqual(agregado.remitidos, ("art. 9999 CPF",))
+        self.assertTrue(agregado.es_hallazgo)  # no es "todo conforme"
+        self.assertEqual(agregado.como_dict()["remisiones_sin_cotejar"], ["art. 9999 CPF"])
+        self.assertIn("artículo remitido sin cotejar", _detalles(agregado.notas))
+        self.assertEqual(self._lint(libro), [("PL-019", "ADVERTENCIA")])  # antes: ningún hallazgo
+
+    def test_remision_que_no_es_tal_exige_evidencia_propia(self) -> None:
+        casos = {
+            # Reproducción del coordinador: el artículo remitido es fundamento propio.
+            "fundamento_propio_y_en_referencias": (
+                "La pena aplicable es la del artículo 9999 del CPF (afirmación sintética).",
+                ["art. 1o.", "art. 9999 CPF"]),
+            "fundamento_propio_sin_marcador": (
+                "El art. 1o. dispone la sanción del art. 9999 del CPF (afirmación sintética).", None),
+            "remision_pero_en_referencias": (
+                "El art. 1o. remite al art. 9999 del CPF (afirmación sintética).", ["art. 9999 CPF"]),
+            "mencion_sin_ley": ("El art. 1o. remite al art. 9999 (afirmación sintética).", None),
+            "otra_ley": ("El art. 1o. remite al art. 9999 del CFF (afirmación sintética).", None),
+            "remision_y_ademas_fundamento": (
+                "El art. 1o. remite al art. 9999 del CPF, y el art. 9999 del CPF sanciona la conducta "
+                "(afirmación sintética).", None),
+        }
+        for nombre, (texto, referencias) in casos.items():
+            with self.subTest(caso=nombre):
+                self.nuevo()
+                libro = self._libro_sintetico(texto, referencias)
+                agregado = self.cotejar(libro).afirmaciones[0]
+                self.assertEqual(agregado.pares[0].resultado, CONFORME, agregado.pares[0].motivos)
+                self.assertEqual(agregado.resultado, SIN_EVIDENCIA)
+                self.assertEqual(agregado.remitidos, ())
+                self.assertIn("ninguna evidencia CONFORME cubre", agregado.motivos[0].detalle)
+                self.assertEqual(self._lint(libro), [("PL-016", "BLOQUEANTE")])
+
+    def test_mencion_sin_ley_no_se_exime_con_el_extracto_real(self) -> None:
+        # Codex (a) y (b), con el art. 2o. del CPF real ("…previstos en el artículo 4o. de este
+        # Código…"): en la ronda 1 quedaban CONFORME por la remisión del extracto.
+        casos = (
+            "El art. 2o. CPF exige los requisitos del art. 4o. (afirmación sintética).",
+            "El art. 4o. autoriza la extradición como fundamento propio (afirmación sintética).",
+            "CNPP: el art. 4o. establece la regla (afirmación sintética).",
+        )
+        for texto in casos:
+            with self.subTest(texto=texto):
+                self.nuevo()
+                agregar_ley(self.raiz, "CPF")
+                libro = ledger([afirmacion("A1", ["E1"], texto=texto, referencias=["art. 2o. CPF"])],
+                               [evidencia_ley("E1", "Artículo 2o.", CPF_ART_2O_REMISION, "CPF")])
+                agregado = self.cotejar(libro).afirmaciones[0]
+                self.assertEqual(agregado.resultado, SIN_EVIDENCIA)
+                self.assertIn("art. 4", agregado.motivos[0].ledger)
+                self.assertEqual(self._lint(libro), [("PL-016", "BLOQUEANTE")])
+
+
+class PilotoEncabezadoTests(_ConPaquete):
+    """D3: afirmaciones sobre el encabezado del compilado ("Última Reforma DOF …"). Ronda 2:
+    identidad reconocida del ordenamiento afirmado y nada más que los datos del compilado."""
+
+    TEXTO = "CNPP: última reforma localizada DOF 28-11-2025 (cabecera del compilado de LeyesBiblio)"
+
+    def _libro(self, ubicacion: str, extracto: str | None, texto: str = TEXTO, **cambios) -> dict:
+        agregar_ley(self.raiz, "CNPP")
+        return ledger([afirmacion("A1", ["E1"], tipo="hecho_aportado", texto=texto)],
+                      [evidencia_ley("E1", ubicacion, extracto, "CNPP", **cambios)])
+
+    def _cotejar(self, ubicacion: str, extracto: str | None, texto: str = TEXTO, **cambios):
+        return self.cotejar(self._libro(ubicacion, extracto, texto, **cambios))
+
+    def _lint(self, libro: dict) -> list[tuple[str, str]]:
+        return [(h["regla"], h["severidad"])
+                for h in lint_ledger(libro, paquete=self.paquete(), extractores=EXTRACTORES)]
+
+    def test_encabezado_conforme_contra_los_metadatos(self) -> None:
+        for ubicacion, extracto, texto in (
+            ("Encabezado de la página 1 de 168", CNPP_LINEA_REFORMA, self.TEXTO),
+            ("Encabezado de la página 1", CNPP_TITULO, "Título del compilado del CNPP: " + CNPP_TITULO),
+            ("Encabezado del compilado", CNPP_LINEA_REFORMA,
+             "Código Nacional de Procedimientos Penales: 168 páginas, última reforma DOF 28-11-2025"),
+        ):
+            with self.subTest(ubicacion=ubicacion, texto=texto):
+                self.nuevo()
+                libro = self._libro(ubicacion, extracto, texto, ultima_reforma_dof=CNPP_ULTIMA_REFORMA)
+                cotejo = self.cotejar(libro)
+                par = cotejo.pares[0]
+                self.assertEqual((par.resultado, par.paso), (CONFORME, None), par.motivos)
+                self.assertTrue(par.encabezado)
+                self.assertEqual(par.contenido_no_acreditado, ())
+                self.assertIn("encabezado del compilado", _detalles(par.notas))
+                self.assertEqual(cotejo.afirmaciones[0].resultado, CONFORME, cotejo.afirmaciones[0].motivos)
+                self.assertEqual(self._lint(libro), [])
+
+    def test_encabezado_con_el_mismo_rigor(self) -> None:
+        casos = {
+            "otra_fecha": ("Encabezado de la página 1 de 168", "Última Reforma DOF 29-11-2025", {},
+                           DISCREPANTE, "f", "no es la del encabezado"),
+            "redaccion_no_literal": ("Encabezado de la página 1 de 168", "Últimas Reformas DOF 28-11-2025",
+                                     {}, DISCREPANTE, "f", "no es literal"),
+            "otra_linea_del_encabezado": ("Encabezado", "CÁMARA DE DIPUTADOS DEL H. CONGRESO DE LA UNIÓN", {},
+                                          DISCREPANTE, "f", "ni la línea de última reforma"),
+            "otro_total_de_paginas": ("Encabezado de la página 1 de 169", CNPP_LINEA_REFORMA, {},
+                                      DISCREPANTE, "e", "total de páginas"),
+            "pagina_no_registrada": ("Encabezado de la página 2 de 168", CNPP_LINEA_REFORMA, {},
+                                     SIN_EVIDENCIA, "e", "no está entre las registradas"),
+            "version_del_ledger_distinta": ("Encabezado", CNPP_LINEA_REFORMA,
+                                            {"ultima_reforma_dof": "1800-01-01"}, DISCREPANTE, "d", "versión"),
+            "extracto_ausente": ("Encabezado", None, {}, SIN_EVIDENCIA, "f", "no trae extracto"),
+        }
+        for nombre, (ubicacion, extracto, cambios, resultado, paso, frase) in casos.items():
+            with self.subTest(caso=nombre):
+                self.nuevo()
+                par = self._cotejar(ubicacion, extracto, **cambios).pares[0]
+                self.assertEqual((par.resultado, par.paso), (resultado, paso), par.motivos)
+                self.assertIn(frase, _detalles(par.motivos))
+
+    def test_identidad_reconocida_del_ordenamiento_afirmado(self) -> None:
+        casos = {
+            # Codex (a): nombre fuera del catálogo con la cabecera del CNPP (ronda 1: CONFORME).
+            "fuera_del_catalogo": ("El Código Civil del Estado de Jalisco tiene última reforma DOF 28-11-2025",
+                                   SIN_EVIDENCIA, "fuera del catálogo"),
+            # Ronda 1: sin ordenamiento nombrado quedaba CONFORME con una nota.
+            "sin_ordenamiento": ("Última reforma localizada DOF 28-11-2025 (cabecera del compilado)",
+                                 SIN_EVIDENCIA, "no nombra un ordenamiento reconocido"),
+            "otro_del_catalogo": ("CPF: última reforma DOF 28-11-2025", DISCREPANTE, "otro ordenamiento"),
+            "dos_ordenamientos": ("CNPP y CPF: última reforma DOF 28-11-2025", SIN_EVIDENCIA, "nombra además CPF"),
+        }
+        for nombre, (texto, resultado, frase) in casos.items():
+            with self.subTest(caso=nombre):
+                self.nuevo()
+                libro = self._libro("Encabezado de la página 1 de 168", CNPP_LINEA_REFORMA, texto)
+                libro["afirmaciones"][0]["tipo"] = "hecho_aportado"
+                cotejo = self.cotejar(libro)
+                par = cotejo.pares[0]
+                self.assertEqual((par.resultado, par.paso, _campos(par)), (resultado, "e", ["afirmacion"]))
+                self.assertIn(frase, _detalles(par.motivos))
+                self.assertNotEqual(cotejo.afirmaciones[0].resultado, CONFORME)
+                reglas = {regla for regla, _ in self._lint(libro)}
+                self.assertIn("PL-016", reglas)
+
+    def test_la_cabecera_no_acredita_contenido_sustantivo(self) -> None:
+        casos = {
+            # Codex (b): la cabecera (título) no acredita vigencia ni contenido normativo.
+            "vigencia_y_contenido": ("Encabezado de la página 1", CNPP_TITULO,
+                                     "El CNPP está vigente y exige veinte días para recurrir",
+                                     ["vigente", "exige", "veinte", "recurrir"]),
+            "otra_fecha": ("Encabezado", CNPP_LINEA_REFORMA, "CNPP: última reforma DOF 01-01-2020",
+                           ["01-01-2020"]),
+            "otro_numero_de_paginas": ("Encabezado", CNPP_LINEA_REFORMA,
+                                       "CNPP: 200 páginas, última reforma DOF 28-11-2025", ["200 paginas"]),
+        }
+        for nombre, (ubicacion, extracto, texto, ajenos) in casos.items():
+            with self.subTest(caso=nombre):
+                self.nuevo()
+                libro = self._libro(ubicacion, extracto, texto)
+                agregado = self.cotejar(libro).afirmaciones[0]
+                self.assertEqual(agregado.pares[0].resultado, CONFORME, agregado.pares[0].motivos)
+                self.assertEqual(agregado.resultado, SIN_EVIDENCIA)  # ronda 1: CONFORME
+                for palabra in ajenos:
+                    self.assertIn(palabra, agregado.motivos[0].ledger)
+                self.assertEqual(self._lint(libro), [("PL-016", "BLOQUEANTE")])
+        # Con evidencia del artículo, lo sustantivo lo sostiene ese par (identidad del art. 2o.).
+        self.nuevo()
+        agregar_ley(self.raiz, "CNPP")
+        libro = ledger(
+            [afirmacion("A1", ["E1", "E2"], texto="El art. 2o. CNPP (última reforma DOF 28-11-2025) "
+                        "establece el objeto del Código (afirmación sintética).")],
+            [evidencia_ley("E1", "Encabezado", CNPP_LINEA_REFORMA, "CNPP"),
+             evidencia_ley("E2", "Artículo 2o.", CNPP_ART_2O, "CNPP")])
+        self.assertEqual(self.cotejar(libro).afirmaciones[0].resultado, CONFORME)
+
+    def test_contenido_no_acreditado_y_ubicacion(self) -> None:
+        metadatos = {"ultima_reforma_dof": CNPP_ULTIMA_REFORMA, "total_paginas": 168}
+        self.assertEqual(identidad.contenido_no_acreditado(self.TEXTO, metadatos), ())
+        self.assertEqual(identidad.contenido_no_acreditado(
+            "Código Nacional de Procedimientos Penales, página 1 de 168: última reforma publicada en el "
+            "DOF el 28 de noviembre de 2025", metadatos), ())
+        self.assertEqual(identidad.contenido_no_acreditado("CNPP: reformado el 2025-11-29", metadatos),
+                         ("2025-11-29", "reformado"))
+        self.assertEqual(identidad.ubicacion_de_encabezado("Encabezado de la página 1 de 414"),
+                         identidad.UbicacionEncabezado(1, 414))
+        self.assertEqual(identidad.ubicacion_de_encabezado("encabezado del compilado"),
+                         identidad.UbicacionEncabezado())
+        self.assertTrue(identidad.ubicacion_de_encabezado("Encabezado, página 1 y página 2").ambigua)
+        for valor in ("Artículo 19", "Encabezado del artículo 19", "", None, "[ASIGNAR]"):
+            with self.subTest(valor=valor):
+                self.assertIsNone(identidad.ubicacion_de_encabezado(valor))
+        # Correspondencia del archivo LNMASCMP.pdf (título del compilado = nombre de LEYES).
+        titulo = "LEY NACIONAL DE MECANISMOS ALTERNATIVOS DE SOLUCIÓN DE CONTROVERSIAS EN MATERIA PENAL"
+        self.assertEqual(ordenamiento_de("LNMASCMP.pdf", titulo), ("LNMASCMP", None))
+        self.assertIsNone(ordenamiento_de("LNMASCMP.pdf", CNPP_TITULO)[0])
+
+
+class PilotoTesisTests(_ConPaquete):
+    """D2 (de qué parte de la ficha sale el extracto de un criterio) y D10 (hecho sobre la tesis
+    sin identificación del criterio), endurecidos en la ronda 2."""
+
+    def _lint(self, libro: dict) -> set[str]:
+        return {h["regla"] for h in lint_ledger(libro, paquete=self.paquete(), extractores=EXTRACTORES)}
+
+    def test_extracto_de_un_criterio_sale_de_la_propia_tesis(self) -> None:
+        for extracto in (FUENTE_2006224, PUBLICACION_2006224, LITERALES_TESIS["2006224"]["fragmento_texto"],
+                         RUBRO_2006224):
+            with self.subTest(extracto=extracto[:40]):
+                self.nuevo()
+                par = self.cotejar_tesis("2006224", identificacion("2006224"), extracto=extracto)
+                self.assertEqual(par.resultado, CONFORME, par.motivos)
+        # El banner del portal no es la tesis: DISCREPANTE, como siempre.
+        self.nuevo()
+        par = self.cotejar_tesis("2006224", identificacion("2006224"), extracto=BANNER_SJF)
+        self.assertEqual((par.resultado, _campos(par)), (DISCREPANTE, ["extracto"]))
+        self.assertIn("sí aparece en otra parte del documento", par.motivos[0].detalle)
+
+    def test_precedentes_contendientes_y_notas_no_acreditan_el_criterio(self) -> None:
+        # Codex: el rubro de OTRA tesis (contendientes) se aceptaba como literal de la ficha.
+        for extracto, seccion in ((CONTENDIENTE_2006224, "contendientes"), (PRECEDENTE_2006224, "precedente"),
+                                  (NOTA_2006224, "nota")):
+            with self.subTest(seccion=seccion):
+                self.nuevo()
+                evidencia = agregar_tesis(self.raiz, "2006224")
+                libro = ledger([afirmacion("A1", ["E1"], tipo="criterio_judicial", ident=identificacion("2006224"),
+                                           texto="Registro digital 2006224 (afirmación sintética).")],
+                               [evidencia_tesis("E1", evidencia, extracto=extracto)])
+                par = self.cotejar(libro).pares[0]
+                self.assertEqual((par.resultado, par.paso, _campos(par)), (SIN_EVIDENCIA, "f", ["extracto"]))
+                self.assertIn(f"«{seccion}»", par.motivos[0].detalle)
+                self.assertIn("PL-016", self._lint(libro))
+
+    def test_hecho_sobre_la_tesis_sin_identificacion_del_criterio(self) -> None:
+        texto = "La ficha del registro digital 2006224 indica su integración (afirmación sintética)."
+        par = self.cotejar_tesis("2006224", None, tipo="hecho_aportado", texto=texto, extracto=PRECEDENTE_2006224)
+        self.assertEqual(par.resultado, CONFORME, par.motivos)
+        self.assertIn("hecho sobre la tesis", _detalles(par.notas))
+        casos = {
+            "sin_extracto": ({"extracto": None}, texto, SIN_EVIDENCIA, "f"),
+            "extracto_no_literal": ({"extracto": "Undécima Época (texto sintético que no está en el render)"},
+                                    texto, DISCREPANTE, "f"),
+            "otro_registro_mencionado": ({}, "La ficha del registro digital 0000001 (sintético).", DISCREPANTE, "d"),
+            "ubicacion_con_otro_registro": ({"ubicacion": "Registro digital 2032506"}, texto, DISCREPANTE, "e"),
+        }
+        for nombre, (cambios, texto_caso, resultado, paso) in casos.items():
+            with self.subTest(caso=nombre):
+                self.nuevo()
+                datos = {"extracto": PRECEDENTE_2006224, **cambios}
+                par = self.cotejar_tesis("2006224", None, tipo="hecho_aportado", texto=texto_caso, **datos)
+                self.assertEqual((par.resultado, par.paso), (resultado, paso), par.motivos)
+
+    def test_el_banner_nunca_acredita_un_hecho_sobre_la_tesis(self) -> None:
+        # Reproducción del coordinador: la ficha dice Décima Época; el banner del sitio, Duodécima.
+        evidencia = agregar_tesis(self.raiz, "2006224")
+        libro = ledger([afirmacion("A1", ["E1"], tipo="hecho_aportado",
+                                   texto="El registro digital 2006224 pertenece a la Duodécima Época.")],
+                       [evidencia_tesis("E1", evidencia, extracto=BANNER_SJF)])
+        par = self.cotejar(libro).pares[0]
+        self.assertEqual((par.resultado, par.paso), (DISCREPANTE, "f"))  # ronda 1: CONFORME
+        self.assertIn("sí aparece en otra parte del documento", par.motivos[0].detalle)
+        self.assertTrue({"PL-015", "PL-016"} <= self._lint(libro))
+
+    def test_solo_un_hecho_puede_omitir_la_identificacion(self) -> None:
+        for tipo in ("texto_normativo", "inferencia", "propuesta", "criterio_judicial"):
+            with self.subTest(tipo=tipo):
+                self.nuevo()
+                par = self.cotejar_tesis("2006224", None, tipo=tipo, extracto=PRECEDENTE_2006224,
+                                         texto="Registro digital 2006224 (afirmación sintética).")
+                self.assertEqual((par.resultado, par.paso, _campos(par)), (SIN_EVIDENCIA, "d", ["registro"]))
+
+
+class PilotoAgregadoYCacheTests(_ConPaquete):
+    """D6 (evidencia citada sin cotejar en un CONFORME), D7 (caché por documento) y D4 en el cotejo."""
+
+    def test_par_sin_cotejar_en_un_conforme_es_advertencia_visible(self) -> None:
+        agregar_ley(self.raiz)
+        libro = ledger([afirmacion("A1", ["E1", "E2"], texto="Art. 2o. CNPP (afirmación sintética).")],
+                       [evidencia_ley("E1", "Artículo 2o.", CNPP_ART_2O), dict(DOF_SINTETICO)])
+        cotejo = self.cotejar(libro)
+        agregado = cotejo.afirmaciones[0]
+        self.assertEqual(agregado.resultado, CONFORME)
+        self.assertEqual([p.evidencia for p in agregado.pares_sin_cotejar], ["E2"])
+        self.assertTrue(agregado.es_hallazgo)
+        self.assertFalse(cotejo.todo_conforme)
+        self.assertIn("evidencia citada sin cotejar", _detalles(agregado.notas))
+        self.assertEqual(agregado.como_dict()["pares_sin_cotejar"], ["E2"])
+        hallazgos = lint_ledger(libro, paquete=self.paquete(), extractores=EXTRACTORES)
+        self.assertEqual([(h["regla"], h["severidad"], h["objetivo"]) for h in hallazgos],
+                         [("PL-018", "ADVERTENCIA", "A1")])  # antes: ningún hallazgo
+        self.assertIn("E2: SIN_EVIDENCIA", hallazgos[0]["mensaje"])
+        self.assertFalse(esta_bloqueado(hallazgos))
+        self.assertIn("PL-018", REGLAS_COTEJO)
+        self.assertEqual(resumen_severidades(hallazgos)["ADVERTENCIA"], 1)
+        # Sin el par CONFORME no hay advertencia: es SIN_EVIDENCIA y, si es VERIFICADO, PL-016.
+        libro["afirmaciones"][0]["verificacion"]["evidencias"] = ["E2"]
+        reglas = {h["regla"] for h in lint_ledger(libro, paquete=self.paquete(), extractores=EXTRACTORES)}
+        self.assertEqual(reglas, {"PL-016"})
+
+    def test_cache_por_documento_y_extractor(self) -> None:
+        agregar_ley(self.raiz, "CNPP")
+        agregar_ley(self.raiz, "CNPP", archivo="SINTETICO.pdf")  # mismo PDF, otra URL
+        agregar_ley(self.raiz, "CPF")
+        libro = ledger(
+            [afirmacion("A1", ["E1", "E2", "E3"]), afirmacion("A2", ["E4"]), afirmacion("A3", ["E5"])],
+            [evidencia_ley("E1", "Artículo 1o.", CNPP_ART_1O), evidencia_ley("E2", "Artículo 2o.", CNPP_ART_2O),
+             evidencia_ley("E3", "Artículo 3o.", CNPP_ART_3O),
+             evidencia_ley("E4", "Artículo 2o.", CNPP_ART_2O, archivo="SINTETICO.pdf"),
+             evidencia_ley("E5", "Artículo 1o.", CPF_ART_1O, "CPF")],
+        )
+        llamadas, extractores = _contador_de_extracciones()
+        cotejo = self.cotejar(libro, extractores)
+        self.assertEqual([p.resultado for p in cotejo.pares[:3]], [CONFORME] * 3)
+        self.assertEqual(cotejo.pares[4].resultado, CONFORME)
+        # Antes: una re-extracción por evidencia (5). Ahora una por documento (CNPP y CPF).
+        self.assertEqual(len(llamadas), 2)
+
+    def test_cita_sigla_numero_en_la_afirmacion(self) -> None:
+        # D4 en el cotejo: "CPF 2o." es el art. 2o. del CPF, no el del CNPP de la evidencia.
+        par = self.cotejar_ley("Artículo 2o.", CNPP_ART_2O, texto="CPF 2o.: objeto del Código (sintética).")
+        self.assertEqual((par.resultado, par.paso, _campos(par)), (DISCREPANTE, "e", ["afirmacion"]))
+        self.nuevo()
+        par = self.cotejar_ley("Artículo 2o.", CNPP_ART_2O, texto="CNPP 2o.: objeto del Código (sintética).")
+        self.assertEqual(par.resultado, CONFORME, par.motivos)
+        # La afirmación sí menciona el artículo (antes: "no menciona un artículo identificable").
+        self.assertNotIn("no menciona un artículo", _detalles(par.notas))
+
+
+class PilotoConsultaArticuloTests(_ConPaquete):
+    """Comando nuevo: el texto exacto del artículo que usa el cotejo."""
+
+    def test_consultar_articulo_devuelve_el_texto_del_cotejo(self) -> None:
+        registro = agregar_ley(self.raiz, "CNPP")
+        sha = registro["original"]["sha256"]
+        consultar = identidad.consultar_articulo
+        consulta = consultar(self.paquete(), articulo="2o.", sha256=sha, extractores=EXTRACTORES)
+        self.assertEqual(consulta.motivos, ())
+        self.assertEqual((consulta.articulo, consulta.ordenamiento), ("2o", "CNPP"))
+        self.assertEqual(consulta.linea_ultima_reforma, CNPP_LINEA_REFORMA)
+        self.assertEqual((consulta.tramo.pagina_inicial, consulta.tramo.pagina_final, consulta.tramo.truncado),
+                         (1, 1, False))
+        self.assertIn(" ".join(CNPP_ART_2O.split()), " ".join(consulta.tramo.texto.split()))
+        # Cualquier tramo literal del texto mostrado es un extracto CONFORME.
+        extracto = consulta.tramo.texto.split("\n")[1].strip()
+        par = self.cotejar(ledger([afirmacion("A1", ["E1"])],
+                                  [evidencia_ley("E1", "Artículo 2o.", extracto)])).pares[0]
+        self.assertEqual(par.resultado, CONFORME, par.motivos)
+        # Por URL, sin huella; artículo en zona indeterminada; sin extractor; entradas inválidas.
+        por_url = consultar(self.paquete(), articulo="Artículo 2o.", url=url_leyesbiblio("CNPP.pdf"),
+                            extractores=EXTRACTORES)
+        self.assertEqual(por_url.tramo, consulta.tramo)
+        indeterminado = consultar(self.paquete(), articulo="167", sha256=sha, extractores=EXTRACTORES)
+        self.assertIsNone(indeterminado.tramo)
+        self.assertIn("zona_indeterminada", [a["codigo"] for a in indeterminado.ubicacion.advertencias])
+        sin_extractor = consultar(self.paquete(), articulo="2o.", sha256=sha)
+        self.assertIn("no comprobable", sin_extractor.motivos[0].detalle)
+        for argumentos in ({"articulo": "2o.", "sha256": "0" * 64}, {"articulo": "19 y 20", "sha256": sha}):
+            with self.subTest(argumentos=argumentos):
+                with self.assertRaises(ValueError):
+                    consultar(self.paquete(), extractores=EXTRACTORES, **argumentos)
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -1455,6 +1932,73 @@ class CliCotejoTests(unittest.TestCase):
         self.assertEqual(resultado.returncode, 2)  # la URL no corresponde al registro del texto
         self.assertEqual(self._agregar_tesis("2006224", "1800-01-01").returncode, 0)
         self.assertEqual(self._agregar_tesis("2006224", "1800-01-02").returncode, 2)  # sería ambiguo
+
+    # Piloto PEN-01, D9: el innerText guardado con CRLF no tiene la huella de la captura.
+    def test_agregar_tesis_avisa_crlf_e_imprime_las_dos_huellas(self) -> None:
+        manifiesto = json.loads((FIXTURES / "manifiesto.json").read_text(encoding="utf-8"))
+        entrada = next(f for f in manifiesto["fixtures"] if f["archivo"] == "sjf_2006224.txt")
+        huella_lf = entrada["original"]["sha256_innertext_lf"]["valor"]
+        original = (FIXTURES / "sjf_2006224.txt").read_bytes()
+        self.assertIn(b"\r\n", original)  # el fixture se preservó con CRLF, como el del piloto
+        resultado = self._agregar_tesis("2006224")
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        self.assertIn("CRLF", resultado.stdout)  # antes: sin aviso
+        self.assertIn(f"sha256_documento: {sha256_bytes(original)}", resultado.stdout)
+        self.assertIn(huella_lf, resultado.stdout)
+        self.assertEqual(_bloque(resultado.stdout, "Bloque de evidencia")["sha256_documento"],
+                         sha256_bytes(original))  # el paquete usa la huella del archivo
+        con_lf = self.carpeta / "render_lf.txt"
+        con_lf.write_bytes(original.replace(b"\r\n", b"\n"))
+        resultado = self._ejecutar(
+            "evidencia", "agregar-tesis", "--paquete", str(self.carpeta / "paquete_lf"),
+            "--archivo", str(con_lf), "--url", url_tesis_sjf("2006224"), "--fecha-consulta", FECHA_SINTETICA,
+        )
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        self.assertNotIn("CRLF", resultado.stdout)
+        self.assertIn(f"sha256_documento: {huella_lf}", resultado.stdout)
+
+    # Piloto PEN-01, fricción n.º 1: ver el texto exacto del artículo que usa el cotejo.
+    def test_evidencia_articulo_imprime_el_texto_que_usa_el_cotejo(self) -> None:
+        sha = agregar_ley(self.paquete, "CNPP")["original"]["sha256"]
+        base = ("evidencia", "articulo", "--paquete", str(self.paquete))
+        codigo, salida, errores = self._en_proceso(*base, "--sha256", sha, "--articulo", "2o.")
+        self.assertEqual(codigo, 0, errores)
+        self.assertIn("Artículo 2o · zona cuerpo · página 1", salida)
+        self.assertIn('ubicación para el ledger: "Artículo 2o"', salida)
+        self.assertIn(f"línea del encabezado: «{CNPP_LINEA_REFORMA}»", salida)
+        self.assertIn("ordenamiento: CNPP", salida)
+        lineas = salida.split("\n")
+        inicio = next(i for i, linea in enumerate(lineas) if linea.startswith("──── texto que usa el cotejo"))
+        fin = lineas.index("──── fin del artículo ────")
+        texto = "\n".join(lineas[inicio + 1:fin])
+        self.assertTrue(texto.startswith("Artículo 2o. Objeto del Código"))
+        # Lo que imprime es lo que coteja: una línea copiada es un extracto CONFORME.
+        ruta = self._escribir_ledger(ledger(
+            [afirmacion("A1", ["E1"], texto="Art. 2o. CNPP (afirmación sintética).")],
+            [evidencia_ley("E1", "Artículo 2o", lineas[inicio + 2].strip())]))
+        codigo, salida_cotejo, _ = self._en_proceso("cotejar", "--ledger", str(ruta), "--paquete", str(self.paquete))
+        self.assertEqual(codigo, 0, salida_cotejo)
+        # Por URL; artículo no ubicable en el cuerpo; entradas inválidas.
+        codigo, salida, _ = self._en_proceso(*base, "--url", url_leyesbiblio("CNPP.pdf"), "--articulo", "Artículo 2o.")
+        self.assertEqual(codigo, 0)
+        self.assertIn(texto, salida)
+        codigo, salida, _ = self._en_proceso(*base, "--sha256", sha, "--articulo", "167")
+        self.assertEqual(codigo, 1)
+        self.assertIn("no se ubica sin ambigüedad", salida)
+        self.assertIn("zona_indeterminada", salida)
+        for extra in ((), ("--sha256", "0" * 64), ("--sha256", sha, "--articulo", "19 y 20")):
+            with self.subTest(extra=extra):
+                argumentos = [*base, *extra] + ([] if "--articulo" in extra else ["--articulo", "2o."])
+                codigo, _, errores = self._en_proceso(*argumentos)
+                self.assertEqual(codigo, 2, errores)
+        resultado = self._ejecutar("evidencia", "articulo", "--paquete", str(self.carpeta / "no-existe"),
+                                   "--sha256", sha, "--articulo", "2o.")
+        self.assertEqual(resultado.returncode, 2)
+        self.assertNotIn("Traceback", resultado.stderr)
+        # Subproceso sin el extractor sintético: la relación original–texto no es comprobable.
+        resultado = self._ejecutar(*base, "--sha256", sha, "--articulo", "2o.")
+        self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
+        self.assertIn("no comprobable", resultado.stdout)
 
     def _agregar_ley(self, pdf: bytes, paginas_json: Path, url: str, *extra: str) -> tuple[int, str, str]:
         ruta_pdf = self.carpeta / "documento.pdf"

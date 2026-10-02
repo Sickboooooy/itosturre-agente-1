@@ -8,7 +8,9 @@ la pertinencia al caso sigue siendo decisión del abogado.
 Con un cotejo de identidad (``cotejo=``) se agrega la sección "Cotejo de identidad":
 conteo por resultado y una tabla por par (afirmación, evidencia) con resultado, paso,
 motivos, documento y versión de la fuente y si requiere decisión humana. Sin cotejo, el
-reporte es idéntico al de PR-1.
+reporte es el de PR-1 (con la fila ``ADVERTENCIA`` del resumen por severidad en 0). Las
+notas del agregado incluyen los artículos remitidos sin cotejar (PL-019) y la evidencia
+citada sin cotejar (PL-018).
 """
 from __future__ import annotations
 

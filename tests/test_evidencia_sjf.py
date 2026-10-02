@@ -185,6 +185,28 @@ class TesisRealesTests(unittest.TestCase):
                 self.assertNotIn("Pino Suárez", volcado)
                 self.assertNotIn("CONTÁCTANOS", volcado)
 
+    def test_region_de_la_tesis_sin_banner_ni_pie(self) -> None:
+        # Piloto PEN-01 (D2): el cotejo busca el extracto de una tesis en esta región, que
+        # incluye todos sus campos (p. ej. "Fuente") y excluye el banner y el pie del portal.
+        from itosturre.evidencia import sjf
+
+        for registro in ("2006224", "2031931", "2032506"):
+            with self.subTest(registro=registro):
+                crlf = _render(registro).decode("utf-8")
+                region = sjf.region_tesis(crlf)
+                self.assertTrue(region.startswith(f"Registro digital: {registro}"))
+                self.assertNotIn("Pluricultural", region)
+                self.assertNotIn("UBICACIÓN", region)
+                self.assertNotIn("\r", region)
+                self.assertEqual(region, sjf.region_tesis(crlf.replace("\r\n", "\n")))
+                tesis = _tesis(registro)
+                for campo in (tesis.rubro, tesis.clave, tesis.instancia):
+                    self.assertIn(normalizar_para_cotejo(campo), normalizar_para_cotejo(region))
+        region = sjf.region_tesis(_render("2006224").decode("utf-8"))
+        self.assertIn("Fuente: Gaceta del Semanario Judicial de la Federación.\nLibro 5, Abril de 2014", region)
+        with self.assertRaises(ErrorSJF):
+            sjf.region_tesis("Texto sintético sin ancla")
+
     def test_no_existe_campo_de_vigencia(self) -> None:
         metadatos = _tesis("2006224").metadatos()
         self.assertFalse({"vigencia", "vigente"} & set(metadatos))

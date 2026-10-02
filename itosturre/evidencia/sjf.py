@@ -704,6 +704,56 @@ def parsear_tesis(texto: str, *, registro_esperado: str | None = None) -> TesisS
     )
 
 
+def region_tesis(texto: str) -> str:
+    """Texto de la tesis tal como lo muestra el render: desde la línea ``Registro digital:``
+    hasta antes del pie del sitio (``UBICACIÓN``), con todos sus campos (instancia, época,
+    materias, clave, fuente, tipo, rubro, texto, precedentes, notas y publicación).
+
+    Excluye el banner y el menú del portal (antes del ancla) y el pie. Las líneas se unen
+    con ``\\n`` (un render guardado con CRLF da el mismo resultado). Lanza ``ErrorSJF``
+    como ``parsear_tesis`` si no hay un ancla única.
+    """
+    if not isinstance(texto, str):
+        raise TypeError(f"se esperaba texto, se recibió {type(texto).__name__}")
+    lineas = texto.splitlines()
+    ancla = _ancla(lineas)
+    fin = next(
+        (i for i in range(ancla + 1, len(lineas)) if normalizar_para_cotejo(lineas[i]) == "ubicacion"),
+        len(lineas),
+    )
+    return "\n".join(lineas[ancla:fin])
+
+
+# Secciones posteriores al texto que pertenecen al criterio de la propia tesis. Las demás
+# (precedentes, contendientes, notas, aprobación, no clasificadas) pueden traer rubros o
+# datos de otras tesis: no acreditan el criterio propio.
+SECCIONES_DEL_CRITERIO = frozenset({"publicacion"})
+
+
+def region_criterio(texto: str) -> str:
+    """Lo que identifica y enuncia la propia tesis en el render: los campos de su ficha (del
+    ancla "Registro digital:" al rubro: instancia, época, materias, clave, fuente, tipo), el
+    rubro, el texto y la frase de publicación.
+
+    Excluye el banner y el pie del portal y las secciones de precedentes, contendientes,
+    notas, aprobación y no clasificadas. Sin rubro reconocible no se puede delimitar la
+    ficha: solo quedan el texto y la publicación (falla cerrado). Lanza ``ErrorSJF`` como
+    ``parsear_tesis``.
+    """
+    tesis = parsear_tesis(texto)
+    region = region_tesis(texto)
+    partes: list[str] = []
+    if tesis.rubro:
+        corte = region.find(tesis.rubro.split("\n", 1)[0])
+        if corte >= 0:
+            partes.append(region[:corte])
+        partes.append(tesis.rubro)
+    if tesis.texto:
+        partes.append(tesis.texto)
+    partes += [s["texto"] for s in tesis.secciones if s["clase"] in SECCIONES_DEL_CRITERIO]
+    return "\n".join(parte for parte in partes if parte)
+
+
 def derivado_canonico(tesis: TesisSJF) -> str:
     """El derivado de una tesis: JSON canónico de toda la lectura (su huella va al registro)."""
     return json_canonico(tesis.como_dict())

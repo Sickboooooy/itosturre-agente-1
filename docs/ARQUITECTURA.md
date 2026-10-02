@@ -48,7 +48,7 @@ del producto.
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
-| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-017. CLI: `lint`, `hash`, `cotejar`, `evidencia agregar-tesis` y `evidencia agregar-ley`. Sin red ni LLM, separado del VVCA | Código padre |
+| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014; también citas "SIGLA número" y rangos); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-019. CLI: `lint`, `hash`, `cotejar`, `evidencia agregar-tesis`, `evidencia agregar-ley` y `evidencia articulo` (texto exacto del artículo que usa el cotejo). Sin red ni LLM, separado del VVCA | Código padre |
 | `itosturre/evidencia/` | Capa de evidencia pura (C7): registro `evidencia/1.0` (URL oficial, fecha de consulta aportada por quien llama, huellas del original y del derivado), fuente única de hosts oficiales, huellas y JSON canónico, parser del SJF anclado en "Registro digital:", limpieza de LeyesBiblio con invariantes, ubicación de artículos (cuerpo / transitorios / indeterminada) y notas de reforma con gramática completa. `validar_registro` es solo estructural y **no habilita VERIFICADO**: hace falta además `comprobar_integridad`, que recalcula las huellas desde el original y el derivado y vuelve a leer la fuente. Solo biblioteca estándar; sin red ni reloj. La única E/S de archivos es `paquete.py`: almacén direccionado por contenido (`registros/<huella>.json`, `objetos/<sha256>`), publicación que falla si el destino existe (enlace duro o `O_EXCL`, nunca comprobar-y-reemplazar), huella verificada en cada lectura y rechazo de enlaces simbólicos y puntos de reanálisis (raíz, `registros/`, `objetos/` y cada archivo, con contención por ruta real); solo guarda registros íntegros con sus artefactos. `plan` puede importarla; ella no importa `plan` ni `audit` | Código padre |
 | `scripts/generar_fixtures_evidencia.py` | Regenera `tests/fixtures/evidencia/` desde originales descargados (requiere PyMuPDF); no corre en CI | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
@@ -80,12 +80,16 @@ paquete de evidencia  registros/<huella>.json + objetos/<sha256>   (solo si pasa
         |  publicación exclusiva (enlace duro / O_EXCL), sin enlaces simbólicos ni junctions
         |  imprime sha256_documento y un bloque de evidencia para pegar
         v
+        |  plan_audit.py evidencia articulo --paquete DIR --sha256 H --articulo N
+        |  imprime el texto exacto del artículo que usará el cotejo (zona, páginas) y el encabezado
+        v
 ledger plan-ledger/1.0  evidencias[]: url + sha256_documento + ubicacion + extracto
-        |                (+ ultima_reforma_dof opcional para leyes)
+        |                (+ ultima_reforma_dof opcional para leyes; ubicacion "Artículo N" o "Encabezado…")
         |                decisiones[].advertencias_fuente para las advertencias de la fuente
+        |                identificacion_criterio.tipo_fuente: tesis_sjf | sentencia_internacional
         v
 plan_audit.py cotejar --ledger L --paquete DIR      → CONFORME / DISCREPANTE / SIN_EVIDENCIA por par
-plan_audit.py lint --ledger L --paquete DIR         → PL-001…PL-014 + PL-015…PL-017
+plan_audit.py lint --ledger L --paquete DIR         → PL-001…PL-014 + PL-015…PL-019
 ```
 
 El cotejo de identidad comprueba, en este orden y fallando cerrado: vínculo (huella del
@@ -103,15 +107,71 @@ requiere decisión humana. Identidad no es fidelidad (PR-4) y el cotejo nunca ap
 cambia estados (D3). El cotejo lleva la huella del ledger y del paquete sobre los que se
 calculó: `lint_ledger(..., cotejo=)` rechaza (`ValueError`) uno de otro contenido.
 
+Correcciones tras el piloto PEN-01 (informe local del piloto, no versionado; defectos
+D1–D10 del kit), con la ronda 2 tras la revisión externa. Principio: relajar una regla
+nunca crea un CONFORME sobre algo que no se cotejó.
+
+- **Menciones** (`menciones.py`): citas "SIGLA número" ("CNPP 167", "CFF 113 Bis", "CPEUM
+  1º", "LAmp 217") con la ley de la sigla, sin siglas ajenas al diccionario ni números que
+  no son artículos (años, fechas, montos, folios, unidades; nunca "LA"); rangos con el
+  contrato del VVCA (`MAX_RANGO`; uno mayor deja sus intermedios como `RANGO` de cobertura
+  incompleta) y sin perder lo que sigue al rango ("105, 108-112 y 114"). Ronda 2: la letra
+  de un artículo cuenta ("29-A" y "4o.-A" son otros artículos, también en `clave_articulo`)
+  y cada número de una enumeración o rango pasa la misma validación que el primero
+  ("CFF 28, 29-A y 30" da tres menciones; "CFF 28, 10.5" una).
+- **Remisión documentada por la fuente (ronda 2):** un artículo se exime de evidencia
+  propia solo si la afirmación lo cita **con ley**, el extracto CONFORME de una ley citada
+  por la misma afirmación lo nombra con la **misma** ley, no está en sus `referencias` y el
+  texto lo presenta como remisión en cada aparición ("el art. 108 CFF remite al art. 400
+  Bis del CPF"). Aun así no se coteja: advertencia PL-019 y el agregado no es "todo
+  conforme". Sin ley, con otra ley, en `referencias` o como fundamento propio: PL-016.
+- **Encabezado del compilado:** ubicación "Encabezado…" (con página y "de M" opcionales,
+  que deben ser los del encabezado registrado); el extracto debe ser **igual** al título o a
+  la línea "Última(s) Reforma(s) DOF …" y a `titulo`/`ultima_reforma_dof` del registro; la
+  afirmación **debe** nombrar, con sigla o nombre del catálogo, el ordenamiento de la
+  evidencia y ningún otro (sin él, con uno fuera del catálogo o con otro además:
+  SIN_EVIDENCIA). La cabecera solo acredita denominación, última reforma y páginas: si
+  todas las evidencias CONFORME de una afirmación son de cabecera y el texto dice algo más
+  (vigencia, contenido normativo, otra fecha u otro número), el agregado queda
+  SIN_EVIDENCIA. `LNMASCMP.pdf` se suma a `ARCHIVOS_LEYESBIBLIO` (título confirmado contra
+  `LEYES`).
+- **Tesis (ronda 2):** el extracto de un criterio judicial solo vale si sale de la propia
+  tesis: los campos de su ficha (fuente, instancia…), su rubro, su texto o su frase de
+  publicación (`sjf.region_criterio`); de precedentes, contendientes o notas (pueden traer
+  rubros de otras tesis) queda SIN_EVIDENCIA, y del banner o del pie del portal,
+  DISCREPANTE. Solo un `hecho_aportado` puede omitir `identificacion_criterio`: coteja URL,
+  huella, registro mencionado y extracto literal (obligatorio) en la ficha, del ancla al
+  pie (`sjf.region_tesis`), nunca en el banner.
+- **Evidencia citada sin cotejar:** un agregado CONFORME con pares SIN_EVIDENCIA lo dice en
+  una nota y en `pares_sin_cotejar`, cuenta como hallazgo del cotejo y el lint lo reporta
+  como PL-018 (ADVERTENCIA, no bloquea). Una afirmación compuesta cuya parte sin cotejar
+  no genera menciones (p. ej. una fecha que solo da un DOF) solo advierte: se recomienda
+  descomponerla para que cada parte cite su propia evidencia.
+- **PL-007 por tipo de fuente:** `identificacion_criterio.tipo_fuente` (`tesis_sjf`, por
+  omisión, con los diez campos de siempre; `sentencia_internacional`: `caso`,
+  `serie_numero`, `fecha`, `parrafo`); sin él, un criterio cuyas evidencias son todas de
+  la Corte IDH se lee como sentencia internacional. Ronda 2: el tipo declarado debe ser
+  compatible con las evidencias (`sentencia_internacional` exige alguna de la Corte IDH y
+  ninguna del SJF; `tesis_sjf` no puede citar la Corte IDH); si no, PL-007. Esquema en
+  `ledger.py`.
+- **Caché:** pasos a–c una vez por evidencia equivalente (huella, URL, naturaleza) y
+  re-extracción una vez por documento y extractor (huella del original, nombre y versión):
+  el cotejo del piloto pasó de 36 re-extracciones (22 s) a 7 (7 s).
+- **`evidencia agregar-tesis`** advierte si el archivo trae CRLF e imprime la huella del
+  archivo (`sha256_documento`) y la del texto con LF (la del innerText capturado).
+
 | Regla | Severidad | Cuándo |
 |---|---|---|
 | PL-015 | BLOQUEANTE | VERIFICADO que cita una evidencia DISCREPANTE |
 | PL-016 | BLOQUEANTE | VERIFICADO sin evidencia CONFORME, o cuyas menciones no cubre ninguna evidencia CONFORME (sostiene a lo sumo NO VERIFICABLE) |
 | PL-017 | BLOQUEANTE si VERIFICADO; ALTA si no | Evidencia CONFORME con advertencias de la fuente sin una decisión con `advertencias_fuente` (evidencia, `sha256_documento` o `huella_registro` vigentes, códigos y resolución) y responsable humano; para VERIFICADO, además APROBADA |
+| PL-018 | ADVERTENCIA (no bloquea) | Afirmación cuyo agregado quedó CONFORME por unas evidencias y cita otras SIN_EVIDENCIA (p. ej. un DOF, tipo no soportado): lo que solo esas sostienen no está cotejado |
+| PL-019 | ADVERTENCIA (no bloquea) | Artículo remitido sin cotejar: eximido como remisión documentada por la fuente (misma ley en el extracto CONFORME, fuera de `referencias`, presentado como remisión) |
 
 Las reglas del cotejo viven en `REGLAS_COTEJO`, no en `REGLAS`: sin `--paquete` el lint,
-sus salidas y el Gold Set de planes son los de PR-1. Ninguna salida de `lint`
-(`--json`/`--md`) puede quedar dentro del paquete.
+sus hallazgos y el Gold Set de planes son los de PR-1 (el resumen por severidad trae además
+`ADVERTENCIA`, siempre en 0 sin paquete). Ninguna salida de `lint` (`--json`/`--md`) puede
+quedar dentro del paquete.
 
 ## Núcleo VVCA: costuras y pruebas sin corpus (R4a)
 
@@ -443,7 +503,7 @@ ante cualquier ambigüedad.
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
 | Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b; D08, D09, D11 y D12 en R4c; D07, D13 y D14 en R4d; D10 en D10, con `tests.test_vvca_inexistencia`) |
 | Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
-| Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-017, que el Gold Set no admite porque no tiene paquete. Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
+| Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-019, que el Gold Set no admite porque no tiene paquete, y las correcciones del piloto PEN-01 (clases `Piloto*`, CRLF de `agregar-tesis` y `evidencia articulo`). Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 
