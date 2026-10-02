@@ -1493,8 +1493,10 @@ def audit(
                     "page": best_meta.get("page", "?"),
                     "expected_source": expected_source,
                     "law_inferred": ref.get("law_inferred", False),
-                    # R4b (campo añadido): cómo se resolvió la ley de la cita.
+                    # R4b (campos añadidos): cómo se resolvió la ley de la cita y si es una
+                    # ley inferida de otro párrafo que el abogado debe confirmar.
                     "law_method": ref.get("law_method"),
+                    "law_requires_confirmation": bool(ref.get("law_requires_confirmation")),
                     "relevance_score": round(1 - best_distance, 3),
                     "retrieved_text": best_doc[:600],
                     "retrieved_text_full": best_doc,

@@ -1480,7 +1480,7 @@ class VinculoSintacticoTests(AuditoriaBase):
         casos = {
             "Los artículos 14 y 16 de la CPEUM y del CFF.": "sin 'respectivamente'",
             "Los artículos 14, 16 y 19, de la CPEUM y del CFF, respectivamente.":
-                "no coincide con el de artículos",
+                "entre 3 artículo(s): no cuadra",
         }
         for texto, motivo in casos.items():
             with self.subTest(texto=texto):
@@ -1681,6 +1681,165 @@ class VinculoSintacticoTests(AuditoriaBase):
                 self.assertEqual(self.estados(resultado),
                                  [("artículo 42", "verified", "corpus_metadata")])
                 self.assertEqual(self._semaforos(resultado), ["🟢"])
+
+
+class RondaTresTests(AuditoriaBase):
+    """Ronda 3 de R4b (segunda revisión de Codex). Cada prueba fija artículo, ley,
+    ``law_method``, banderas y el semáforo de la traza en ``audit()``."""
+
+    def _refs(self, texto: str) -> list[tuple]:
+        return [(r["article"], r["law"], r["source_file"], r["law_method"],
+                 r["law_requires_confirmation"], bool(r["coverage_gap"]))
+                for r in ON.extract_references(texto) if r["type"] == "article"]
+
+    def _semaforos(self, resultado: dict) -> list[str]:
+        return [t["verification"]["semaforo"] for t in resultado["traceability"]["records"]]
+
+    def _fragmento(self, consulta: str, texto: str, fuente: str, articulo: str,
+                   distancia: float = 0.05) -> None:
+        self.coleccion.agregar(texto, {"source": fuente, "article": articulo, "page": "1"},
+                               eje=self.codificador.eje(consulta), distancia=distancia)
+
+    # ── P2: "respectivamente" sin repetir la preposición ───────────────────────────────
+    def test_r3_p2_respectivamente_con_leyes_coordinadas_sin_preposicion(self) -> None:
+        texto = "Los artículos 14 y 16 de la CPEUM y el CFF, respectivamente."
+        self.assertEqual(self._refs(texto), [
+            ("14", "cpeum", CPEUM, "adyacente_derecha", False, False),
+            ("16", "cff", CFF, "adyacente_derecha", False, False),
+        ])
+        self._fragmento("Artículo 14 cpeum", "Artículo 14. Texto sintético.", CPEUM, "14")
+        self._fragmento("Artículo 16 cff", "Artículo 16.- Texto sintético.", CFF, "16")
+        resultado = self.auditar(texto)
+        self.assertEqual([e[1:] for e in self.estados(resultado)],
+                         [("verified", "corpus_metadata")] * 2)
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟢"])
+
+    def test_r3_p2_reparto_que_no_cuadra_deja_el_grupo_sin_ley(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        for texto in (
+            "Los artículos 14 y 16 de la CPEUM, el CFF y la LISR, respectivamente.",
+            "Los artículos 14 y 16 de la CPEUM, respectivamente.",
+        ):
+            with self.subTest(texto=texto):
+                refs = ON.extract_references(texto)
+                self.assertEqual([(r["source_file"], r["law_method"]) for r in refs],
+                                 [(None, None)] * 2)
+                self.assertTrue(all("no cuadra" in r["law_unidentified_reason"] for r in refs))
+                self.assertEqual(self._semaforos(self.auditar(texto)), ["🟡", "🟡"])
+        # Sin "respectivamente", "y el CFF" es otro sujeto: el 16 sigue siendo de la CPEUM.
+        self.assertEqual(
+            self._refs("El artículo 16 de la CPEUM y el CFF establecen reglas."),
+            [("16", "cpeum", CPEUM, "adyacente_derecha", False, False)],
+        )
+
+    # ── P6: rangos con ordinales o grado ───────────────────────────────────────────────
+    def test_r3_p6_rango_largo_con_ordinales_deja_cobertura_incompleta(self) -> None:
+        for texto, extremos in (
+            ("Arts. 1º-25º del CFF.", ("1º", "25º")),
+            ("Arts. 1o.-25o. CFF.", ("1o", "25o")),
+            ("Arts. 1°-25° CFF.", ("1", "25")),
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual([r[0] for r in self._refs(texto)], [*extremos, "2 a 24"])
+                self.assertEqual([r[5] for r in self._refs(texto)], [False, False, True])
+        self._fragmento("Artículo 1º cff", "Artículo 1º.- Texto sintético.", CFF, "1º")
+        self._fragmento("Artículo 25º cff", "Artículo 25º.- Texto sintético.", CFF, "25º")
+        resultado = self.auditar("Arts. 1º-25º del CFF.")
+        self.assertEqual([e[2] for e in self.estados(resultado)],
+                         ["corpus_metadata", "corpus_metadata", "cobertura_extraccion"])
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟢", "🟡"])
+        self.assertTrue(any("rango de 25 artículos" in a for a in resultado["alerts"]))
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+        # Un rango corto con ordinales se expande con el mismo ordinal.
+        self.assertEqual([r[0] for r in self._refs("Arts. 1o. a 4o. del CFF.")],
+                         ["1o", "2o", "3o", "4o"])
+
+    # ── P7: punto y coma dentro de la enumeración ─────────────────────────────────────
+    def test_r3_p7_punto_y_coma_no_hace_desaparecer_un_miembro(self) -> None:
+        texto = "Los artículos 14 de la CPEUM; 42 del CFF."
+        self.assertEqual(self._refs(texto), [
+            ("14", "cpeum", CPEUM, "adyacente_derecha", False, False),
+            ("42", "cff", CFF, "adyacente_derecha", False, False),
+        ])
+        self._fragmento("Artículo 14 cpeum", "Artículo 14. Texto sintético.", CPEUM, "14")
+        self._fragmento("Artículo 42 cff", "Artículo 42.- Texto sintético.", CFF, "42")
+        resultado = self.auditar(texto)
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟢"])
+        # Si no se puede extraer con certeza, queda como cobertura incompleta (🟡).
+        refs = self._refs("El artículo 14 de la CPEUM; también el 42 del CFF.")
+        self.assertEqual([(r[0], r[2], r[5]) for r in refs],
+                         [("14", CPEUM, False), ("42", None, True)])
+        # Un número que no está ligado a una ley tras ";" no es un artículo.
+        self.assertEqual([r[0] for r in self._refs(
+            "El artículo 14 de la CPEUM; el plazo es de 16 días.")], ["14"])
+
+    # ── N1: ordenamientos fuera del catálogo como antecedentes ───────────────────────
+    def test_r3_n1_antecedente_fuera_del_catalogo_cuenta(self) -> None:
+        self.coleccion.agregar("Artículo 5.- Texto sintético.", {"source": LAMP, "article": "5"})
+        casos = {
+            "La Ley de Amparo y la Ley General de Salud rigen. El artículo 5 de la ley dispone.":
+                "es ambiguo",
+            "La Ley General de Salud rige. El artículo 5 de la ley dispone.":
+                "fuera del catálogo: 'Ley General de Salud'",
+        }
+        for texto, motivo in casos.items():
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual((ref["source_file"], ref["law_method"],
+                                  ref["law_requires_confirmation"]), (None, None, False))
+                self.assertIn(motivo, ref["law_unidentified_reason"])
+                self.assertEqual(self._semaforos(self.auditar(texto)), ["🟡"])
+        self.assertEqual(
+            self._refs("La Ley de Amparo rige. El artículo 5 de la ley dispone."),
+            [("5", "ley de amparo", LAMP, "antecedente", False, False)],
+        )
+
+    # ── N3: "numeral" y "precepto" como cabeza; "Carta Magna" como "la Constitución" ──
+    def test_r3_n3_numeral_y_precepto_abren_referencia(self) -> None:
+        self.coleccion.agregar("Artículo 16. Texto sintético.", {"source": CPEUM, "article": "16"})
+        texto = "Se vulnera el numeral 16 de la Carta Magna."
+        (ref,) = ON.extract_references(texto)
+        self.assertEqual((ref["article"], ref["raw"], ref["source_file"], ref["law_method"]),
+                         ("16", "numeral 16", None, None))
+        self.assertIn("'Carta Magna' sin denominación", ref["law_unidentified_reason"])
+        resultado = self.auditar(texto)
+        self.assertEqual(self.estados(resultado),
+                         [("numeral 16", "not_verifiable", "resolucion_ley")])
+        self.assertEqual(self._semaforos(resultado), ["🟡"])
+        casos = {
+            "La Constitución Política de los Estados Unidos Mexicanos rige. Se vulnera el "
+            "numeral 16 de la Carta Magna.":
+                [("16", "constitución política de los estados unidos", CPEUM, "antecedente",
+                  False, False)],
+            "Se invocan los numerales 14 y 16 constitucionales.":
+                [("14", "constitucional", CPEUM, "adyacente_derecha", False, False),
+                 ("16", "constitucional", CPEUM, "adyacente_derecha", False, False)],
+            "El precepto 17 de la Ley de Amparo dispone.":
+                [("17", "ley de amparo", LAMP, "adyacente_derecha", False, False)],
+            # Tras otro número o un apartado, "numeral" es un calificador del precepto.
+            "El artículo 16, apartado A, numeral 3 de la CPEUM.":
+                [("16", "cpeum", CPEUM, "adyacente_derecha", False, False)],
+        }
+        for texto, esperado in casos.items():
+            with self.subTest(texto=texto):
+                self.assertEqual(self._refs(texto), esperado)
+
+    def test_criterio_del_responsable_1oct2026_constitucion_sin_denominacion(self) -> None:
+        """Criterio del responsable (1-oct-2026): "de la Constitución", "Carta Magna", "Ley
+        Fundamental" o "Norma Suprema" sin la denominación completa ni antecedente
+        inequívoco quedan 🟡 hasta confirmar; nunca CPEUM automática."""
+        self.coleccion.agregar("Artículo 16. Texto sintético.", {"source": CPEUM, "article": "16"})
+        for denominacion in ("la Constitución", "la Carta Magna", "la Ley Fundamental",
+                             "la Norma Suprema"):
+            texto = f"El artículo 16 de {denominacion} exige fundamentación."
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertIsNone(ref["source_file"])
+                self.assertNotEqual(ref["law"], "cpeum")
+                resultado = self.auditar(texto)
+                self.assertEqual(self.estados(resultado),
+                                 [("artículo 16", "not_verifiable", "resolucion_ley")])
+                self.assertEqual(self._semaforos(resultado), ["🟡"])
 
 
 class AuditoriaCaminoPorDefectoTests(unittest.TestCase):

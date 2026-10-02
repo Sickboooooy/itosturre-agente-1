@@ -53,6 +53,15 @@ class TelegramOptInTests(unittest.TestCase):
     def test_explicit_opt_in_sends_once(self) -> None:
         self.assertEqual(self.run_popup("--telegram").call_count, 1)
 
+    def test_cobertura_pendiente_se_avisa_en_el_resumen_del_envio(self) -> None:
+        # R4b ronda 3: lo no auditado no tiene captura, pero el envío lo dice.
+        envio = self.run_popup("--telegram", "--cobertura-pendiente", "2")
+        (_resultados, resumen), _ = envio.call_args
+        self.assertIn("2 referencia(s) con cobertura pendiente", resumen)
+        sin_cobertura = self.run_popup("--telegram")
+        (_resultados, resumen), _ = sin_cobertura.call_args
+        self.assertNotIn("cobertura pendiente", resumen)
+
     def test_requested_delivery_failure_exits_with_code_3(self) -> None:
         resultados = [{"path": str(self.root / "art_01.png"), "caption": "🟡 Art. 1"}]
         with (
@@ -201,6 +210,28 @@ class ArticleHeaderTests(unittest.TestCase):
         })
         self.assertIn("NÚMERO DE ARTÍCULO NO CONFIRMADO", html)
         self.assertNotIn("page-img", html.split("</style>")[1])
+
+    def test_popup_de_ley_por_confirmar_lleva_advertencia_visible(self) -> None:
+        item = {
+            "reference": "artículo 42",
+            "article": "42",
+            "semaforo": "🟡",
+            "source_file": "CODIGO SINTETICO.pdf",
+            "expected_source": "CODIGO SINTETICO.pdf",
+            "coincide_fuente": True,
+            "ley_identificada": True,
+            "retrieved_text_full": "Artículo 42.- Texto sintético.",
+        }
+        normal = capturar_rag.build_popup_html(item)
+        self.assertNotIn("LEY POR CONFIRMAR", normal)
+        por_confirmar = capturar_rag.build_popup_html(dict(
+            item, ley_por_confirmar=True,
+            motivo_ley="ley inferida de otro párrafo: confirmar el ordenamiento",
+        ))
+        cuerpo = por_confirmar.split("</style>")[1]
+        self.assertIn("⚠️ LEY POR CONFIRMAR — ley inferida de otro párrafo", cuerpo)
+        self.assertIn("no que el escrito cite ese ordenamiento", cuerpo)
+        self.assertIn("UBICACIÓN", cuerpo)   # la página se sigue mostrando (con advertencia)
 
 
 if __name__ == "__main__":

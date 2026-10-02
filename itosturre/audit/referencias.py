@@ -54,8 +54,10 @@ VENTANA_IZQUIERDA = 250
 VENTANA_PREVIA = 600      # contexto previo y antecedentes (la ventana "sticky" de siempre)
 
 # Claves del catálogo que dependen del contexto y nunca se buscan como mención libre:
-# "constitución" sola es genérica (R4-D04); "constitucional" solo junto al precepto.
-CLAVES_CONTEXTUALES = frozenset({"constitución", "constitucional"})
+# "constitución" sola es genérica (R4-D04); "constitucional" solo junto al precepto; "Carta
+# Magna" se trata como "la Constitución" sin denominación (criterio del responsable,
+# 1-oct-2026: 🟡 hasta confirmar, nunca CPEUM automática).
+CLAVES_CONTEXTUALES = frozenset({"constitución", "constitucional", "carta magna"})
 CLAVE_CONSTITUCIONAL = "constitucional"
 
 LATINOS = ("bis", "ter", "quater", "quinquies", "sexies", "septies", "octies", "nonies", "decies")
@@ -103,7 +105,16 @@ _CABEZA = r"(?<![^\W_])art[íi]?(?:culo)?s?\.?\s*"
 # ``ARTICLE_RE`` de OpenNotebook (que solo veía el primer artículo de una enumeración).
 ARTICULO_RE = re.compile(_CABEZA + rf"({_DESIGNACION})(?:°)?" + _FRACCION, re.IGNORECASE)
 
-_CABEZA_RE = re.compile(_CABEZA + r"(?=\d)", re.IGNORECASE)
+# Cabezas de referencia: "artículo(s)" y, desde la ronda 3, "numeral(es)" y "precepto(s)"
+# seguidos de número ("el numeral 16 de la Carta Magna"). Tras otro número o una letra de
+# apartado ("artículo 9, numeral 2"), "numeral" es un calificador del precepto, no una cabeza.
+_CABEZA_RE = re.compile(
+    r"(?<![^\W_])(?:art[íi]?(?:culo)?s?\.?|numeral(?:es)?|preceptos?)\s*(?=\d)",
+    re.IGNORECASE,
+)
+_CALIFICADOR_PREVIO_RE = re.compile(
+    r"(?:\d[\w°º.\-]*|(?<![^\W_])[IVXLC]{1,6}|(?<![^\W_])[A-Z]|(?<![^\W_])[a-z]\))[\s,;()]*$"
+)
 _ITEM_RE = re.compile(
     rf"(?P<num>\d+)(?P<ord>{_ORDINAL})?(?P<letra>{_LETRA})?(?P<latino>{_LATINO})?(?P<grado>°)?"
     r"(?:\s*[,;]?\s*(?:fr(?:acci[oó]n)?\.?|frac\.?)\s*(?P<fraccion>[\w\.]+))?",
@@ -117,6 +128,9 @@ _CONTINUACION_RE = re.compile(
     r"(?:\s*,\s*(?:(?:y|e)\s+)?(?:as[íi]\s+como\s+)?|\s+(?:y|e)\s+|\s+as[íi]\s+como\s+)"
     r"(?:(?:el|los)\s+)?(?=\d)",
     re.IGNORECASE,
+)
+_CONTINUACION_PYC_RE = re.compile(
+    r"\s*;\s*(?:(?:y|e)\s+)?(?:as[íi]\s+como\s+)?(?:(?:el|los)\s+)?(?=\d)", re.IGNORECASE
 )
 _MESES = (r"enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|"
           r"noviembre|diciembre")
@@ -416,6 +430,8 @@ class _Cortes:
         ]
         spans.sort()
         self._inicios = [a for a, _ in spans]
+        # Igual, pero sin el punto y coma: una enumeración de preceptos puede seguir tras él.
+        self._inicios_frase = [a for a, _ in spans if texto[a] != ";"]
         self._fines = sorted(b for _, b in spans)
         self._fines_parrafo = [b for _, b in parrafos]
         self._n = len(texto)
@@ -428,6 +444,11 @@ class _Cortes:
         final = self._inicios[k] if k < len(self._inicios) else self._n
         return comienzo, final
 
+    def fin_frase(self, posicion: int) -> int:
+        """Primer corte (que no sea punto y coma) en o después de ``posicion``."""
+        k = bisect.bisect_left(self._inicios_frase, posicion)
+        return self._inicios_frase[k] if k < len(self._inicios_frase) else self._n
+
     def parrafo(self, posicion: int) -> int:
         """Número de párrafo (separados por una línea en blanco) de una posición."""
         return bisect.bisect_right(self._fines_parrafo, posicion)
@@ -437,15 +458,15 @@ class _Cortes:
 # GENÉRICOS, NOMBRES CONCRETOS Y VÍNCULOS
 # ─────────────────────────────────────────
 _GENERICO_RE = re.compile(
-    r"(?<![^\W_])(?P<g>leyes|ley|c[óo]digos?|constituci[óo]n|ordenamientos?|reglamentos?|"
-    r"tratados?|convenci[óo]n|pacto|norma)(?![^\W_])",
+    r"(?<![^\W_])(?P<g>carta\s+magna|leyes|ley|c[óo]digos?|constituci[óo]n|ordenamientos?|"
+    r"reglamentos?|tratados?|convenci[óo]n|pacto|norma)(?![^\W_])",
     re.IGNORECASE,
 )
 _CONSTITUCIONAL_RE = re.compile(r"(?<![^\W_])constitucional(?:es)?(?![^\W_])", re.IGNORECASE)
 _TIPOS_GENERICO = {
     "ley": {"ley"}, "leyes": {"ley"},
     "codigo": {"codigo"}, "codigos": {"codigo"},
-    "constitucion": {"constitucion"},
+    "constitucion": {"constitucion"}, "carta magna": {"constitucion"},
     "reglamento": {"reglamento"}, "reglamentos": {"reglamento"},
     "tratado": {"tratado"}, "tratados": {"tratado"},
     "convencion": {"tratado"}, "pacto": {"tratado"},
@@ -554,18 +575,21 @@ def _vinculo_derecho(entre: str, *, sin_preposicion: bool = False) -> Optional[b
     return compartido
 
 
-def _union_de_leyes(entre: str) -> bool:
+def _union_de_leyes(entre: str, *, sin_preposicion: bool = False) -> bool:
     """Entre dos leyes de un mismo grupo: "y del", ", de la", "y de los"… Un número en medio
-    abre otro segmento ("de la CPEUM y 42 del CFF"), no une leyes."""
+    abre otro segmento ("de la CPEUM y 42 del CFF"), no une leyes. ``sin_preposicion``
+    admite además "y el", ", la" (solo se usa si el grupo termina en "respectivamente")."""
     if re.search(r"\d", entre):
         return False
     palabras = _palabras(entre)
     i, n = 0, len(palabras)
-    if i < n and palabras[i] in ("y", "e"):
+    coordinada = i < n and palabras[i] in ("y", "e")
+    if coordinada:
         i += 1
-    if not (i < n and palabras[i] in ("de", "del")):
+    if i < n and palabras[i] in ("de", "del"):
+        i += 1
+    elif not sin_preposicion or not (coordinada or "," in entre):
         return False
-    i += 1
     while i < n and palabras[i] in _DETERMINANTES:
         i += 1
     return i == n
@@ -737,19 +761,30 @@ def _enlace_derecho(texto: str, desde: int, tope: int, menciones: _Menciones) ->
     )
     if compartido is None:
         return None
-    cadena = [primero]
-    posicion = primero.fin
-    if primero.tipo != "constitucional":
+    def encadenar(sin_preposicion: bool) -> tuple[list[_Elemento], int]:
+        cadena, posicion = [primero], primero.fin
+        if primero.tipo == "constitucional":
+            return cadena, posicion
         for siguiente in menciones.elementos(posicion, tope):
             if siguiente.inicio < posicion:
                 continue
             if siguiente.tipo == "constitucional" or not _union_de_leyes(
-                texto[posicion:siguiente.inicio]
+                texto[posicion:siguiente.inicio], sin_preposicion=sin_preposicion
             ):
                 break
             cadena.append(siguiente)
             posicion = siguiente.fin
+        return cadena, posicion
+
+    cadena, posicion = encadenar(False)
     respectivamente = _RESPECTIVAMENTE_RE.match(texto, posicion)
+    if not respectivamente:
+        # "de la CPEUM y el CFF, respectivamente": sin repetir "de/del" solo si el grupo
+        # termina en "respectivamente" (si no, "y el CFF" puede ser otro sujeto).
+        amplia, fin_amplia = encadenar(True)
+        reparto = _RESPECTIVAMENTE_RE.match(texto, fin_amplia)
+        if reparto and len(amplia) > len(cadena):
+            cadena, posicion, respectivamente = amplia, fin_amplia, reparto
     fin = respectivamente.end() if respectivamente else posicion
     return _Enlace(tuple(cadena), fin, compartido, bool(respectivamente))
 
@@ -807,18 +842,33 @@ def _resolver_generico(
 ) -> Resolucion:
     """Genérico ligado ("de la ley", "dicha ley, en su artículo"): exige un antecedente único
     de tipo compatible en el contexto previo."""
-    palabra = elemento.nombre
+    palabra = re.sub(r"\s+", " ", elemento.nombre)
     tipos = _TIPOS_GENERICO.get(sin_acentos(palabra).lower())
+    inicio = max(0, fin_busqueda - VENTANA_PREVIA)
     candidatas = [
-        m for m in menciones.mapa_entre(max(0, fin_busqueda - VENTANA_PREVIA), fin_busqueda)
+        m for m in menciones.mapa_entre(inicio, fin_busqueda)
         if m.fuente and (tipos is None or tipo_fuente(m.fuente) in tipos)
     ]
-    fuentes = {m.fuente for m in candidatas}
-    if len(fuentes) == 1:
+    # Los ordenamientos concretos fuera del catálogo ("la Ley General de Salud") también son
+    # antecedentes posibles (ronda 3): con uno de ellos y una ley del catálogo, "la ley" es
+    # ambigua; si el único antecedente está fuera del catálogo, la ley no se identifica.
+    concretas = [
+        e for e in menciones.elementos(inicio, fin_busqueda)
+        if e.tipo == "concreta" and e.fin <= fin_busqueda
+        and (tipos is None or tipo_fuente(e.nombre) in tipos)
+    ]
+    identidades = {m.fuente for m in candidatas} | {
+        "¿" + sin_acentos(re.sub(r"\s+", " ", e.nombre)).lower() for e in concretas
+    }
+    if len(identidades) == 1 and candidatas:
         elegida = max(candidatas, key=lambda x: (x.inicio, len(x.clave)))
         return _resolver_previa(texto, elegida, fin_busqueda, cortes, METODO_ANTECEDENTE)
-    if not fuentes:
-        if sin_acentos(palabra).lower() == "constitucion":
+    if len(identidades) == 1:
+        return _no_identificada(
+            f"el antecedente de '{palabra}' es {_motivo_concreto(concretas[-1].nombre)}"
+        )
+    if not identidades:
+        if sin_acentos(palabra).lower() in ("constitucion", "carta magna"):
             return _no_identificada(
                 f"'{palabra}' sin denominación ('Constitución Política de los Estados Unidos "
                 "Mexicanos', 'Constitución Federal') ni abreviatura (CPEUM) no identifica el "
@@ -828,7 +878,7 @@ def _resolver_generico(
             f"'{palabra}' no tiene un antecedente inequívoco: antes no se nombra ningún "
             "ordenamiento compatible"
         )
-    nombres = sorted({m.clave for m in candidatas})
+    nombres = sorted({m.clave for m in candidatas} | {e.nombre for e in concretas})
     return _no_identificada(
         f"'{palabra}' es ambiguo: antes se nombran varios ordenamientos compatibles "
         f"({', '.join(nombres)})"
@@ -924,18 +974,19 @@ def _leer_segmento(
     posicion = primero.end()
     while True:
         anterior = crudos[-1][1] or crudos[-1][0]
-        rango = _RANGO_RE.match(texto, posicion)
-        if rango and _es_simple(anterior) and crudos[-1][1] is None:
-            final = _ITEM_RE.match(texto, rango.end())
-            valido = _continuacion_valida(texto, final)
-            if valido and _es_simple(final) and not final.group("grado"):
-                crudos[-1] = (crudos[-1][0], final)
-                posicion = final.end()
-                continue
-        # El punto de un ordinal no corta la enumeración: "artículos 1o. y 2o.".
+        # El punto de un ordinal no corta la enumeración ni el rango: "artículos 1o. y 2o.",
+        # "1o.-25o.".
         desde_lista = posicion
         if anterior.group("ord") and texto[posicion:posicion + 1] == ".":
             desde_lista += 1
+        rango = _RANGO_RE.match(texto, desde_lista)
+        if rango and _es_simple(anterior) and crudos[-1][1] is None:
+            final = _ITEM_RE.match(texto, rango.end())
+            # Con ordinal o grado ("1º-25º", "1°-25°") es un rango igual que sin ellos.
+            if _continuacion_valida(texto, final) and _es_simple(final):
+                crudos[-1] = (crudos[-1][0], final)
+                posicion = final.end()
+                continue
         lista = _LISTA_RE.match(texto, desde_lista)
         if lista:
             siguiente = _ITEM_RE.match(texto, lista.end())
@@ -953,32 +1004,57 @@ def _leer_segmento(
             items.append(_Item(_designacion(inicio_item), fraccion, inicio_item.end()))
             continue
         a, b = int(inicio_item.group("num")), int(final_item.group("num"))
-        sin_ordinal = not (inicio_item.group("ord") or final_item.group("ord"))
-        if sin_ordinal and a < b and b - a + 1 <= MAX_RANGO:
-            numeros = [str(n) for n in range(a, b + 1)]
-        else:   # rango con ordinales, invertido o demasiado largo: solo sus extremos
+        if a < b and b - a + 1 <= MAX_RANGO:
+            # Los extremos como se escribieron; los intermedios con el mismo ordinal si ambos
+            # extremos lo comparten ("1º-5º" → 1º, 2º, … 5º), sin él en otro caso.
+            marca = inicio_item.group("ord") or ""
+            if marca != (final_item.group("ord") or ""):
+                marca = ""
+            numeros = (
+                [_designacion(inicio_item)]
+                + [f"{n}{marca}" for n in range(a + 1, b)]
+                + [_designacion(final_item)]
+            )
+        else:   # rango invertido o demasiado largo: solo sus extremos
             numeros = [_designacion(inicio_item), _designacion(final_item)]
-            if sin_ordinal and b - a + 1 > MAX_RANGO:
+            if a < b:   # con o sin ordinales, lo no auditado queda como cobertura incompleta
                 excedidos.append((a, b, b - a + 1))
         for numero in numeros:
             items.append(_Item(numero, "", final_item.end()))
     return items, posicion, excedidos
 
 
+def _cabezas(texto: str) -> list[re.Match]:
+    """Cabezas de referencia; "numeral"/"precepto" tras otro número o una letra de apartado
+    ("artículo 9, numeral 2", "apartado A, numeral 3") es un calificador, no una cabeza."""
+    cabezas = []
+    for cabeza in _CABEZA_RE.finditer(texto):
+        palabra = sin_acentos(cabeza.group(0)).lower()
+        if not palabra.startswith("art") and _CALIFICADOR_PREVIO_RE.search(
+            texto, max(0, cabeza.start() - 40), cabeza.start()
+        ):
+            continue
+        cabezas.append(cabeza)
+    return cabezas
+
+
 def _unidades(texto: str, cortes: _Cortes, menciones: _Menciones) -> list[_Unidad]:
-    """Grupos (cabeza "artículo") divididos en segmentos, cada uno con su enlace derecho."""
-    cabezas = list(_CABEZA_RE.finditer(texto))
+    """Grupos (cabeza "artículo", "numeral", "precepto") divididos en segmentos, cada uno con
+    su enlace derecho."""
+    cabezas = _cabezas(texto)
     unidades: list[_Unidad] = []
     fin_anterior = -1
     grupo = -1
     for indice, cabeza in enumerate(cabezas):
         if cabeza.start() < fin_anterior:
-            continue   # "artículo" dentro del tramo de una enumeración ya leída
+            continue   # cabeza dentro del tramo de una enumeración ya leída
         grupo += 1
         oracion = cortes.oracion(cabeza.start(), cabeza.end())
         siguiente = next((c.start() for c in cabezas[indice + 1:] if c.start() >= cabeza.end()),
                          len(texto))
         tope = min(oracion[1], siguiente)
+        # La enumeración de preceptos puede seguir tras un punto y coma (ronda 3).
+        tope_frase = min(cortes.fin_frase(cabeza.end()), siguiente)
         leido = _leer_segmento(texto, cabeza.end(), continuacion=False)
         items, fin, excedidos = leido
         unidad = _Unidad(grupo, True, cabeza.start(), cabeza.start(), cabeza.end(), fin, items,
@@ -989,24 +1065,36 @@ def _unidades(texto: str, cortes: _Cortes, menciones: _Menciones) -> list[_Unida
             posicion = unidad.enlace.fin if unidad.enlace else unidad.fin
             fin_anterior = posicion
             continuacion = _CONTINUACION_RE.match(texto, posicion)
+            tras_punto_y_coma = False
             if not continuacion or continuacion.end() >= tope:
-                break
+                continuacion = _CONTINUACION_PYC_RE.match(texto, posicion)
+                if not continuacion or continuacion.end() >= tope_frase:
+                    break
+                tras_punto_y_coma = True
             leido = _leer_segmento(texto, continuacion.end(), continuacion=True)
             if leido is None:
                 break
             items, fin, excedidos = leido
-            if fin > tope:
+            if tras_punto_y_coma:
+                # "14 de la CPEUM; 42 del CFF": nueva oración, mismo grupo, pero solo si el
+                # segmento trae su propia ley pegada (un número suelto tras ";" no es seguro).
+                oracion = cortes.oracion(continuacion.end(), continuacion.end())
+                tope = min(oracion[1], siguiente)
+                if fin > tope or _enlace_derecho(texto, fin, tope, menciones) is None:
+                    break
+            elif fin > tope:
                 break
             unidad = _Unidad(grupo, False, cabeza.start(), posicion, continuacion.end(), fin,
                              items, excedidos, oracion)
-        # Números ligados a una ley que la enumeración no alcanzó: cobertura incompleta.
-        for numero in _NUMERO_RE.finditer(texto, fin_anterior, tope):
-            if menciones.cubre(numero.start()):
+        # Números ligados a una ley que la enumeración no alcanzó (también tras un punto y
+        # coma): cobertura incompleta, nunca una cita que desaparece.
+        for numero in _NUMERO_RE.finditer(texto, fin_anterior, tope_frase):
+            if numero.start() < fin_anterior or menciones.cubre(numero.start()):
                 continue
             item = _ITEM_RE.match(texto, numero.start())
             if not _continuacion_valida(texto, item):
                 continue
-            enlace = _enlace_derecho(texto, item.end(), tope, menciones)
+            enlace = _enlace_derecho(texto, item.end(), tope_frase, menciones)
             if enlace:
                 unidad.huerfanos.append((_designacion(item), numero.start(), enlace.fin, enlace))
                 fin_anterior = max(fin_anterior, enlace.fin)
@@ -1130,7 +1218,7 @@ def _resolver_unidades(
             continue
         dueno = unidades[duenos[k]]
         elementos = dueno.enlace.elementos
-        if len(elementos) == 1:
+        if len(elementos) == 1 and not dueno.enlace.respectivamente:
             u.resolucion = _resolver_enlace_simple(texto, dueno, catalogo, menciones, cortes)
             continue
         miembros = [unidades[j] for j in range(n) if duenos[j] == duenos[k]]
@@ -1138,11 +1226,13 @@ def _resolver_unidades(
         nombres = ", ".join(e.mencion.clave if e.tipo == "explicita" else e.nombre
                             for e in elementos)
         if not dueno.enlace.respectivamente or total != len(elementos):
+            # Nunca la primera ley para todos: si el reparto no cuadra, el grupo queda sin ley.
             motivo = (
-                f"el grupo nombra varios ordenamientos ({nombres})"
-                + (" y su número no coincide con el de artículos"
-                   if dueno.enlace.respectivamente
-                   else " sin 'respectivamente': no se sabe cuál corresponde a cada artículo")
+                f"'respectivamente' reparte {len(elementos)} ordenamiento(s) ({nombres}) "
+                f"entre {total} artículo(s): no cuadra"
+                if dueno.enlace.respectivamente
+                else f"el grupo nombra varios ordenamientos ({nombres}) sin 'respectivamente': "
+                     "no se sabe cuál corresponde a cada artículo"
             )
             u.resolucion = _no_identificada(motivo)
             continue

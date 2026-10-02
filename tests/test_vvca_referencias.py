@@ -93,6 +93,23 @@ class EnumeracionTests(unittest.TestCase):
         self.assertEqual(R.designaciones_articulo("Art. 247-250"), ["247", "248", "249", "250"])
         self.assertEqual(R.designaciones_articulo("Art. 29-A y 29-B"), ["29-A", "29-B"])
 
+    def test_numeral_y_precepto_como_cabeza(self) -> None:
+        # Ronda 3: "numeral"/"precepto" abren referencia; tras otro número o un apartado,
+        # "numeral" califica al precepto y no abre otra.
+        self.assertEqual(R.designaciones_articulo("el numeral 16 y los preceptos 14 y 17"),
+                         ["16", "14", "17"])
+        self.assertEqual(R.designaciones_articulo("artículo 9, numeral 2, del Reglamento"), ["9"])
+        self.assertEqual(R.designaciones_articulo("artículo 16, apartado A, numeral 3"), ["16"])
+
+    def test_punto_y_coma_con_ley_propia_sigue_la_enumeracion(self) -> None:
+        self.assertEqual(
+            _leyes("Los artículos 14 de la CPEUM; 42 del CFF."),
+            [("14", "cpeum", "CPEUM.pdf", "adyacente_derecha", False),
+             ("42", "cff", "CODIGO FISCAL.pdf", "adyacente_derecha", False)],
+        )
+        self.assertEqual([r[0] for r in _leyes("El artículo 14 de la CPEUM; el plazo es de 16 días.")],
+                         ["14"])
+
     def test_raw_y_grupo(self) -> None:
         refs = R.extraer_articulos("Los artículos 14, fracción II, y 16 CPEUM.", CATALOGO)
         self.assertEqual(

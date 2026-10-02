@@ -67,16 +67,25 @@ completa:
 
 - Sufijos y letras se conservan: `247 Ter`, `2o. Bis`, `4o.-A`, `29-A`, `32-B Quáter` (antes
   "247 Ter" se auditaba como el 247 y "4o.-A" como el 4o).
+- Cabeza del precepto: "artículo(s)", "art(s).", "numeral(es)" y "precepto(s)" seguidos de
+  número ("se vulnera el numeral 16 de la Carta Magna"). Tras otro número o un apartado
+  ("artículo 9, numeral 2, del Reglamento"; "artículo 16, apartado A, numeral 3") "numeral"
+  califica al mismo precepto y no abre otra referencia.
 - Enumeraciones y rangos: `arts. 14, 16 y 19`, `467 a 471` y `155–157` producen una
-  referencia por artículo (antes solo se auditaba el primero). En `artículo 471, 3 días` o
-  `10 de junio` el número no es artículo.
+  referencia por artículo (antes solo se auditaba el primero), también con ordinales
+  (`1o. a 4o.` → 1o, 2o, 3o, 4o). En `artículo 471, 3 días` o `10 de junio` el número no es
+  artículo.
 - Enumeraciones con leyes intercaladas se leen por segmentos, cada uno con **su** ley:
   "los artículos 14 de la CPEUM y 42 del CFF"; "17 de la Ley de Amparo y 107
   constitucional"; "16 y 19 de la CPEUM, así como 167 del CNPP".
-- **Nada desaparece en silencio.** Un rango de más de 20 artículos conserva sus extremos y
-  deja una referencia `🟡 COBERTURA INCOMPLETA` ("rango de N artículos: solo se auditaron
-  los extremos"); un número ligado a una ley que no se puede extraer con certeza ("…, al
-  igual que el 42 del CFF") también queda como cobertura incompleta. Cuentan como no
+- Un punto y coma no corta la enumeración cuando lo sigue otro número con **su propia** ley
+  ("los artículos 14 de la CPEUM; 42 del CFF"). Un número tras ";" sin ley ligada no es
+  artículo ("; el plazo es de 16 días").
+- **Nada desaparece en silencio.** Un rango de más de 20 artículos, con o sin ordinales
+  (`1-25`, `1º-25º`, `1o.-25o.`, `1°-25°`), conserva sus extremos y deja una referencia
+  `🟡 COBERTURA INCOMPLETA` ("rango de N artículos: solo se auditaron los extremos"); un
+  número ligado a una ley que no se puede extraer con certeza ("…, al igual que el 42 del
+  CFF"; "…; también el 42 del CFF") también queda como cobertura incompleta. Cuentan como no
   verificables: el veredicto global no puede ser 🟢.
 
 **Resolución de la ley: solo por vínculo sintáctico acreditable.** Si no lo hay o hay más de
@@ -95,8 +104,11 @@ aparece en la misma oración. Las coincidencias son por palabra o abreviatura co
    conflicto** y la ley queda no identificada. La ley que otro artículo ya tomó a su derecha
    no sirve a la izquierda ("el artículo 16 de la CPEUM y el artículo 5…": el 5 queda sin ley).
 3. **Varias leyes para un grupo** solo se reparten con "respectivamente" y el mismo número de
-   leyes que de artículos ("Los artículos 14 y 16, de la CPEUM y del CFF, respectivamente");
-   si no, todo el grupo queda no identificado. Nunca se comparte la primera ley.
+   leyes que de artículos ("Los artículos 14 y 16, de la CPEUM y del CFF, respectivamente";
+   también sin repetir la preposición: "…de la CPEUM y el CFF, respectivamente"); si el
+   número no cuadra, o "respectivamente" acompaña a una sola ley, todo el grupo queda no
+   identificado. Nunca se comparte la primera ley. Sin "respectivamente", "El artículo 16 de
+   la CPEUM y el CFF establecen…" liga el 16 solo a la CPEUM.
 4. **Coordinación pura** ("el artículo 14 y el artículo 16 de la CPEUM", "CFF Art. 42 y Art.
    43") comparte el vínculo; "así como" o "en relación con" solo lo comparten con un
    distributivo ("…, ambos de la CPEUM").
@@ -114,17 +126,30 @@ Reglas de identificación:
 - "Constitución" sin denominación ("Constitución Política de los Estados Unidos Mexicanos",
   "Constitución Federal", "Constitución General de la República") ni abreviatura (CPEUM) no
   identifica la CPEUM ("la constitución de la sociedad" no es la Constitución);
-  "constitucional" solo cuenta junto al precepto ("artículo 16 constitucional").
-- Un genérico ligado al artículo ("de la ley", "del código", "de la Constitución", "del
-  ordenamiento citado", "dicha ley, en su artículo") solo se resuelve si antes se nombra
-  **un único** ordenamiento de ese tipo; si no hay ninguno o hay varios, la ley queda no
-  identificada. Un antecedente de otro párrafo deja la ley por confirmar.
+  "constitucional" solo cuenta junto al precepto ("artículo 16 constitucional"). "Carta
+  Magna" se trata igual que "la Constitución": es un genérico, no una denominación.
+- Un genérico ligado al artículo ("de la ley", "del código", "de la Constitución", "de la
+  Carta Magna", "del ordenamiento citado", "dicha ley, en su artículo") solo se resuelve si
+  antes se nombra **un único** ordenamiento de ese tipo; si no hay ninguno o hay varios, la
+  ley queda no identificada. Los ordenamientos concretos fuera del catálogo también cuentan
+  como antecedentes: "La Ley de Amparo y la Ley General de Salud rigen. El artículo 5 de la
+  ley…" es ambiguo (🟡), y si el único antecedente está fuera del catálogo el motivo lo dice.
+  Un antecedente de otro párrafo deja la ley por confirmar.
 - Un ordenamiento concreto que no está en el catálogo ("Código de Comercio", "Ley General de
   Salud", "ley fiscal", "Constitución local"), o uno de otra entidad ("Código Penal para el
   Estado de México", "Ley de Carrera Judicial del Estado de Jalisco"), deja la ley no
   identificada con el motivo "ordenamiento fuera del catálogo" y bloquea cualquier inferencia.
   Las claves estatales del catálogo exigen la entidad completa ("Código Penal para el Estado
   Libre y Soberano de Jalisco").
+
+**Criterio del responsable (1-oct-2026).** El responsable jurídico confirmó el criterio B:
+"de la Constitución" (y "Carta Magna", "Ley Fundamental", "Norma Suprema") sin la
+denominación completa ni un antecedente inequívoco queda 🟡 hasta que el abogado confirme el
+ordenamiento; **nunca** se asume la CPEUM de forma automática. Es un criterio jurídico
+adoptado para este sistema, no un valor por defecto técnico: un escrito puede citar una
+constitución local o extranjera y la auditoría no debe decidirlo por el abogado. Lo fija la
+prueba `test_criterio_del_responsable_1oct2026_constitucion_sin_denominacion`
+(`tests/test_vvca_nucleo.py`).
 
 Comportamiento al auditar (`audit()`):
 
@@ -150,9 +175,16 @@ Comportamiento al auditar (`audit()`):
   completa eliminaría esta limitación; R4b no re-ingesta.)
 - **Cobertura incompleta** (R4b) → `🟡 COBERTURA INCOMPLETA` (traza `not_verifiable`,
   método `cobertura_extraccion`): rango recortado o número ligado a una ley que no se
-  extrajo con certeza. Auditar esos artículos por separado.
+  extrajo con certeza. Auditar esos artículos por separado. `vvca_full.py` las lista en
+  `cobertura_pendiente`, en `warnings` (paso `cobertura`) y en stderr, y el resumen del envío
+  opcional a Telegram lo advierte (`capturar_rag.py --cobertura-pendiente N`). No se genera
+  captura para lo no auditado: una captura sería una evidencia falsa.
 - **Ley por confirmar** (R4b) → a lo sumo 🟡 (traza `partial`), aunque el fragmento
   coincida, y nunca 🔴: el cotejo se hizo contra una ley inferida de otro párrafo.
+  `retrieved_sources` lleva `law_requires_confirmation`, y el pop-up de `vvca_full.py`
+  muestra la página con la advertencia visible "LEY POR CONFIRMAR — <motivo>. La página
+  acredita la ubicación del precepto en el candidato, no que el escrito cite ese
+  ordenamiento" (campos `ley_por_confirmar` y `motivo_ley` del ítem).
 - **Tesis citada no encontrada** en el corpus local → `🟡 NO VERIFICABLE` (no confirmada
   falsa); cuenta en `amarillos`, no en `rojos`, coherente con el veredicto.
 - **No encontrado con la fuente esperada** → 🔴 alerta crítica (posible alucinación).

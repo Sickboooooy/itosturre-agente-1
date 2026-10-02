@@ -167,29 +167,40 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
 
 - **Designación** completa (`247 Ter`, `2o. Bis`, `4o.-A`, `29-A`, `32-B Quáter`); el grado
   (`259°`) sigue fuera. `ARTICLE_RE` se conserva con el mismo contrato de grupos.
+- **Cabeza:** "artículo(s)", "art(s).", "numeral(es)" y "precepto(s)" seguidos de número;
+  "numeral" tras otro número o un apartado ("artículo 9, numeral 2") califica al precepto y
+  no abre referencia.
 - **Enumeraciones y rangos:** una referencia por artículo (`arts. 14, 16 y 19`; `467 a 471`;
-  `155–157`); un número seguido de una unidad o un mes (`471, 3 días`, `10 de junio`) o un
-  ordinal adjetivo (`2o. párrafo`) no es artículo. Las enumeraciones se leen por segmentos,
-  cada uno con su ley ("14 de la CPEUM y 42 del CFF", ", así como 167 del CNPP"). `raw` va de
-  la cabeza del grupo al artículo; `group_raw`, de la cabeza al último artículo del grupo.
-- **Cobertura incompleta** (`coverage_gap`): un rango de más de `MAX_RANGO` (20) artículos
-  conserva sus extremos y añade una referencia "N a M" con el motivo; un número ligado a una
-  ley que no se extrajo con certeza (sin cabeza "artículo" reconocible) también. `audit()`
+  `155–157`; `1o. a 4o.` con el ordinal en los intermedios); un número seguido de una unidad
+  o un mes (`471, 3 días`, `10 de junio`) o un ordinal adjetivo (`2o. párrafo`) no es
+  artículo. Las enumeraciones se leen por segmentos, cada uno con su ley ("14 de la CPEUM y
+  42 del CFF", ", así como 167 del CNPP"); tras `;` el segmento sigue solo si trae su propio
+  enlace derecho ("14 de la CPEUM; 42 del CFF"). `raw` va de la cabeza del grupo al
+  artículo; `group_raw`, de la cabeza al último artículo del grupo.
+- **Cobertura incompleta** (`coverage_gap`): un rango de más de `MAX_RANGO` (20) artículos,
+  con o sin ordinales (`1º-25º`, `1o.-25o.`, `1°-25°`), conserva sus extremos y añade una
+  referencia "N a M" con el motivo; un número ligado a una ley que no se extrajo con certeza
+  (sin cabeza reconocible, también tras `;`) también. `audit()`
   las reporta `🟡 COBERTURA INCOMPLETA` (traza `not_verifiable`, método
   `cobertura_extraccion`), de modo que el veredicto no puede ser 🟢.
 - **Ley por vínculo sintáctico** (catálogo de patrones por palabra completa desde
   `LAW_SOURCE_MAP` y `LAW_ALIASES`; una clave contenida en otra mayor no cuenta aparte; una
   mención seguida de "del Estado de…", "para el Estado de…" o "de la Ciudad de…" es otro
   ordenamiento). Enlace derecho con gramática explícita: calificadores del precepto →
-  "ambos"/"todos" → "de"/"del" → determinantes → ley; varias leyes unidas por "y de/del" solo
-  se reparten con "respectivamente" y el mismo número que artículos. Enlace izquierdo pegado
+  "ambos"/"todos" → "de"/"del" → determinantes → ley; varias leyes unidas por "y de/del" (o,
+  ante "respectivamente", por "y el/la" sin repetir la preposición) solo se reparten con
+  "respectivamente" y el mismo número que artículos; "respectivamente" con una sola ley o con
+  un número distinto deja el grupo no identificado. Enlace izquierdo pegado
   a la cabeza o posesivo ("en su artículo") con un único ordenamiento en la oración; si
   izquierda y derecha difieren, ley no identificada (vínculos en conflicto). Coordinación
   pura comparte el enlace (hacia adelante o hacia atrás); "así como"/"en relación con" solo
   con distributivo. Sin vínculo: contexto previo en oraciones anteriores (≤ 600 caracteres,
   `law_inferred=True`); desde otro párrafo y sin encabezado inequívoco,
   `law_requires_confirmation=True`. Un ordenamiento concreto fuera del catálogo (ligado o el
-  más cercano antes) deja la ley no identificada. Las oraciones se cortan en párrafo,
+  más cercano antes) deja la ley no identificada, y cuenta como candidato del genérico ("de
+  la ley"): con más de un candidato, ambiguo. "Carta Magna" es un genérico de tipo
+  constitución (criterio del responsable, 1-oct-2026: sin denominación ni antecedente
+  inequívoco, 🟡; nunca CPEUM automática). Las oraciones se cortan en párrafo,
   elemento de lista o fila de tabla Markdown, `;`, `?`, `!`, `|` y punto final que no cierra
   una abreviatura. Campos añadidos por referencia: `law_method` (`adyacente_derecha`,
   `adyacente_izquierda`, `posesivo`, `antecedente`, `contexto_previo`, `encabezado`,
@@ -207,6 +218,10 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
 - **Consumidores:** `extract_article_numbers` y `exact_article_chunks` (comando `query`)
   y `capturar_rag._contains_article_header` (pop-ups) comparan la designación con su
   sufijo; `vvca_full.py` deduplica por `(fuente, artículo)` y ya distingue `247` de `247 Ter`.
+  `retrieved_sources` lleva `law_requires_confirmation`; el ítem del pop-up, `ley_por_confirmar`
+  y `motivo_ley` (advertencia visible en la página); `vvca_full.json`, `cobertura_pendiente`
+  (y un warning del paso `cobertura`), que `capturar_rag.py --cobertura-pendiente N` añade al
+  resumen del envío opcional, sin captura para lo no auditado.
 
 ## Fuentes canónicas
 
