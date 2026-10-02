@@ -44,7 +44,7 @@ del producto.
 | `router_competencia.py` | Enrutamiento determinista de competencia orgánica | Código padre |
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
-| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto | Código padre |
+| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto; `inexistencia.py` (D10): prueba positiva de inexistencia de un artículo en el cuerpo de la ley indexada (se abstiene ante cualquier ambigüedad) | Código padre |
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
@@ -226,8 +226,7 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
 ## Veredicto honesto (R4c)
 
 Corrige R4-D08, D09, D11 y D12 sin tocar umbrales (85/60) ni la fórmula de `vvca_score`;
-R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 se corrigieron en R4d
-(sección siguiente).
+R4-D07/D13/D14 se corrigieron en R4d y R4-D10 en D10 (secciones siguientes).
 
 - **Precepto derogado (D08):** `itosturre/audit/evidence.py::precepto_derogado(texto,
   artículo)` (pura) reconoce "(Se deroga)", "Se deroga." o "(Derogado)" solo como lo primero
@@ -266,7 +265,8 @@ R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 se corrigie
     de fracción ya no vive dentro de otra palabra ("frente a") y admite "fracc.".
   - `build_vvca(..., *, unidad_derogada, derogacion_ambigua, unidad_no_cotejada,
     evidencia_incompleta)`: derogación de la unidad o ambigua → 60–84 (traza `partial`);
-    unidad no cotejada o evidencia incompleta → tope 84 sin piso (la rama de R4-D10 no cambia).
+    unidad no cotejada o evidencia incompleta → tope 84 sin piso (la rama de R4-D10 la resolvió
+    D10: piso 60 con distancia alta sin metadata).
   - `veredicto_global(..., tesis_parciales=0)`: tesis `partial` → 🟡; `tesis_ok` = solo
     verificadas. `RETENER_VERDE_SOLO_TESIS` (transitorio) retiene el 🟢 de "solo tesis"; R4d
     lo mantiene hasta validar el cotejo con un corpus de tesis mayor.
@@ -296,8 +296,8 @@ R4-D10 queda pendiente de decisión del responsable y R4-D07/D13/D14 se corrigie
 ## Jurisprudencia determinista (R4d)
 
 Corrige R4-D07, D13 y D14 sin tocar umbrales (85/60 y el 40 % del traslape) ni la
-clasificación de fuerza vinculante (`[PR]`/`[SCJN-I]` siguen manuales, Regla 6). R4-D10 sigue
-pendiente de decisión del responsable.
+clasificación de fuerza vinculante (`[PR]`/`[SCJN-I]` siguen manuales, Regla 6). R4-D10 se
+resolvió después, en D10.
 
 - **Registros (D07):** `OpenNotebook.REGISTRO_TESIS_RE` sin distinguir mayúsculas ("Registro
   digital", con o sin dos puntos; "registro IUS"; "Registro", "Reg.", "registro número" o
@@ -358,6 +358,68 @@ pendiente de decisión del responsable.
   por vigencia superada/interrumpida/sustituida y registra el motivo y la polaridad del
   cotejo).
 
+## Artículo no localizado: prueba positiva de inexistencia (D10)
+
+Corrige R4-D10 con el criterio que decidió el responsable jurídico (2-oct-2026, opción C) sin
+tocar umbrales (85/60), la fórmula de `vvca_score` ni las demás rutas. Toca la Regla 4 de
+`CLAUDE.md`/`AGENTS.md`. Ronda 2 (rechazo de Codex por falsos rojos): la prueba se abstiene
+ante cualquier ambigüedad.
+
+- **`itosturre/audit/inexistencia.py`** (pura, stdlib): `preparar_ley(fragmentos,
+  denominaciones)` → `LeyPreparada` (orden por `chunk_index`, texto sin acentos con los
+  guiones de fin de línea unidos, frontera TRANSITORIOS —mismo criterio que
+  `itosturre.evidencia.leyesbiblio.es_frontera_transitorios`, sin importar esa capa—,
+  cuerpo, encabezados, identidad documental, versión indexada y densidad de páginas), una vez
+  por ley; `evaluar_inexistencia(ley, artículo)` → `{"acreditada", "prueba", "motivo"}` (y
+  `posterior_al_ultimo` entre el último + 1 y el margen); `describir_prueba` /
+  `describir_posterior` (frases para el abogado). Encabezados: el exacto de
+  `evidence._ENCABEZADO_SIGUIENTE` (grupo `designacion` añadido, sin cambiar qué reconoce;
+  una letra suelta tras un espacio, "20.- A.", no se ordena), el de ordinal en palabra y la
+  **línea candidata** (`_LINEA_CANDIDATA`: "Artículo/ARTÍCULO/Art" + número sin cierre, o un
+  número con sufijo latino o con su cierre seguido de texto). Dos pruebas:
+  1. *Vecinos en el mismo fragmento*: anterior y siguiente según la numeración, seguidos,
+     únicos en el cuerpo, sin línea candidata ni línea que empiece con "art…"+número o con un
+     número entre ellos. Sin continuidad entre fragmentos (ni deduplicación por
+     solapamiento).
+  2. *Número muy superior al último*: `chunk_index` contiguos desde el 0 hasta la frontera,
+     último encabezado = el de mayor número, ninguna candidata del cuerpo ni línea con forma
+     de artículo tras la frontera con número mayor, densidad sin señal de pérdida (por tramo
+     de fragmentos con la misma página de inicio: páginas hasta el siguiente ≤ 1 + caracteres
+     / 800, descontando 200 de solapamiento por subfragmento) y N ≥ último + max(10, ⌈5 %⌉).
+  Comunes: identidad documental (título del encabezado del fragmento 0 o decreto que la
+  expide con una denominación completa del catálogo), encabezado del citado en ninguna parte
+  de la fuente (cualquier ordinal; "(Se deroga)" acredita existencia), sin mención del citado
+  en todo el texto (tras "artículo(s)", en enumeraciones y rangos, o "N Bis" suelto).
+- **`audit()`:** cuando el precepto no se localiza en la evidencia de la ley citada (sin
+  encabezado exacto, fuente coincidente, ley no "por confirmar"), `_evaluar_inexistencia`
+  exige un `law_method` explícito (`METODOS_LEY_EXPLICITA`: `adyacente_derecha`,
+  `adyacente_izquierda`, `posesivo`; nunca `law_inferred`) y lee y prepara la ley una vez por
+  auditoría (`leyes_preparadas`, con los textos originales para la evidencia), con las
+  denominaciones de `LAW_SOURCE_MAP` para esa fuente. Rutas: sufijo sin encabezado (R4b),
+  evidencia insuficiente, distancia alta y consulta sin vecinos. Con prueba:
+  `_registrar_inexistencia` → traza `refuted` (método `corpus_estructura`, puntaje 0), alerta
+  "🔴 ARTÍCULO INEXISTENTE ACREDITADO" con la prueba, la página y la versión indexada,
+  entrada en `retrieved_sources` con la evidencia original de la prueba y el campo añadido
+  `inexistencia_acreditada`. Sin prueba, cada ruta conserva su 🟡; las dos que eran 🔴 pasan a
+  "🟡 NO LOCALIZADO" (traza `not_verifiable`; con evidencia, puntaje 60–84 e
+  `inexistencia_no_acreditada`) y el encabezado ubicado con distancia alta sin metadata, a
+  "🟡 COTEJAR" (`partial`). Con `posterior_al_ultimo`, cualquier ruta usa la alerta "🟡
+  POSTERIOR AL ÚLTIMO ARTÍCULO" sin cambiar estado ni puntaje.
+- **`referencias.py` (`_resolver_previo`):** si la oración de la mención más cercana del
+  contexto previo nombra más de un ordenamiento, la ley queda no identificada ("el contexto
+  previo es ambiguo") en vez de tomar la última mención. Ninguna prueba de R4b cambió.
+- **`build_vvca(..., no_localizado=False)`:** distancia alta sin metadata → 60–84 (antes,
+  con distancia > 0.40, el puntaje caía bajo 60 sin prueba); "Coincidencia débil" ya no dice
+  "posible alucinación".
+- **Contrato JSON:** campos añadidos (`inexistencia_acreditada` en la entrada 🔴; en la
+  explicabilidad o la traza, `inexistencia_acreditada`, `no_localizado`,
+  `inexistencia_no_acreditada` y `posterior_al_ultimo` cuando aplican); método de traza nuevo
+  `corpus_estructura`. Consumidores revisados: `vvca_full.py` y `capturar_rag.py` (la entrada
+  🔴 entra al pop-up como "NÚMERO DE ARTÍCULO NO CONFIRMADO", sin página de PDF como prueba de
+  ubicación; sin cambios), `scoring_vvca.veredicto_global` (una refutada bloquea, sin
+  cambios), `formato_telegram`, `run_regression.py` y `evaluate_gold_set.py` (sin cambios) y
+  la skill `menu-itosturre` (MENÚ 1, actualizada).
+
 ## Fuentes canónicas
 
 1. `CLAUDE.md` contiene la política operativa compartida. `AGENTS.md` es su adaptación
@@ -379,7 +441,7 @@ pendiente de decisión del responsable.
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
-| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b; D08, D09, D11 y D12 en R4c) |
+| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b; D08, D09, D11 y D12 en R4c; D07, D13 y D14 en R4d; D10 en D10, con `tests.test_vvca_inexistencia`) |
 | Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-017, que el Gold Set no admite porque no tiene paquete. Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |

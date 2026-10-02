@@ -1,6 +1,6 @@
 # Hoja de ruta: auditoría de planeación legal de alto nivel
 
-**Estado:** v1.5 · 1-oct-2026 · base `main@65875e8`
+**Estado:** v1.6 · 2-oct-2026 · base `main@f8b0ea8`
 **Origen:** cuatro propuestas independientes (producto, evidencia oficial, motor de planes,
 remediación del núcleo), crítica externa de Codex sobre la hoja de ruta y revisión de código
 cruzada de los dos primeros PR. Toda decisión jurídica sigue siendo del responsable.
@@ -44,7 +44,8 @@ FIDELIDAD → APROBACIÓN HUMANA → INCORPORACIÓN.
 | R4a | `fix/vvca-nucleo-probable` | Núcleo VVCA probable en CI sin cambiar comportamiento: carga perezosa de PyMuPDF/ChromaDB/LangChain/sentence-transformers en `OpenNotebook.py` (`import OpenNotebook` con la biblioteca estándar; dependencia faltante → mensaje claro y código 1); costuras `audit(..., *, collection=None, encode=None)`; dobles `tests/vvca_falsos.py`; caracterización `tests/test_vvca_nucleo.py` con el registro `DEFECTOS_CONOCIDOS` (R4-D01…D14). Puerta antes/después sobre el corpus real: salidas idénticas salvo campos de reloj | Integrado en `main` |
 | R4b | `fix/vvca-extraccion-ley` (propuesta) | Extracción de referencias y resolución de ley (R4-D01…D06) en `itosturre/audit/referencias.py`. Ronda 1: designación con sufijo (`247 Ter`, `2o. Bis`, `4o.-A`, `32-B Quáter`), una referencia por artículo en enumeraciones y rangos, ley por palabra completa, "constitución" sola no es la CPEUM, encabezado exacto sin sufijos no pedidos, ley no identificada → 🟡 NO VERIFICABLE con motivo, sufijo sin encabezado → 🟡. Ronda 2 (rechazo de Codex, 7 hallazgos + 2 del coordinador): la ley solo se asocia por **vínculo sintáctico** (derecha pegada al precepto; izquierda pegada o posesiva; vínculos en conflicto → no identificada; varias leyes solo con "respectivamente"); ordenamiento concreto fuera del catálogo o de otra entidad bloquea la inferencia; claves estatales con la entidad completa; sufijo en minúscula; enumeraciones por segmentos con leyes intercaladas; rangos > 20 y números no extraídos con certeza → 🟡 COBERTURA INCOMPLETA; contexto previo solo de oraciones anteriores y, desde otro párrafo sin encabezado inequívoco, ley por confirmar (🟡). Ronda 3 (segunda revisión de Codex, 6 hallazgos): "respectivamente" sin repetir la preposición y reparto que no cuadra → grupo no identificado; rangos largos con ordinales → extremos + cobertura incompleta; `;` no hace desaparecer un miembro de la enumeración; ordenamientos fuera del catálogo cuentan como antecedentes del genérico (dos o más → ambiguo); "numeral"/"precepto" como cabeza y "Carta Magna" como genérico; pop-up con advertencia "LEY POR CONFIRMAR" y aviso de cobertura pendiente sin captura falsa; criterio del responsable (1-oct-2026) fijado por prueba. Sin re-ingesta. Campos añadidos `law_method`, `law_unidentified_reason`, `group_raw`, `law_requires_confirmation`, `coverage_gap` (ronda 3: `law_requires_confirmation` en `retrieved_sources`, `ley_por_confirmar`/`motivo_ley` en el pop-up, `cobertura_pendiente` en `vvca_full.json`). Puerta antes/después sobre el corpus real con cada diferencia atribuida; `run_regression` 🟢 | Integrado en `main` |
 | R4c | `fix/vvca-veredicto-honesto` (propuesta) | Veredicto honesto (R4-D08, D09, D11, D12) sin tocar umbrales ni la fórmula de `vvca_score`: precepto derogado ("Artículo N.- (Se deroga)" tras el encabezado exacto, en la ley citada) → 🟡 PRECEPTO DEROGADO, nunca 🟢 (criterio por defecto); la fuente esperada nunca se borra (evidencia de otro ordenamiento → 🟡, −15 alcanzable, "Fuente correcta" solo si coincide; preferencia por la ley citada en el respaldo sin filtro); el 🟢 enuncia solo lo verificado; dimensión sin citas = `null` + ⚪ (sin artículos ni tesis → 🟡 "Sin citas detectadas"); conteo de no verificables junto al subpuntaje; alcance explícito (`alcance_verificacion`, disclaimer 🟢). Pop-ups con "PRECEPTO DEROGADO" junto a "LEY POR CONFIRMAR"; "FUENTE NO COINCIDE" con el semáforo de la cita. R4-D10 pendiente de decisión del responsable (diseño preparado). Ronda 2 (rechazo de Codex + coordinador): la unidad citada (fracción, inciso, párrafo…) se coteja en el texto (fracción derogada → 🟡 PRECEPTO DEROGADO de la unidad; no ubicable → 🟡 UNIDAD CITADA NO COTEJADA); variantes inequívocas de la fórmula ("DEROGADO.", "Derogado", "(Se deroga.)", "Se derogan.") y fórmula ambigua → 🟡 POSIBLE DEROGACIÓN; encabezado sin cuerpo → continuación del mismo precepto o 🟡 EVIDENCIA INCOMPLETA; tesis `partial` cuentan en el veredicto (`tesis_ok` solo verificadas); 🟢 de "solo tesis" retenido (🟡) hasta R4d; alcance de tesis en Telegram; `None` tolerado en `capturar_rag` y en el Gold Set solo con "sin citas". Puerta ronda 1 → ronda 2 sin 🟢 nuevos; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Integrado en `main` |
-| R4d | `fix/vvca-jurisprudencia` (propuesta) | Jurisprudencia determinista (R4-D07, D13, D14) en `itosturre/audit/jurisprudence.py`, sin tocar umbrales ni la clasificación [PR]/[SCJN-I]: registros en cualquier caja ("REGISTRO DIGITAL", "Registro Digital", "registro IUS"; "Registro", "Reg." o "IUS" solo con contexto de tesis; 6 o 7 dígitos, nunca "N/AAAA"; enumeraciones con ",", "y", "o", "y/o", "/" y conector no reconocido → 🟡 COBERTURA INCOMPLETA); contexto del rubro sin cruzar el registro anterior y marcador pegado a la derecha ("registro digital N, de rubro: «…»"); rubro invocado extraído (marcador, comillas o mayúsculas, sin encabezados ni órganos) y cotejado normalizado (NFKD sin acentos, casefold, sin puntuación no numérica: "1.4.14" ≠ "1/4/14"): 🟢 solo con igualdad literal sin marca de supresión ni texto omitido tras el marcador; marca de supresión → 🟡 RUBRO PARCIAL; otra mención de tesis entre rubro y registro → 🟡 RUBRO NO ASOCIADO; polaridad invertida (lista cerrada de negaciones y antónimos) o traslape < 40 % → 🔴; otra diferencia → 🟡; sin rubro invocado → 🟡 (solo acredita el registro). Vigencia nunca "vigente" sin fuente (`no_consultada`/`no_reconocida` como aviso ℹ️ en `avisos`, sin cambiar el semáforo; pérdida en cualquier campo prevalece; conflicto → 🟡; `promover_tesis.py` ya no la asume); el puente de memoria solo bloquea por pérdida. Telegram: todas las alertas completas y avisos aparte. Ronda 2 (rechazo de Codex y del coordinador): cuatro falsos verdes del cotejo, vigencia en conflicto, encabezado u órgano como rubro, falsos positivos de registro, Telegram, puente; la retención del 🟢 de "solo tesis" **se mantiene** (adjudicación del 2-oct-2026). Puerta antes/después sobre el corpus real; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Implementado y probado (ronda 2) |
+| R4d | `fix/vvca-jurisprudencia` (propuesta) | Jurisprudencia determinista (R4-D07, D13, D14) en `itosturre/audit/jurisprudence.py`, sin tocar umbrales ni la clasificación [PR]/[SCJN-I]: registros en cualquier caja ("REGISTRO DIGITAL", "Registro Digital", "registro IUS"; "Registro", "Reg." o "IUS" solo con contexto de tesis; 6 o 7 dígitos, nunca "N/AAAA"; enumeraciones con ",", "y", "o", "y/o", "/" y conector no reconocido → 🟡 COBERTURA INCOMPLETA); contexto del rubro sin cruzar el registro anterior y marcador pegado a la derecha ("registro digital N, de rubro: «…»"); rubro invocado extraído (marcador, comillas o mayúsculas, sin encabezados ni órganos) y cotejado normalizado (NFKD sin acentos, casefold, sin puntuación no numérica: "1.4.14" ≠ "1/4/14"): 🟢 solo con igualdad literal sin marca de supresión ni texto omitido tras el marcador; marca de supresión → 🟡 RUBRO PARCIAL; otra mención de tesis entre rubro y registro → 🟡 RUBRO NO ASOCIADO; polaridad invertida (lista cerrada de negaciones y antónimos) o traslape < 40 % → 🔴; otra diferencia → 🟡; sin rubro invocado → 🟡 (solo acredita el registro). Vigencia nunca "vigente" sin fuente (`no_consultada`/`no_reconocida` como aviso ℹ️ en `avisos`, sin cambiar el semáforo; pérdida en cualquier campo prevalece; conflicto → 🟡; `promover_tesis.py` ya no la asume); el puente de memoria solo bloquea por pérdida. Telegram: todas las alertas completas y avisos aparte. Ronda 2 (rechazo de Codex y del coordinador): cuatro falsos verdes del cotejo, vigencia en conflicto, encabezado u órgano como rubro, falsos positivos de registro, Telegram, puente; la retención del 🟢 de "solo tesis" **se mantiene** (adjudicación del 2-oct-2026). Puerta antes/después sobre el corpus real; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Integrado en `main` |
+| D10 | `fix/vvca-inexistencia-acreditada` (propuesta) | R4-D10 con el criterio del responsable (2-oct-2026, opción C): un artículo no localizado en una ley indexada solo es 🔴 con prueba positiva de inexistencia sobre el cuerpo de la ley (antes de la primera línea TRANSITORIOS); si no, 🟡 NO LOCALIZADO (nunca "alucinación"). Función pura `itosturre/audit/inexistencia.py` (`preparar_ley` una vez por ley); la prueba se busca en todas las rutas de "no localizado"; 🔴 ARTÍCULO INEXISTENTE ACREDITADO con la prueba, la página y la versión indexada (traza `refuted`, método `corpus_estructura`); distancia alta sin metadata → 60–84. Ronda 2 (rechazo de Codex por falsos rojos; la prueba se abstiene ante cualquier ambigüedad): vecinos solo DENTRO DE UN MISMO FRAGMENTO y sin ninguna línea candidata entre ellos ("3 Bis.-", "3o.-", "ARTÍ-\nCULO 3 BIS.-", "Art 3 Bis", "artículo 42…", números) ni mención del citado en el texto (enumeraciones, rangos, "N Bis" suelto); número solo con margen (N ≥ último + max(10, ⌈5 %⌉); entre último + 1 y el margen, 🟡 POSTERIOR AL ÚLTIMO ARTÍCULO de la versión indexada), sin candidata mayor en el cuerpo, sin frontera dudosa y con control de densidad de páginas; identidad documental (título o decreto con la denominación del catálogo); solo con la ley ligada por vínculo sintáctico explícito; contexto previo con dos ordenamientos → ley no identificada; versión indexada en toda alerta. Regla 4 de `CLAUDE.md`/`AGENTS.md` separa tesis y normas (pendiente de aprobación). Puerta antes/después sobre el corpus real: "art. 9999" 🔴 en 30 leyes íntegras y verificables; último + 1 siempre 🟡; ningún otro 🔴 nuevo; `run_regression` 🟢; Gold Set v1 y v2 sin cambios | Implementado y probado (ronda 2) |
 
 PR-2 corrige la lectura de la época en la capa Python; el scraper TypeScript
 (`services/itosturre-scraper`, `vvca_audit.ts:418`) sigue tomando la época del banner
@@ -64,11 +65,11 @@ cotejo de fidelidad.
    `tests/test_vvca_nucleo.py`).
    - **R4b · Extracción y resolución de ley:** R4-D01 a R4-D06 — integrado en `main`.
    - **R4c · Veredicto honesto** con alcance explícito ("existencia y ubicación"):
-     R4-D08, D09, D11 y D12 — integrado en `main`; R4-D10 espera la decisión del
-     responsable.
+     R4-D08, D09, D11 y D12 — integrado en `main`.
    - **R4d · Jurisprudencia determinista** (detección de registros y cotejo de rubro):
-     R4-D07, R4-D13 y R4-D14 — implementado y probado (rama propuesta
-     `fix/vvca-jurisprudencia`).
+     R4-D07, R4-D13 y R4-D14 — integrado en `main`.
+   - **D10 · Artículo no localizado** (criterio del responsable, 2-oct-2026: opción C):
+     R4-D10 — implementado y probado (rama propuesta `fix/vvca-inexistencia-acreditada`).
 
    | ID | PR | Defecto (comportamiento actual, fijado en R4a) | Comportamiento correcto esperado |
    |---|---|---|---|
@@ -81,7 +82,7 @@ cotejo de fidelidad.
    | R4-D07 | R4d (corregido) | "REGISTRO DIGITAL: …" y "Registro Digital: …" no se detectan; la tesis desaparece de la auditoría | Detección sin distinguir mayúsculas |
    | R4-D08 | R4c (corregido) | Un fragmento "(Se deroga)" sale 🟢 verified (corpus real: art. 64 CFF, 2o LIVA, 209 Bis CFF) | Un derogado nunca es 🟢 |
    | R4-D09 | R4c (corregido) | `source_match` es True por construcción; si el filtro por fuente falla, la evidencia de otro ordenamiento sale 🟢 con "Fuente correcta"; la penalización −15 es inalcanzable | Comparar siempre con la fuente esperada |
-   | R4-D10 | R4c (decisión del responsable pendiente) | Sin coincidencia confiable en una fuente indexada → `refuted` y "Posible alucinación" (🔴 bloqueante); la rama "Alucinación detectada" solo se alcanza si el índice no devuelve vecinos | "No localizado" es no verificable (🟡) |
+   | R4-D10 | D10 (corregido; opción C del responsable) | Sin coincidencia confiable en una fuente indexada → `refuted` y "Posible alucinación" (🔴 bloqueante); la rama "Alucinación detectada" solo se alcanza si el índice no devuelve vecinos | "No localizado" es no verificable (🟡) salvo prueba positiva de inexistencia en el cuerpo de la ley (🔴 acreditado) |
    | R4-D11 | R4c (corregido) | El 🟢 dice "Normativa y jurisprudencia verificadas" sin tesis citadas (corpus real: "CFF Art. 42.") | La razón enuncia solo lo verificado |
    | R4-D12 | R4c (corregido) | Hallazgo R4a: sin tesis, "SJF 0.0 🔴 (0/0 tesis ok)"; sin artículos, 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" aunque las tesis estén verificadas | "Sin citas" en esa dimensión |
    | R4-D13 | R4d (corregido) | Cotejo de rubro sin NFD: el mismo rubro sin acentos se bloquea como discrepante (falso 🔴) | Normalizar NFD y mayúsculas (Regla 1) |
@@ -149,8 +150,8 @@ Pendientes derivados de R4b:
 
 Pendientes derivados de R4c:
 
-- R4-D10 ("no localizado" → 🔴 "Alucinación detectada"/"Posible alucinación"): diseño
-  preparado, sin cambio de severidad hasta la decisión del responsable (opciones A, B, C).
+- ~~R4-D10 ("no localizado" → 🔴 "Alucinación detectada"/"Posible alucinación")~~ — resuelto
+  en D10 con la opción C del responsable (2-oct-2026).
 - ~~Derogación parcial no detectada ("artículo 31, fracción I, del CCF" salía 🟢 86)~~ —
   resuelto en la ronda 2 (cotejo de la unidad citada). Queda: los párrafos, apartados y bases
   no se ubican en el texto del PDF, así que toda cita de párrafo queda 🟡 (UNIDAD CITADA NO
@@ -194,6 +195,31 @@ Pendientes derivados de R4d:
 - El rubro que sigue al registro sin marcador pegado (ficha del SJF pegada: "Registro digital:
   N … Tipo: … RUBRO") no se asocia: la tesis queda 🟡 sin rubro invocado.
 
+Pendientes derivados de D10:
+
+- Prueba de vecinos: desde la ronda 2 solo dentro de un mismo fragmento. La ingesta corta en
+  cada encabezado "Artículo N" sin solapar, así que en las leyes con encabezados normales dos
+  artículos nunca comparten fragmento ("19 Ter CPEUM" queda 🟡); en las leyes con "ARTÍCULO"
+  en mayúsculas los encabezados repetidos por el solapamiento de subfragmentos también la
+  impiden. Una re-ingesta que guarde el desplazamiento de cada fragmento en el texto completo
+  permitiría observar la continuidad.
+- Identidad documental: no se comprueba en ISSSTE, INFONAVIT, LFTSE, LGDNNA (el catálogo no
+  tiene la denominación completa del título: "Ley del Instituto…", "de los Trabajadores",
+  "de los Derechos"), LFPPI (el catálogo dice "propiedad intelectual"; el PDF es la Ley
+  Federal de Protección a la Propiedad Industrial), el "Reglamento orgánico" (su PDF contiene
+  la LOPJF), CDN, RMF, LJAJal y el reglamento de movilidad: sin prueba. Completar las
+  denominaciones es decisión del responsable (catálogo).
+- Página de la prueba: la de la metadata del fragmento (inicio del fragmento en el índice).
+  En leyes con fragmentos de varios artículos puede no ser la del encabezado; la paginación
+  "N de M" de los compilados de la Cámara permitiría ubicarla.
+- Densidad de páginas: en el corpus actual ningún tramo la viola (la peor holgura, 0.70 de
+  1, en el CPF); el umbral de 800 caracteres por página es deliberadamente laxo. Las páginas
+  sin texto anteriores al primer fragmento no se controlan.
+- Sin prueba por número, además: CADH, CDN, PIDCP y LJAJal (sin línea TRANSITORIOS); LNEP
+  ("ARTICULO 225" del decreto en el cuerpo), LFDO ("148 Bis" al inicio de línea), LISR
+  ("407. …" al inicio de línea), CPJal, Notariado, Movilidad Jal., LIVA e INFONAVIT (frontera
+  dudosa: "455 ter", "935 ter", "2016 Bis", "Artículo 123" tras TRANSITORIOS).
+
 ## Qué no construir
 
 Un juez LLM que califique planes; equivalencias entre 🟢 VVCA y VERIFICADO; consumo del
@@ -208,7 +234,11 @@ contradicciones; interfaz web.
 - Lista de responsables no humanos: hoy rechaza cargos como "Agente del MP" (falla cerrado).
 - Cobertura cuando la ley aparece a la izquierda del artículo ("la Ley de Amparo, en su
   artículo 217"): hoy produce hallazgos de más, nunca un falso verde.
-- R4-D10: severidad de "no localizado en una ley indexada" (Regla 4 de `CLAUDE.md`).
+- ~~R4-D10: severidad de "no localizado en una ley indexada"~~ — decidido (opción C,
+  2-oct-2026; ronda 2 tras el rechazo por falsos rojos). Pendiente: aprobar el texto nuevo de
+  la Regla 4 de `CLAUDE.md`/`AGENTS.md` (tesis y normas por separado) antes del merge y
+  completar las denominaciones del catálogo que impiden la identidad documental (ver
+  "Pendientes derivados de D10").
 - Precepto derogado: R4c lo deja 🟡 por defecto; endurecerlo (p. ej. 🔴 salvo régimen
   transitorio invocado) es criterio jurídico del responsable.
 - Recuración de `green_cff_art_42` en el Gold Set v2 (el defecto fue de selección de

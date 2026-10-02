@@ -331,9 +331,12 @@ no para verificar las citas del documento.
 **Regla 4 — Semáforo obligatorio en cualquier cita:**
 ```
 🟢 Verificada en SJF/corpus (score ≥ 85)        → segura para usar (sujeta a Capa 2)
-🟡 Parcial / no encontrada / ley no indexada
+🟡 Parcial / no localizada sin prueba / ley no indexada
    (score 60-84, o NO VERIFICABLE)               → revisar / re-indexar antes de usar
-🔴 No encontrada o rubro discrepante (score < 60) → NO usar, posible alucinación
+🔴 Cita refutada (score < 60)                    → NO usar
+   · tesis: rubro discrepante, o tesis superada / interrumpida / sustituida
+   · normas: inexistencia ACREDITADA (vecinos en el mismo fragmento, o número
+     muy superior al último artículo del cuerpo de la versión indexada)
 ```
 > Umbrales reales del auditor (`OpenNotebook.py`), **provisionales** — pendientes de
 > recalibrar con un Gold set del operador. Un criterio **no verificable** (fuera del

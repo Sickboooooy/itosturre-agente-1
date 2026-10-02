@@ -2,6 +2,18 @@
 OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
+Cambios D10 (artículo no localizado; itosturre/audit/inexistencia.py):
+  ✅ Criterio del responsable jurídico (2-oct-2026, opción C): un artículo que no se localiza
+     en una ley indexada solo es 🔴 con prueba positiva de inexistencia sobre el cuerpo de la
+     ley (vecinos en el mismo fragmento o número muy superior al último artículo del cuerpo
+     completo de la versión indexada): "🔴 ARTÍCULO INEXISTENTE ACREDITADO" con la prueba, la
+     página y la versión. Sin prueba, "🟡 NO LOCALIZADO" (antes "🔴 ALERTA ALTA … Posible
+     alucinación" y "🔴 ALERTA CRÍTICA … Alucinación detectada") o "🟡 POSTERIOR AL ÚLTIMO
+     ARTÍCULO"; las demás rutas de "no localizado" conservan su 🟡.
+  ✅ Ronda 2: la prueba se abstiene ante cualquier ambigüedad (líneas candidatas, menciones,
+     frontera dudosa, densidad, identidad documental, ley no ligada explícitamente).
+  ✅ La distancia alta sin metadata limita el puntaje a 60–84 (nunca 🔴 sin prueba).
+
 Cambios R4d (jurisprudencia determinista; itosturre/audit/jurisprudence.py):
   ✅ Registros sin distinguir mayúsculas ("REGISTRO DIGITAL: …", "Registro Digital …",
      "registro IUS"; "Registro:", "Reg." o "IUS" solo con contexto de tesis) y sin números
@@ -111,6 +123,13 @@ from itosturre.audit.referencias import (
     primera_mencion,
     sin_acentos,
     ultima_mencion,
+)
+from itosturre.audit.inexistencia import (
+    PRUEBA_VECINOS,
+    describir_posterior,
+    describir_prueba,
+    evaluar_inexistencia,
+    preparar_ley,
 )
 from itosturre.audit.jurisprudence import (
     ESTADOS_VIGENCIA,
@@ -1164,14 +1183,20 @@ def build_vvca(
     derogacion_ambigua: bool = False,
     unidad_no_cotejada: Optional[str] = None,
     evidencia_incompleta: bool = False,
+    no_localizado: bool = False,
 ) -> Dict:
     """Score, semáforo y explicación VVCA de una cita normativa con evidencia.
 
     R4c: ``derogado`` (precepto completo) y ``unidad_derogada`` (fracción o inciso citados,
     p. ej. "fracción I") y ``derogacion_ambigua`` limitan a 60–84: la unidad se ubicó y su
     texto vigente no la sostiene. ``unidad_no_cotejada`` (motivo) y ``evidencia_incompleta``
-    solo impiden el 🟢 (tope 84): no tocan el piso, así que la rama de distancia alta (R4-D10,
-    pendiente del responsable) conserva su severidad.
+    solo impiden el 🟢 (tope 84).
+
+    R4-D10 (criterio del responsable, 2-oct-2026: opción C): una cita normativa con evidencia
+    nunca es 🔴 aquí. El 🔴 exige prueba positiva de inexistencia, que ``audit`` resuelve
+    aparte (``itosturre.audit.inexistencia``); la distancia alta sin metadata limita el
+    puntaje a 60–84. ``no_localizado``: el fragmento no trae el encabezado exacto, la
+    distancia supera el umbral y no hubo prueba (antes "Posible alucinación").
     """
     # Desde R4c ``source_match`` compara de verdad la fuente recuperada con la esperada
     # (R4-D09): la penalización −15 de ``vvca_score`` deja de ser inalcanzable.
@@ -1207,6 +1232,10 @@ def build_vvca(
     # el encabezado del artículo no basta para un 🟢.
     if unidad_no_cotejada or evidencia_incompleta:
         score = min(score, 84)
+    # R4-D10 (opción C): la distancia alta sin metadata no acredita ni refuta: 🟡 (60–84).
+    # Antes, con distancia > 0.40, el puntaje caía bajo 60 (🔴) sin prueba de inexistencia.
+    if distance > COSINE_THRESHOLD and not metadata_verificado:
+        score = max(60, min(score, 84))
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
     art = ref.get("article", "?")
@@ -1244,6 +1273,11 @@ def build_vvca(
             f"Artículo confirmado por metadata y encabezado exacto en corpus oficial "
             f"(dist={distance:.3f})"
         )
+    elif no_localizado:
+        v_verificacion = (
+            f"No localizado: el fragmento no contiene el encabezado exacto del artículo y no "
+            f"se acredita su inexistencia (dist={distance:.3f}, umbral={COSINE_THRESHOLD})"
+        )
     elif article_heading_verified is False:
         v_verificacion = (
             f"Evidencia insuficiente: el fragmento no contiene el encabezado exacto "
@@ -1252,9 +1286,10 @@ def build_vvca(
     elif distance <= COSINE_THRESHOLD:
         v_verificacion = f"Encontrado en corpus oficial (dist={distance:.3f})"
     else:
+        # R4-D10: antes "Coincidencia débil — posible alucinación".
         v_verificacion = (
-            f"Coincidencia débil — posible alucinación (dist={distance:.3f}, "
-            f"umbral={COSINE_THRESHOLD})"
+            f"Coincidencia débil: el texto recuperado coincide poco con la cita "
+            f"(dist={distance:.3f}, umbral={COSINE_THRESHOLD})"
         )
     v_validacion = (
         f"Fuente correcta: {source_file}"
@@ -1292,6 +1327,8 @@ def build_vvca(
         explicabilidad["unidad_no_cotejada"] = unidad_no_cotejada
     if evidencia_incompleta:
         explicabilidad["evidencia_incompleta"] = True
+    if no_localizado:
+        explicabilidad["no_localizado"] = True
     return {
         "score": score,
         "semaforo": semaforo,
@@ -1601,9 +1638,12 @@ def _registrar_sin_encabezado_exacto(
     metadata_candidate_found: bool,
     alerts: List[str],
     verification_traces: List[Dict],
+    posterior: Optional[Dict] = None,
 ) -> None:
     """🟡 NO VERIFICABLE para un precepto que el índice no localiza con su encabezado exacto
-    porque agrupa las variantes con letra o sufijo bajo el número base (R4b)."""
+    porque agrupa las variantes con letra o sufijo bajo el número base (R4b). D10: si el
+    artículo sigue al último de la versión indexada sin superar el margen (``posterior``),
+    la alerta lo dice ("🟡 POSTERIOR AL ÚLTIMO ARTÍCULO")."""
     partes = partes_articulo(ref["article"])
     base = partes.base if partes else ref["article"]
     page = selected["metadata"].get("page", "?")
@@ -1619,9 +1659,23 @@ def _registrar_sin_encabezado_exacto(
             f"{ref['article']} (p. ej. '{base}-A' o '{base} Bis'), no su encabezado exacto"
         )
     alerts.append(
+        _alerta_posterior(ref, posterior) if posterior else
         f"🟡 NO VERIFICABLE: '{ref['raw']}' — {detalle}. NO es alucinación: el corpus no "
         f"permite localizar el precepto. Cotejarlo en la fuente oficial antes de citar."
     )
+    metadata = {
+        "encabezado_articulo": False,
+        "sufijo_solicitado": sufijo_pedido,
+        "variante_con_sufijo": bool(selected.get("variant_heading")),
+        "candidatos_metadata": metadata_candidate_found,
+        "coseno": round(selected["distance"], 4),
+        "umbral": COSINE_THRESHOLD,
+        "fuente_encontrada": best_source,
+        "fuente_esperada": expected_source,
+        "ley_inferida": bool(ref.get("law_inferred")),
+    }
+    if posterior:
+        metadata["posterior_al_ultimo"] = posterior
     verification_traces.append(build_trace_record(
         reference=ref["raw"],
         ref_type="normativa",
@@ -1632,18 +1686,190 @@ def _registrar_sin_encabezado_exacto(
         source_file=best_source,
         locator=f"página {page} · artículo {ref['article']}",
         evidence_text=selected["document"],
-        metadata={
-            "encabezado_articulo": False,
-            "sufijo_solicitado": sufijo_pedido,
-            "variante_con_sufijo": bool(selected.get("variant_heading")),
-            "candidatos_metadata": metadata_candidate_found,
-            "coseno": round(selected["distance"], 4),
-            "umbral": COSINE_THRESHOLD,
-            "fuente_encontrada": best_source,
-            "fuente_esperada": expected_source,
-            "ley_inferida": bool(ref.get("law_inferred")),
-        },
+        metadata=metadata,
     ))
+
+
+# ─────────────────────────────────────────
+# R4-D10 — ARTÍCULO NO LOCALIZADO EN UNA LEY INDEXADA
+# ─────────────────────────────────────────
+# Criterio del responsable jurídico (2-oct-2026, opción C): un artículo citado que no se
+# localiza en una ley que SÍ está indexada solo es 🔴 con prueba positiva de inexistencia
+# (``itosturre.audit.inexistencia``: vecinos en el mismo fragmento o número muy superior al
+# último artículo del cuerpo completo de la versión indexada). En cualquier otro caso es 🟡:
+# "no localizado" no es "no existe" (puede ser un hueco del índice). Antes: "🔴 ALERTA ALTA
+# … Posible alucinación" y "🔴 ALERTA CRÍTICA … Alucinación detectada". Ronda 2: la prueba
+# se abstiene ante cualquier ambigüedad (preferimos perder un 🔴 que emitir uno falso).
+
+# Solo una ley ligada al artículo por vínculo sintáctico explícito puede sostener la prueba:
+# a la derecha o a la izquierda pegada, o por posesivo (la coordinación hereda ese método).
+# Con la ley del contexto previo, de un antecedente o de un encabezado, inferida o por
+# confirmar, un 🔴 dependería de haber adivinado bien el ordenamiento.
+METODOS_LEY_EXPLICITA = frozenset({"adyacente_derecha", "adyacente_izquierda", "posesivo"})
+
+
+def _denominaciones(fuente: str) -> List[str]:
+    """Denominaciones del catálogo para una fuente (comprobación de identidad, P5)."""
+    return [clave for clave, archivo in LAW_SOURCE_MAP.items() if archivo == fuente]
+
+
+def _evaluar_inexistencia(ref: Dict, collection, leyes: Dict) -> Dict:
+    """Prueba positiva de inexistencia del artículo en el cuerpo de su ley (o el motivo por
+    el que no la hay). Cada ley se lee (por metadata ``source``) y se prepara una sola vez
+    por auditoría; si la lectura falla no hay prueba."""
+    metodo = ref.get("law_method")
+    if (metodo not in METODOS_LEY_EXPLICITA or ref.get("law_inferred")
+            or ref.get("law_requires_confirmation")):
+        return {
+            "acreditada": False,
+            "prueba": None,
+            "motivo": (
+                f"la ley no se ligó al artículo por vínculo sintáctico explícito (método "
+                f"'{metodo}'): no se puede acreditar la inexistencia"
+            ),
+        }
+    fuente = ref.get("source_file")
+    if fuente not in leyes:
+        try:
+            res = collection.get(where={"source": fuente}, include=["documents", "metadatas"])
+            pares = list(zip(res.get("documents") or [], res.get("metadatas") or []))
+        except Exception:
+            pares = []
+        originales: Dict[int, str] = {}
+        for documento, metadata in pares:
+            try:
+                originales[int(str((metadata or {}).get("chunk_index")))] = documento
+            except (TypeError, ValueError):
+                continue
+        leyes[fuente] = (
+            (preparar_ley(pares, _denominaciones(fuente)), originales) if pares else None
+        )
+    if leyes[fuente] is None:
+        return {
+            "acreditada": False,
+            "prueba": None,
+            "motivo": "no se pudieron leer los fragmentos de la ley indexada",
+        }
+    return evaluar_inexistencia(leyes[fuente][0], ref["article"])
+
+
+def _alerta_posterior(ref: Dict, posterior: Dict, score: Optional[int] = None) -> str:
+    """🟡 el artículo sigue al último de la versión indexada sin superar el margen (P6)."""
+    puntaje = f" (score {score})" if score is not None else ""
+    ley = f"'{posterior['fuente']}'"
+    return (
+        f"🟡 POSTERIOR AL ÚLTIMO ARTÍCULO{puntaje}: '{ref['raw']}' — "
+        f"{describir_posterior(posterior, ley)}."
+    )
+
+
+def _alerta_no_localizado(ref: Dict, fuente: str, score: Optional[int] = None) -> str:
+    """🟡 NO LOCALIZADO: el corpus no localizó el precepto, sin prueba de que no exista."""
+    puntaje = f" (score {score})" if score is not None else ""
+    return (
+        f"🟡 NO LOCALIZADO{puntaje}: '{ref['raw']}' — no se encontró el art. {ref['article']} "
+        f"en la ley indexada '{fuente}'; no se acredita que no exista (puede ser un hueco del "
+        f"índice): cotejar en la fuente oficial."
+    )
+
+
+def _evidencia_de_la_prueba(prueba: Dict, originales: Dict[int, str]) -> Tuple[str, str]:
+    """Texto original de los fragmentos que sustentan la prueba (para la traza y el pop-up)
+    y la página que se informa: el fragmento de los vecinos (prueba 1) o el del último
+    artículo y el de la frontera TRANSITORIOS (prueba 2)."""
+    if prueba["tipo"] == PRUEBA_VECINOS:
+        return originales.get(prueba["fragmentos"][0], ""), prueba["anterior"]["pagina"]
+    indices = [prueba["ultimo"]["chunk_index"]]
+    if prueba["frontera_transitorios"]["chunk_index"] != indices[0]:
+        indices.append(prueba["frontera_transitorios"]["chunk_index"])
+    texto = "\n[…]\n".join(originales.get(i, "") for i in indices)
+    return texto, prueba["ultimo"]["pagina"]
+
+
+def _registrar_inexistencia(
+    ref: Dict,
+    prueba: Dict,
+    originales: Dict[int, str],
+    selected: Optional[Dict],
+    alerts: List[str],
+    verification_traces: List[Dict],
+    retrieved_sources: List[Dict],
+) -> None:
+    """🔴 ARTÍCULO INEXISTENTE ACREDITADO (traza ``refuted``, puntaje 0). Bloquea el
+    documento como toda cita normativa refutada. La evidencia es la de la prueba (los
+    encabezados vecinos o el final del cuerpo), no el fragmento semántico más cercano."""
+    fuente = ref["source_file"]
+    descripcion = describir_prueba(prueba, f"'{fuente}'")
+    evidencia, pagina = _evidencia_de_la_prueba(prueba, originales)
+    alerts.append(
+        f"🔴 ARTÍCULO INEXISTENTE ACREDITADO: '{ref['raw']}' — {descripcion}. Corregir o "
+        f"sustituir la cita antes de cualquier uso procesal; si el escrito invoca una reforma "
+        f"posterior a esa versión, cotejarla en la fuente oficial."
+    )
+    art = ref.get("article", "?")
+    frac = ref.get("fraction", "")
+    art_label = f"Art. {art}" + (f" fr. {frac}" if frac else "")
+    explicabilidad = {
+        "inexistencia_acreditada": prueba,
+        "coseno": round(selected["distance"], 4) if selected else None,
+        "umbral": COSINE_THRESHOLD,
+        "encabezado_articulo": False,
+        "coincide_fuente": True,
+        "fuente_encontrada": fuente,
+        "fuente_esperada": fuente,
+        "ley_inferida": bool(ref.get("law_inferred")),
+    }
+    vvca = {
+        "score": 0,
+        "semaforo": "🔴",
+        "V_verificacion": f"Artículo inexistente acreditado: {descripcion}",
+        "V_validacion": f"Fuente correcta: {fuente}",
+        "C_contextualizacion": vvca_contextualizacion(fuente),
+        "A_auditabilidad": f"{art_label} · {ref.get('law', 'desconocido')} · pág. {pagina} · corpus: {fuente}",
+        "explicabilidad": explicabilidad,
+    }
+    trace = build_trace_record(
+        reference=ref["raw"],
+        ref_type="normativa",
+        status="refuted",
+        method="corpus_estructura",
+        reason=vvca["V_verificacion"],
+        score=0,
+        semaforo="🔴",
+        source_file=fuente,
+        locator=f"página {pagina} · artículo {art}",
+        evidence_text=evidencia,
+        metadata=explicabilidad,
+    )
+    verification_traces.append(trace)
+    unidades = _unidades_de(ref)
+    retrieved_sources.append({
+        "reference": ref["raw"],
+        "law": ref["law"],
+        "article": art,
+        "ref_type": "normativa",
+        "source_file": fuente,
+        "page": pagina,
+        "expected_source": fuente,
+        "law_inferred": ref.get("law_inferred", False),
+        "law_method": ref.get("law_method"),
+        "law_requires_confirmation": False,
+        "relevance_score": round(1 - selected["distance"], 3) if selected else None,
+        "retrieved_text": evidencia[:600],
+        "retrieved_text_full": evidencia,
+        "vvca": vvca,
+        "precepto_derogado": False,
+        "alcance_verificacion": ALCANCE_NORMATIVA,
+        "unidad_citada": unidades,
+        "unidad_cotejada": None if not unidades else False,
+        "unidad_derogada": None,
+        "unidad_no_cotejada": None,
+        "derogacion_ambigua": False,
+        "evidencia_incompleta": False,
+        # R4-D10 (campo añadido): la prueba positiva de inexistencia.
+        "inexistencia_acreditada": prueba,
+        "trace_id": trace["trace_id"],
+    })
 
 
 def audit(
@@ -1709,6 +1935,10 @@ def audit(
     verification_traces = []
     verified_count = 0
     corpus_warning = None
+    # R4-D10: cada ley citada (por ``source``), leída y preparada una sola vez por auditoría
+    # —``(LeyPreparada, textos originales por chunk_index)``— y solo si algún artículo suyo
+    # no se localiza.
+    leyes_preparadas: Dict[str, Optional[Tuple[object, Dict[int, str]]]] = {}
 
     if verbose:
         logger.debug(f"🔍 Auditoría: {len(refs)} referencias detectadas")
@@ -1823,8 +2053,9 @@ def audit(
             # Guard P0 (anti-falso-🔴): si la ley fue identificada pero su PDF NO está
             # indexado en el corpus, esto NO es una alucinación — el corpus simplemente no
             # la contiene. Marcar 🟡 NO VERIFICABLE en vez de dejar que caiga al else de
-            # "no encontrado / alucinación detectada", que tacharía de falsa una cita válida
-            # (p. ej. LGV/PIDCP en el caso Aaron García).
+            # "no encontrado" (entonces "alucinación detectada"; desde D10, 🟡 NO LOCALIZADO
+            # salvo prueba de inexistencia), que tacharía de falsa una cita válida (p. ej.
+            # LGV/PIDCP en el caso Aaron García).
             if expected_source and expected_source in missing_sources:
                 alerts.append(
                     f"🟡 NO VERIFICABLE: '{ref['raw']}' — la ley '{expected_source}' no está "
@@ -1919,19 +2150,41 @@ def audit(
                 source_match = best_source == expected_source
                 # La metadata solo corrobora si la evidencia es de la ley citada.
                 metadata_hit = metadata_candidate_found and article_heading_verified and source_match
+                por_confirmar = bool(ref.get("law_requires_confirmation"))
+
+                # R4-D10 (criterio del responsable, 2-oct-2026: opción C) — El precepto no se
+                # localizó: la evidencia de la ley citada (indexada) no trae su encabezado
+                # exacto. Solo es 🔴 con prueba positiva de inexistencia sobre el cuerpo de la
+                # ley (vecinos en el mismo fragmento o número muy superior al último artículo
+                # del cuerpo completo) y con la ley ligada por vínculo sintáctico explícito;
+                # sin ella cada ruta conserva su 🟡 (o "POSTERIOR AL ÚLTIMO ARTÍCULO" si el
+                # número sigue al último sin superar el margen). Con la ley por confirmar o con
+                # evidencia de otro ordenamiento no se busca la prueba.
+                evaluacion = None
+                posterior = None
+                if not article_heading_verified and source_match and not por_confirmar:
+                    evaluacion = _evaluar_inexistencia(ref, collection, leyes_preparadas)
+                    if evaluacion["acreditada"]:
+                        _registrar_inexistencia(
+                            ref, evaluacion["prueba"], leyes_preparadas[expected_source][1],
+                            selected, alerts, verification_traces, retrieved_sources,
+                        )
+                        continue
+                    posterior = evaluacion.get("posterior_al_ultimo")
 
                 # R4b — El chunker etiqueta "4o.-A", "247 Bis" o "29-A Bis" con el número
                 # base, así que la búsqueda por metadata devuelve el artículo base y sus
                 # variantes. Si el precepto pedido trae sufijo, o el índice solo ofreció
                 # variantes con sufijo del número pedido, y ningún fragmento muestra el
                 # encabezado exacto, el corpus no permite localizarlo: 🟡 NO VERIFICABLE.
-                # Nunca 🟢 contra el artículo base (R4-D01/D06) ni 🔴: no se acreditó que
-                # el precepto no exista. (Una re-ingesta con etiqueta completa lo evitaría.)
+                # Nunca 🟢 contra el artículo base (R4-D01/D06) ni 🔴 sin la prueba positiva
+                # de inexistencia de arriba (R4-D10). (Una re-ingesta con etiqueta completa
+                # lo evitaría.)
                 sufijo_pedido = articulo_con_sufijo(ref["article"])
                 if not article_heading_verified and (sufijo_pedido or selected["variant_heading"]):
                     _registrar_sin_encabezado_exacto(
                         ref, selected, best_source, expected_source, sufijo_pedido,
-                        metadata_candidate_found, alerts, verification_traces,
+                        metadata_candidate_found, alerts, verification_traces, posterior,
                     )
                     continue
 
@@ -1983,7 +2236,16 @@ def audit(
                     derogacion_ambigua=derogacion_ambigua,
                     unidad_no_cotejada=unidad_no_cotejada,
                     evidencia_incompleta=evidencia_incompleta,
+                    # R4-D10: sin encabezado exacto, con distancia alta y sin prueba positiva
+                    # de inexistencia (antes "ALERTA ALTA … Posible alucinación").
+                    no_localizado=(
+                        evaluacion is not None and best_distance > COSINE_THRESHOLD
+                    ),
                 )
+                if evaluacion is not None and best_distance > COSINE_THRESHOLD:
+                    vvca["explicabilidad"]["inexistencia_no_acreditada"] = evaluacion["motivo"]
+                if posterior:
+                    vvca["explicabilidad"]["posterior_al_ultimo"] = posterior
                 if filtro_fuente_fallido:
                     vvca["explicabilidad"]["filtro_fuente_fallido"] = True
                 if cotejo and cotejo["continuaciones"]:
@@ -2033,10 +2295,14 @@ def audit(
                 elif metadata_hit:
                     trace_status = "verified" if vvca["score"] >= 85 else "partial"
                 elif best_distance > COSINE_THRESHOLD:
-                    trace_status = "refuted"
+                    # R4-D10 (opción C): la distancia alta sin metadata ya no refuta. Sin
+                    # encabezado exacto (y sin la prueba positiva de inexistencia, que se
+                    # resolvió arriba) el precepto queda no localizado: no verificable. Con el
+                    # encabezado, o con la ley por confirmar, parcial (como antes de pasar por
+                    # el "refuted" que la ley por confirmar ya rebajaba).
+                    trace_status = "not_verifiable" if evaluacion is not None else "partial"
                 else:
                     trace_status = "verified" if vvca["score"] >= 85 else "partial"
-                por_confirmar = bool(ref.get("law_requires_confirmation"))
                 if por_confirmar and trace_status != "not_verifiable":
                     # Ley inferida de otro párrafo: nunca verificada ni refutada (🟡).
                     trace_status = "partial"
@@ -2129,11 +2395,25 @@ def audit(
                             f"Cotejar el texto citado contra el precepto."
                         )
                 elif best_distance > COSINE_THRESHOLD:
-                    alerts.append(
-                        f"🔴 ALERTA ALTA (score {vvca['score']}): '{ref['raw']}' — "
-                        f"sin coincidencia confiable (dist={best_distance:.3f}, umbral={COSINE_THRESHOLD}). "
-                        f"Posible alucinación. Verificar en fuente oficial."
-                    )
+                    # R4-D10 (opción C): antes "🔴 ALERTA ALTA … Posible alucinación". Sin
+                    # prueba positiva de inexistencia la distancia alta es 🟡: no localizado
+                    # (sin encabezado exacto) o ubicado con texto que coincide poco.
+                    if article_heading_verified:
+                        alerts.append(
+                            f"🟡 COTEJAR (score {vvca['score']}): '{ref['raw']}' — se ubicó el "
+                            f"encabezado del artículo {ref['article']} en '{best_source}', pero "
+                            f"el texto recuperado coincide poco (dist={best_distance:.3f}, "
+                            f"umbral={COSINE_THRESHOLD}). Cotejar el texto citado contra el "
+                            f"precepto."
+                        )
+                    elif posterior:
+                        alerts.append(_alerta_posterior(ref, posterior, vvca["score"]))
+                    else:
+                        alerts.append(_alerta_no_localizado(ref, best_source, vvca["score"]))
+                elif article_heading_verified is False and posterior:
+                    # D10 (ronda 2): el número sigue al último artículo de la versión indexada
+                    # sin superar el margen: una reforma posterior pudo adicionarlo (🟡).
+                    alerts.append(_alerta_posterior(ref, posterior, vvca["score"]))
                 elif article_heading_verified is False:
                     alerts.append(
                         f"🟡 EVIDENCIA INSUFICIENTE (score {vvca['score']}): "
@@ -2182,20 +2462,40 @@ def audit(
                     metadata={"ley_por_confirmar": True},
                 ))
             else:
+                # R4-D10 (opción C): la consulta no devolvió evidencia en una ley indexada.
+                # Antes "🔴 ALERTA CRÍTICA … Alucinación detectada". Solo es 🔴 con prueba
+                # positiva de inexistencia sobre el cuerpo de la ley; si no, 🟡 NO LOCALIZADO.
+                evaluacion = _evaluar_inexistencia(ref, collection, leyes_preparadas)
+                if evaluacion["acreditada"]:
+                    _registrar_inexistencia(
+                        ref, evaluacion["prueba"], leyes_preparadas[expected_source][1],
+                        None, alerts, verification_traces, retrieved_sources,
+                    )
+                    continue
+                posterior = evaluacion.get("posterior_al_ultimo")
                 alerts.append(
-                    f"🔴 ALERTA CRÍTICA: '{ref['raw']}' — no encontrado en el corpus. "
-                    f"Alucinación detectada. Verificar en fuente oficial ANTES de usar."
+                    _alerta_posterior(ref, posterior) if posterior
+                    else _alerta_no_localizado(ref, expected_source)
                 )
+                metadata_no_localizado = {
+                    "no_localizado": True,
+                    "inexistencia_no_acreditada": evaluacion["motivo"],
+                }
+                if posterior:
+                    metadata_no_localizado["posterior_al_ultimo"] = posterior
                 verification_traces.append(build_trace_record(
                     reference=ref["raw"],
                     ref_type="normativa",
-                    status="refuted",
+                    status="not_verifiable",
                     method="corpus_local",
-                    reason="No se encontró coincidencia en una fuente que sí está indexada",
-                    score=0,
-                    semaforo="🔴",
+                    reason=(
+                        "Artículo no localizado en una fuente que sí está indexada; no se "
+                        f"acredita su inexistencia: {evaluacion['motivo']}"
+                    ),
+                    semaforo="🟡",
                     source_file=expected_source,
                     locator=f"artículo {ref['article']}",
+                    metadata=metadata_no_localizado,
                 ))
 
         elif ref["type"] == "jurisprudencia":

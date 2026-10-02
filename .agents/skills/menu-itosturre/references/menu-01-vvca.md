@@ -55,6 +55,9 @@ paso manual por caso (ver MENÚ 1 → opción 1 más abajo).
   Artículos verificados: N
   ─ [🟢] art. 16 CPEUM — score 88 · encontrado en corpus
   ─ [🟡] art. 5 LGV  — NO VERIFICABLE · ley no indexada (re-indexar)
+  ─ [🟡] art. N ley  — NO LOCALIZADO · no se acredita que no exista (cotejar)
+  ─ [🟡] art. N ley  — POSTERIOR AL ÚLTIMO ARTÍCULO de la versión indexada
+  ─ [🔴] art. N ley  — INEXISTENTE ACREDITADO · <la prueba, con la página>
 
   Score RAG (arts) : 82.0 · Score SJF (tesis) : sin citas
 
@@ -74,6 +77,21 @@ paso manual por caso (ver MENÚ 1 → opción 1 más abajo).
 
 > **🟡 NO VERIFICABLE ≠ 🔴 alucinación.** Regla permanente: está en `CLAUDE.md`
 > (sección REGLAS DE CITA Y COMPETENCIA).
+>
+> **Artículo no localizado en una ley indexada (D10, criterio del responsable del
+> 2-oct-2026):** solo es 🔴 con prueba positiva de inexistencia en el cuerpo de la ley, y la
+> prueba se abstiene ante cualquier ambigüedad. La alerta "🔴 ARTÍCULO INEXISTENTE
+> ACREDITADO" dice la prueba y la versión indexada ("en el cuerpo de LEY (versión indexada:
+> Última Reforma DOF …) el art. 911 pasa al art. 912 sin el 911 Bis (pág. X)" o "el cuerpo de
+> LEY (versión indexada: …) termina en el art. M; se cita el N") y bloquea el documento; se
+> reporta tal cual (una reforma posterior a esa versión se coteja en la fuente oficial). "🟡
+> POSTERIOR AL ÚLTIMO ARTÍCULO": el número sigue al último de la versión indexada sin
+> superarlo por el margen: verificar si una reforma lo adicionó. Sin prueba, "🟡 NO
+> LOCALIZADO" (no se acredita que no exista: puede ser un hueco del índice). La prueba solo
+> se intenta si el escrito liga la ley al artículo de forma explícita ("artículo 16 de la
+> CPEUM", "la Ley de Amparo, en su artículo 217"); si la oración anterior nombra dos leyes,
+> la ley queda no identificada. Nunca decir "alucinación" de un artículo que solo no se
+> localizó.
 >
 > **Lectura del JSON (R4c):** `score_rag`/`score_sjf` en `null` significan "sin citas" en esa
 > dimensión (`rag_sin_citas`/`sjf_sin_citas`) o "sin puntaje" (todas no verificables): nunca

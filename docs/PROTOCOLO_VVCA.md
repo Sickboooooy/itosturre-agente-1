@@ -36,7 +36,9 @@ La fórmula no cambió en R4c. Lo que cambió es que la penalización −15 ya e
 `audit()` borraba la fuente esperada cuando el filtro por fuente fallaba y la comparación era
 verdadera por construcción (R4-D09). Sobre el puntaje base se aplican límites que fijan 🟡 en
 ambos sentidos (60–84): ley por confirmar (R4b), evidencia de otro ordenamiento y precepto
-derogado (R4c).
+derogado (R4c). Desde D10 también la distancia alta sin metadata: una cita normativa con
+evidencia nunca queda bajo 60 por la distancia; su único 🔴 es la **inexistencia acreditada**
+(§4, criterio del responsable del 2-oct-2026).
 
 | Semáforo | Score | Lectura |
 |---|---|---|
@@ -60,7 +62,9 @@ Reglas en orden de precedencia:
 2. `tesis_superadas > 0` → **🔴 bloqueante** — la cita existe, pero el criterio ya no
    está vigente.
 3. `normativa_refutada > 0` → **🔴 bloqueante** — al menos una cita normativa quedó
-   refutada. El promedio no puede ocultarla.
+   refutada. El promedio no puede ocultarla. Desde D10 una cita normativa solo queda refutada
+   con prueba positiva de inexistencia en el cuerpo de la ley indexada (§4); "no localizada"
+   sin prueba es 🟡.
 4. `tesis_no_encontradas > 0` → **🟡** — ausentes del corpus local; *no confirmadas como falsas*
    (el corpus puede estar incompleto).
 5. `tesis_parciales > 0` → **🟡** "N/T tesis con verificación parcial" (R4c, ronda 2): una tesis
@@ -332,7 +336,12 @@ aparece en la misma oración. Las coincidencias son por palabra o abreviatura co
    "LEY POR CONFIRMAR — ley inferida de otro párrafo: confirmar el ordenamiento", salvo que
    la mención sea un encabezado inequívoco (una línea que es solo la denominación de la ley:
    "## Código Fiscal de la Federación"). "### A. Orden constitucional mexicano (CPEUM)" no lo
-   es: los artículos bajo ese encabezado quedan por confirmar.
+   es: los artículos bajo ese encabezado quedan por confirmar. Desde D10 (ronda 2), si la
+   oración de la mención más cercana nombra **más de un ordenamiento** ("La Ley de Amparo
+   regula la jurisprudencia y la CPEUM fija sus bases. El artículo 217…"), el contexto previo
+   es ambiguo: la ley queda **no identificada** (🟡, "el contexto previo es ambiguo: la oración
+   anterior nombra varios ordenamientos"), no la última mención. Ninguna prueba de la
+   caracterización R4b cambió con esto.
 
 Reglas de identificación:
 
@@ -385,7 +394,8 @@ Comportamiento al auditar (`audit()`):
   encabezado exacto ("Artículo 247 Ter.-") acredita el precepto. Lo mismo si se cita el
   número base y el índice solo ofrece variantes con sufijo. Nunca 🟢 contra el artículo
   base ni 🔴: no se acreditó que el precepto no exista. (Una re-ingesta con la etiqueta
-  completa eliminaría esta limitación; R4b no re-ingesta.)
+  completa eliminaría esta limitación; R4b no re-ingesta.) Desde D10, si el cuerpo de la ley
+  acredita que el precepto no existe, es 🔴 (ver "Artículo no localizado" abajo).
 - **Cobertura incompleta** (R4b) → `🟡 COBERTURA INCOMPLETA` (traza `not_verifiable`,
   método `cobertura_extraccion`): rango recortado o número ligado a una ley que no se
   extrajo con certeza. Auditar esos artículos por separado. `vvca_full.py` las lista en
@@ -449,8 +459,8 @@ Comportamiento al auditar (`audit()`):
   subfragmentos) y se coteja el cuerpo reunido (derogación y unidad incluidas;
   `fragmentos_continuacion` en la explicabilidad). Si no se localiza: `🟡 EVIDENCIA
   INCOMPLETA` (`evidencia_incompleta`), tope 84, sin piso.
-  Ninguno de estos topes toca la rama de distancia alta sin metadata (R4-D10): su severidad no
-  cambia.
+  Ninguno de estos topes toca la rama de distancia alta sin metadata: esa la resolvió D10
+  (abajo).
 - **Evidencia de otro ordenamiento** (R4c, R4-D09) → `🟡 EVIDENCIA DE OTRO ORDENAMIENTO`
   (traza `not_verifiable`): la fuente esperada nunca se borra. Si ChromaDB rechaza el filtro
   por fuente, la consulta sin filtro prefiere los fragmentos de la ley citada; si ninguno lo
@@ -461,9 +471,85 @@ Comportamiento al auditar (`audit()`):
   el semáforo de la cita (ya no un 🔴 fijo).
 - **Tesis citada no encontrada** en el corpus local → `🟡 NO VERIFICABLE` (no confirmada
   falsa); cuenta en `amarillos`, no en `rojos`, coherente con el veredicto.
-- **No encontrado con la fuente esperada** → 🔴 alerta crítica (posible alucinación).
-  Pendiente de decisión del responsable (R4-D10, toca la Regla 4 de `CLAUDE.md`): R4c no
-  cambió su severidad.
+- **Artículo no localizado en una ley indexada** (D10, R4-D10) → 🔴 **solo con prueba
+  positiva de inexistencia**; en cualquier otro caso 🟡. **Criterio del responsable
+  (2-oct-2026): opción C.** Es un criterio jurídico adoptado para este sistema (Regla 4 de
+  `CLAUDE.md`): "no lo encontré" no es "no existe" (puede ser un hueco del índice), y solo
+  una observación positiva del cuerpo de la ley justifica bloquear el documento. Antes:
+  "🔴 ALERTA ALTA … Posible alucinación" (evidencia sin metadata y con distancia mayor que el
+  umbral) y "🔴 ALERTA CRÍTICA … Alucinación detectada" (consulta sin vecinos). **Ronda 2
+  (rechazo por falsos rojos):** la prueba se **abstiene** ante cualquier ambigüedad; es
+  preferible perder un 🔴 que emitir uno falso.
+  La prueba (`itosturre/audit/inexistencia.py`, pura) se busca en todas las rutas en que el
+  precepto no se localiza en la evidencia de la ley citada —sufijo sin encabezado exacto,
+  evidencia insuficiente, distancia alta, consulta sin vecinos—, y **solo si la ley se ligó
+  al artículo por vínculo sintáctico explícito** (`law_method` `adyacente_derecha`,
+  `adyacente_izquierda` o `posesivo`; la coordinación hereda el de su artículo): con la ley
+  del contexto previo, de un antecedente o de un encabezado, inferida o por confirmar, o con
+  evidencia de otro ordenamiento, nunca. Examina el **cuerpo** de la ley (lo anterior a la
+  primera línea "TRANSITORIOS") en los fragmentos indexados de esa fuente, leídos por metadata
+  y preparados una vez por auditoría (`preparar_ley`). Solo dos pruebas son válidas:
+  1. **Vecinos en el mismo fragmento.** El encabezado del artículo inmediatamente anterior
+     según la numeración (N < N Bis < N Ter…; N < N-A < N-B…; N-B < N-B Bis < N-C) y el del
+     siguiente que existe aparecen seguidos **dentro de un mismo fragmento**, cada uno una
+     sola vez en el cuerpo, sin ninguna línea candidata entre ellos: otro encabezado, un
+     ordinal en palabra, una línea que empiece con "artículo"/"art." y un número en cualquier
+     caja, o con un número ("3 Bis.-", "3o.-", "1."), también con la palabra partida por un
+     guion ("ARTÍ-\nCULO 3 BIS.-"). La continuidad entre fragmentos ya **no** cuenta: un
+     texto repetido (una nota o una cabecera idéntica) no prueba que dos fragmentos sean la
+     misma aparición, y la ingesta corta en cada artículo sin solapar. Si conviven sufijos de
+     letra y latinos del mismo número ("70-A" y "70 Bis"), su orden no es uniforme y no hay
+     prueba.
+  2. **Número muy superior al último artículo.** El cuerpo está completo en el índice
+     (`chunk_index` contiguos desde el 0 hasta el fragmento de la frontera), su último
+     encabezado es el de mayor número, ninguna línea candidata del cuerpo ("ARTICULO 225 …",
+     "148 Bis …", "50.- Texto") ni ninguna línea con forma de artículo tras la frontera
+     ("ARTÍCULO 7 …", "455 ter") tiene un número mayor (frontera dudosa), la **densidad** de
+     páginas no delata texto perdido (los fragmentos consecutivos que empiezan en la misma
+     página no pueden abarcar, hasta el siguiente, más de 1 + caracteres / 800 páginas; la
+     metadata solo guarda la página de inicio de cada fragmento), y el número citado alcanza
+     el **margen**: N ≥ último + max(10, ⌈5 % del último⌉). Entre el último + 1 y el margen no
+     hay prueba (una reforma posterior a la versión indexada pudo adicionarlo): `🟡 POSTERIOR
+     AL ÚLTIMO ARTÍCULO` — "el art. N es posterior al último artículo de la VERSIÓN INDEXADA
+     de '<ley>' (art. M, pág. X; Última Reforma DOF …): verificar si una reforma lo adicionó".
+  Salvaguardas comunes: **identidad documental** (P5): el fragmento 0 empieza con una
+  denominación del catálogo para esa fuente (título del encabezado) o el decreto que la
+  expide la nombra ("decreta: Código…", "se expide la Ley…"); si no se comprueba —o el
+  catálogo no tiene una denominación completa—, no hay prueba. Un encabezado del artículo
+  citado en cualquier parte de la fuente, con cualquier ordinal ("4" frente a "4o.") y también
+  "N.- (Se deroga)", acredita **existencia**. Una mención del artículo citado en cualquier
+  parte de la fuente (cuerpo y transitorios) tras "artículo(s)"/"art(s).", también en una
+  enumeración o un rango ("arts. 136, 137 y 138", "467 a 471"), o —si lleva sufijo— "N Bis"
+  suelto, impide la prueba. Sin línea TRANSITORIOS no hay cuerpo delimitado; fragmentos sin
+  `chunk_index` entero, repetidos o de otra fuente, tampoco. Toda alerta de inexistencia cita
+  la **versión indexada** (fecha de "Última Reforma DOF" —u otra fórmula del encabezado:
+  "Nueva Ley DOF", "Código abrogado DOF", "Última reforma P.O."— o "versión indexada sin
+  fecha").
+  - **Con prueba** → `🔴 ARTÍCULO INEXISTENTE ACREDITADO` (traza `refuted`, método
+    `corpus_estructura`, puntaje 0) con la prueba exacta: "en el cuerpo de '<ley>' (versión
+    indexada: Última Reforma DOF …) el art. 911 pasa al art. 912 sin el 911 Bis (pág. X)" o
+    "el cuerpo de '<ley>' (versión indexada: …) termina en el art. M (pág. X); se cita el N",
+    y la indicación de cotejar en la fuente oficial una reforma posterior a esa versión.
+    **Bloquea el documento** como toda cita normativa refutada (regla 3 del veredicto): la
+    Regla absoluta 2 habla del rubro discrepante; este bloqueo es por inexistencia acreditada.
+    `retrieved_sources` lleva la evidencia original de la prueba (el fragmento de los vecinos,
+    o el del último artículo y el de la frontera) y `inexistencia_acreditada`.
+  - **Sin prueba** → las dos rutas que eran 🔴 pasan a `🟡 NO LOCALIZADO`: "no se encontró el
+    art. N en la ley indexada '<ley>'; no se acredita que no exista (puede ser un hueco del
+    índice): cotejar en la fuente oficial" (traza `not_verifiable`; con evidencia, puntaje
+    60–84 y el motivo en `inexistencia_no_acreditada`). Si el fragmento sí trae el
+    encabezado exacto (ubicado) pero coincide poco y sin metadata, `🟡 COTEJAR` (traza
+    `partial`). Las demás rutas sin prueba conservan su 🟡 (NO VERIFICABLE del sufijo,
+    EVIDENCIA INSUFICIENTE), salvo el caso "posterior al último", que en cualquier ruta usa su
+    alerta propia sin cambiar el estado ni el puntaje de la ruta. Nunca la palabra
+    "alucinación".
+  - **Límites del índice actual:** la prueba 1 solo se cumple cuando dos artículos comparten
+    fragmento (leyes con "ARTÍCULO" en mayúsculas o encabezados con sangría), y los
+    encabezados repetidos por el solapamiento de subfragmentos la impiden; "19 Ter CPEUM"
+    queda 🟡. La página es la de la metadata del fragmento (inicio del fragmento en el índice):
+    en leyes con fragmentos de varios artículos puede no ser la del encabezado. Una página
+    perdida por la extracción del PDF no deja hueco de `chunk_index`; el margen, la densidad y
+    las demás salvaguardas reducen ese riesgo, pero no lo eliminan.
 
 ### Qué cambia para el abogado (R4c)
 
@@ -481,6 +567,19 @@ Comportamiento al auditar (`audit()`):
 | Solo tesis verificadas: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Jurisprudencia localizada; …" (transitorio; R4d lo mantiene) |
 | Sin ninguna cita: 🟡 "Artículos con verificación insuficiente (RAG: 0.0)" | 🟡 "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar" |
 | El 🟢 no decía qué acreditaba | "Alcance del 🟢: existencia y ubicación del precepto en el corpus local; no significa que lo citado diga lo que el escrito afirma" |
+
+### Qué cambia para el abogado (D10)
+
+| Antes | Después |
+|---|---|
+| Distancia alta sin metadata y sin encabezado: "🔴 ALERTA ALTA … Posible alucinación" (bloqueaba) | 🟡 NO LOCALIZADO (no se acredita que no exista), salvo prueba positiva |
+| Consulta sin vecinos en una ley indexada: "🔴 ALERTA CRÍTICA … Alucinación detectada" | 🟡 NO LOCALIZADO, salvo prueba positiva |
+| Encabezado ubicado, sin metadata y con distancia alta: 🔴 ALERTA ALTA | 🟡 COTEJAR (el precepto sí se ubicó) |
+| "art. 9999 CFF", "art. 1000 de la Ley de Amparo", "art. 5000 CPEUM": 🟡 EVIDENCIA INSUFICIENTE | 🔴 ARTÍCULO INEXISTENTE ACREDITADO ("el cuerpo … (versión indexada: Última Reforma DOF 14-11-2025) termina en el art. 263; se cita el 9999") |
+| "art. 264 CFF", "art. 137 CPEUM", "art. 272 de la Ley de Amparo" (último + 1): 🟡 EVIDENCIA INSUFICIENTE | 🟡 POSTERIOR AL ÚLTIMO ARTÍCULO (verificar si una reforma lo adicionó) |
+| "art. 911 Bis CPCJ" (911 y 912 en el mismo fragmento): 🟡 NO VERIFICABLE | 🔴 ARTÍCULO INEXISTENTE ACREDITADO ("el art. 911 pasa al art. 912 sin el 911 Bis") |
+| "art. 19 Ter CPEUM", "art. 70 Ter CFF": 🟡 NO VERIFICABLE | Igual (vecinos en fragmentos distintos, o sufijos de letra y latinos) |
+| "La Ley de Amparo … y la CPEUM …. El artículo 217 …": se cotejaba contra la CPEUM | 🟡 LEY NO IDENTIFICADA (contexto previo ambiguo) |
 
 > El guard 🟡 NO VERIFICABLE para una ley ausente solo se ejerce con `--force`; sin `--force`
 > la auditoría se **detiene** antes con `status: corpus_incomplete` (ver §5).

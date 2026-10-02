@@ -8,12 +8,13 @@ local del operador.
 Las pruebas fijan el comportamiento ACTUAL, incluidos los defectos conocidos. Cada
 defecto tiene un ID en ``DEFECTOS_CONOCIDOS`` (PR que lo corrige, descripción y
 comportamiento correcto esperado) y su prueba lleva el ID en el nombre: el PR que lo
-corrija (R4b, R4c o R4d) cambia esa prueba a sabiendas. No hay ``expectedFailure``.
+corrija (R4b, R4c, R4d o D10) cambia esa prueba a sabiendas. No hay ``expectedFailure``.
 
 R4b corrigió R4-D01 a R4-D06 (``"corregido": "R4b"`` en el registro), R4c, R4-D08,
-R4-D09, R4-D11 y R4-D12 (``"corregido": "R4c"``) y R4d, R4-D07, R4-D13 y R4-D14
-(``"corregido": "R4d"``): sus pruebas ya no fijan el defecto sino el comportamiento correcto.
-Solo R4-D10 (decisión del responsable) sigue fijando el comportamiento actual.
+R4-D09, R4-D11 y R4-D12 (``"corregido": "R4c"``), R4d, R4-D07, R4-D13 y R4-D14
+(``"corregido": "R4d"``) y D10, R4-D10 con el criterio del responsable (2-oct-2026, opción
+C; ``"corregido": "D10"``): sus pruebas ya no fijan el defecto sino el comportamiento correcto.
+Ningún defecto del registro sigue abierto.
 
 Las entradas mencionan leyes y artículos reales como TEXTO A AUDITAR, no como citas que se
 afirmen. Los registros de tesis son ficticios (0000001…) y sus rubros dicen FICTICIO o
@@ -172,7 +173,10 @@ DEFECTOS_CONOCIDOS = {
         "correcto": "Comparar la fuente recuperada con la esperada sin borrarla nunca.",
     },
     "R4-D10": {
-        "pr": "R4c",
+        # Decisión del responsable jurídico (2-oct-2026): opción C. La corrige su propio PR
+        # (rama propuesta fix/vvca-inexistencia-acreditada), no R4c.
+        "pr": "D10",
+        "corregido": "D10",
         "origen": "lista R4",
         "descripcion": (
             "Sin coincidencia confiable en una fuente indexada → 'refuted' y '🔴 … Posible "
@@ -180,6 +184,12 @@ DEFECTOS_CONOCIDOS = {
             "acredita que el corpus no lo localizó."
         ),
         "correcto": "'No localizado' es no verificable (🟡) salvo prueba positiva de discrepancia.",
+        "criterio": (
+            "Opción C (2-oct-2026): 🔴 solo con prueba positiva de inexistencia en el cuerpo de "
+            "la ley indexada (vecinos en el mismo fragmento o número muy superior al último "
+            "artículo del cuerpo completo de la versión indexada); sin ella, 🟡 NO LOCALIZADO. "
+            "Ronda 2: la prueba se abstiene ante cualquier ambigüedad"
+        ),
     },
     "R4-D11": {
         "pr": "R4c",
@@ -291,7 +301,7 @@ class RegistroDefectosTests(unittest.TestCase):
         }
         for id_, defecto in DEFECTOS_CONOCIDOS.items():
             with self.subTest(defecto=id_):
-                self.assertIn(defecto["pr"], {"R4b", "R4c", "R4d"})
+                self.assertIn(defecto["pr"], {"R4b", "R4c", "R4d", "D10"})
                 self.assertIn(defecto["origen"], {"lista R4", "hallazgo R4a"})
                 self.assertTrue(defecto["descripcion"] and defecto["correcto"])
                 # Solo el PR asignado puede marcarlo corregido.
@@ -302,15 +312,17 @@ class RegistroDefectosTests(unittest.TestCase):
                     f"ninguna prueba lleva {marca} en el nombre",
                 )
 
-    def test_estado_tras_R4d(self) -> None:
+    def test_estado_tras_D10(self) -> None:
         corregidos = {id_ for id_, d in DEFECTOS_CONOCIDOS.items() if d.get("corregido")}
-        self.assertEqual(corregidos, set(DEFECTOS_CONOCIDOS) - {"R4-D10"})
+        self.assertEqual(corregidos, set(DEFECTOS_CONOCIDOS))
         self.assertEqual(
             {id_ for id_, d in DEFECTOS_CONOCIDOS.items() if d.get("corregido") == "R4d"},
             {"R4-D07", "R4-D13", "R4-D14"},
         )
-        # R4-D10 espera la decisión del responsable (toca la Regla 4 de CLAUDE.md).
-        self.assertIsNone(DEFECTOS_CONOCIDOS["R4-D10"].get("corregido"))
+        # R4-D10: decisión del responsable (2-oct-2026, opción C), que toca la Regla 4 de
+        # CLAUDE.md; la corrige su propio PR.
+        self.assertEqual(DEFECTOS_CONOCIDOS["R4-D10"]["corregido"], "D10")
+        self.assertIn("Opción C", DEFECTOS_CONOCIDOS["R4-D10"]["criterio"])
         # D14 condiciona la retención transitoria del 🟢 de "solo tesis" (ronda 2 de R4c).
         # Adjudicación de R4d (2-oct-2026): cerrados D13 y D14, la retención SE MANTIENE.
         import scoring_vvca
@@ -1082,13 +1094,31 @@ class ConstruccionVvcaTests(unittest.TestCase):
                              metadata_verificado=True, article_heading_verified=True)
         self.assertEqual((vvca["score"], vvca["semaforo"]), (70, "🟡"))
 
-    def test_distancia_alta_sin_metadata(self) -> None:
+    def test_R4_D10_distancia_alta_sin_metadata_nunca_es_roja(self) -> None:
+        # D10 (opción C, 2-oct-2026): antes "Coincidencia débil — posible alucinación" y, con
+        # distancia > 0.40, un puntaje bajo 60 (🔴) sin prueba de inexistencia. Ahora 60–84.
         vvca = ON.build_vvca(self.ref, 0.40, True, CPEUM, "19", article_heading_verified=True)
         self.assertEqual((vvca["score"], vvca["semaforo"]), (60, "🟡"))
         self.assertEqual(
             vvca["V_verificacion"],
-            "Coincidencia débil — posible alucinación (dist=0.400, umbral=0.25)",
+            "Coincidencia débil: el texto recuperado coincide poco con la cita "
+            "(dist=0.400, umbral=0.25)",
         )
+        for encabezado in (True, False, None):
+            with self.subTest(encabezado=encabezado):
+                vvca = ON.build_vvca(self.ref, 0.90, True, CPEUM, "19",
+                                     article_heading_verified=encabezado)
+                self.assertEqual((vvca["score"], vvca["semaforo"]), (60, "🟡"))
+                self.assertNotIn("alucinaci", vvca["V_verificacion"].lower())
+        vvca = ON.build_vvca(self.ref, 0.55, True, CPEUM, "19", article_heading_verified=False,
+                             no_localizado=True)
+        self.assertEqual((vvca["score"], vvca["semaforo"]), (60, "🟡"))
+        self.assertEqual(
+            vvca["V_verificacion"],
+            "No localizado: el fragmento no contiene el encabezado exacto del artículo y no se "
+            "acredita su inexistencia (dist=0.550, umbral=0.25)",
+        )
+        self.assertTrue(vvca["explicabilidad"]["no_localizado"])
 
     def test_R4_D09_fuente_distinta_es_amarilla_en_ambos_sentidos(self) -> None:
         # −15 de vvca_score (desde R4c audit() sí llega con False) y límite 60–84: la
@@ -1979,7 +2009,10 @@ class AuditoriaTests(AuditoriaBase):
                       "asociada en el corpus", alerta)
         self.assertEqual(self.estados(resultado), [("art. 9", "not_verifiable", "resolucion_ley")])
 
-    def test_R4_D10_sin_coincidencia_confiable_se_refuta(self) -> None:
+    def test_R4_D10_sin_coincidencia_confiable_y_sin_prueba_es_no_localizado(self) -> None:
+        # D10 (opción C, 2-oct-2026). Antes: traza "refuted" y "🔴 ALERTA ALTA (score 60) …
+        # Posible alucinación". El fragmento no trae chunk_index: no hay cuerpo que examinar
+        # ni prueba positiva de inexistencia, así que el artículo solo queda NO LOCALIZADO.
         consulta = "Artículo 9999 código fiscal de la federación"
         self.coleccion.agregar("Artículo 1.- Texto sintético.",
                                {"source": CFF, "article": "1", "page": "1"},
@@ -1987,20 +2020,26 @@ class AuditoriaTests(AuditoriaBase):
         resultado = self.auditar("El artículo 9999 del Código Fiscal de la Federación se invoca.")
         (fuente,) = resultado["retrieved_sources"]
         self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (60, "🟡"))
+        self.assertTrue(fuente["vvca"]["V_verificacion"].startswith("No localizado: "))
+        self.assertEqual(fuente["vvca"]["explicabilidad"]["inexistencia_no_acreditada"],
+                         "fragmento sin chunk_index entero o sin texto")
         self.assertEqual(self.estados(resultado),
-                         [("artículo 9999", "refuted", "corpus_semantic")])
+                         [("artículo 9999", "not_verifiable", "corpus_semantic")])
         self.assertEqual(resultado["alerts"], [
-            "🔴 ALERTA ALTA (score 60): 'artículo 9999' — sin coincidencia confiable "
-            "(dist=0.400, umbral=0.25). Posible alucinación. Verificar en fuente oficial."
+            f"🟡 NO LOCALIZADO (score 60): 'artículo 9999' — no se encontró el art. 9999 en la "
+            f"ley indexada '{CFF}'; no se acredita que no exista (puede ser un hueco del "
+            f"índice): cotejar en la fuente oficial."
         ])
+        self.assertNotIn("alucinaci", " ".join(resultado["alerts"]).lower())
         self.assertEqual(resultado["vvca_summary"]["veredicto"], {
             "apto": False,
-            "semaforo": "🔴",
-            "razon": "1 cita(s) normativa(s) refutada(s) — USO PROCESAL PROHIBIDO",
-            "accion": "Corregir o sustituir las citas normativas antes de cualquier uso procesal",
+            "semaforo": "🟡",
+            "razon": "1 cita(s) normativa(s) con evidencia parcial o no verificable",
+            "accion": "Cotejar el precepto en la fuente oficial antes de uso procesal",
         })
 
-    def test_R4_D10_consulta_sin_vecinos_se_declara_alucinacion(self) -> None:
+    def test_R4_D10_consulta_sin_vecinos_y_sin_prueba_es_no_localizado(self) -> None:
+        # D10 (opción C). Antes: "🔴 ALERTA CRÍTICA … Alucinación detectada" (refuted).
         coleccion = FakeCollection(vaciar_consultas=True)
         consulta = "Artículo 9999 código fiscal de la federación"
         coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"},
@@ -2010,14 +2049,21 @@ class AuditoriaTests(AuditoriaBase):
         )
         self.assertEqual(resultado["retrieved_sources"], [])
         self.assertEqual(resultado["alerts"], [
-            "🔴 ALERTA CRÍTICA: 'artículo 9999' — no encontrado en el corpus. Alucinación "
-            "detectada. Verificar en fuente oficial ANTES de usar."
+            f"🟡 NO LOCALIZADO: 'artículo 9999' — no se encontró el art. 9999 en la ley "
+            f"indexada '{CFF}'; no se acredita que no exista (puede ser un hueco del índice): "
+            f"cotejar en la fuente oficial."
         ])
         (traza,) = resultado["traceability"]["records"]
-        self.assertEqual(traza["verification"]["status"], "refuted")
-        self.assertEqual(traza["verification"]["reason"],
-                         "No se encontró coincidencia en una fuente que sí está indexada")
-        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🔴")
+        self.assertEqual(traza["verification"]["status"], "not_verifiable")
+        self.assertEqual(traza["verification"]["semaforo"], "🟡")
+        self.assertEqual(
+            traza["verification"]["reason"],
+            "Artículo no localizado en una fuente que sí está indexada; no se acredita su "
+            "inexistencia: fragmento sin chunk_index entero o sin texto",
+        )
+        self.assertTrue(traza["metadata"]["no_localizado"])
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+        self.assertEqual(resultado["vvca_summary"]["rojos"], 0)
 
     def test_R4_D09_respaldo_sin_filtro_prefiere_la_fuente_esperada(self) -> None:
         # Antes de R4c: el respaldo borraba expected_source y el art. 16 del CFF (más cercano)

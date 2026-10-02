@@ -9,6 +9,12 @@ from .evidence import (
     precepto_derogado,
     select_article_evidence,
 )
+from .inexistencia import (
+    describir_prueba,
+    evaluar_inexistencia,
+    inexistencia_acreditada,
+    preparar_ley,
+)
 from .jurisprudence import (
     classify_fuerza_vinculante,
     cotejar_rubro,
@@ -42,15 +48,19 @@ __all__ = [
     "classify_fuerza_vinculante",
     "cotejar_rubro",
     "cotejar_precepto",
+    "describir_prueba",
     "diferencias_polaridad",
     "disclaimer_graduado",
+    "evaluar_inexistencia",
     "extraer_rubro_invocado",
     "extraer_rubro_posterior",
     "has_exact_article_heading",
     "has_suffixed_variant_heading",
+    "inexistencia_acreditada",
     "normalizar_rubro",
     "normalizar_vigencia",
     "precepto_derogado",
+    "preparar_ley",
     "rubro_keywords",
     "select_article_evidence",
     "semaforo_dimension",

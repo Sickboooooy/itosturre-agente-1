@@ -1172,6 +1172,27 @@ def _resolver_previo(
         return _no_identificada(
             f"el ordenamiento nombrado antes es {_motivo_concreto(cercana.nombre)}"
         )
+    # D10 (ronda 2): si la oración de la mención más cercana nombra más de un ordenamiento
+    # ("La Ley de Amparo regula la jurisprudencia y la CPEUM fija sus bases. El artículo 217
+    # …"), el contexto previo es ambiguo: la ley queda no identificada, no la última mención.
+    comienzo, final = cortes.oracion(cercana.inicio, cercana.fin)
+    en_la_oracion = [
+        e for e in menciones.elementos(comienzo, final)
+        if e.fin <= final and e.tipo in ("explicita", "concreta")
+    ]
+    identidades = {
+        (e.mencion.fuente or "¿" + e.mencion.clave) if e.tipo == "explicita"
+        else "¿" + sin_acentos(re.sub(r"\s+", " ", e.nombre)).lower()
+        for e in en_la_oracion
+    }
+    if len(identidades) > 1:
+        nombres = ", ".join(sorted({
+            e.mencion.clave if e.tipo == "explicita" else e.nombre for e in en_la_oracion
+        }))
+        return _no_identificada(
+            f"el contexto previo es ambiguo: la oración anterior nombra varios ordenamientos "
+            f"({nombres})"
+        )
     return _resolver_previa(texto, cercana.mencion, unidad.cabeza, cortes, METODO_PREVIO)
 
 
