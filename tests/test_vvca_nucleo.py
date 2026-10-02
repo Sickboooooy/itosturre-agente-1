@@ -10,6 +10,10 @@ defecto tiene un ID en ``DEFECTOS_CONOCIDOS`` (PR que lo corrige, descripción y
 comportamiento correcto esperado) y su prueba lleva el ID en el nombre: el PR que lo
 corrija (R4b, R4c o R4d) cambia esa prueba a sabiendas. No hay ``expectedFailure``.
 
+R4b corrigió R4-D01 a R4-D06 (``"corregido": "R4b"`` en el registro): sus pruebas ya no
+fijan el defecto sino el comportamiento correcto. R4-D07 a R4-D14 siguen fijando el
+comportamiento actual hasta R4c y R4d.
+
 Las entradas mencionan leyes y artículos reales como TEXTO A AUDITAR, no como citas que se
 afirmen. Los registros de tesis son ficticios (0000001…) y sus rubros dicen FICTICIO o
 SINTÉTICO; los fragmentos del corpus falso son texto sintético.
@@ -26,7 +30,8 @@ from pathlib import Path
 from unittest import mock
 
 from scoring_vvca import veredicto_global
-from itosturre.audit.evidence import has_exact_article_heading
+from itosturre.audit.evidence import has_exact_article_heading, has_suffixed_variant_heading
+from itosturre.audit.referencias import MAX_RANGO, MOTIVO_SIN_MENCION
 from tests.vvca_falsos import (
     CodificadorFalso,
     FakeCollection,
@@ -43,13 +48,19 @@ LIVA = ON.LAW_SOURCE_MAP["liva"]
 LGV = ON.LAW_SOURCE_MAP["lgv"]
 CPF = ON.LAW_SOURCE_MAP["cpf"]
 LFDO = ON.LAW_SOURCE_MAP["lfdo"]
+CNPP = ON.LAW_SOURCE_MAP["cnpp"]
+LAMP = ON.LAW_SOURCE_MAP["ley de amparo"]
+CPEJ = ON.LAW_SOURCE_MAP["constitución política del estado de jalisco"]
 MODULOS_PESADOS = ("fitz", "chromadb", "langchain_text_splitters", "sentence_transformers")
 
 # Registro de defectos conocidos. "origen": lista de R4 (crítica externa) o hallazgo de la
 # caracterización R4a. Cada ID debe aparecer en el nombre de al menos una prueba.
+# "corregido": PR que ya lo corrigió (su prueba fija el comportamiento correcto). La
+# "descripcion" conserva el defecto tal como se caracterizó en R4a, para la historia.
 DEFECTOS_CONOCIDOS = {
     "R4-D01": {
         "pr": "R4b",
+        "corregido": "R4b",
         "origen": "lista R4",
         "descripcion": (
             "ARTICLE_RE pierde los sufijos Ter/Quáter y la letra de '4o.-A': "
@@ -60,6 +71,7 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D02": {
         "pr": "R4b",
+        "corregido": "R4b",
         "origen": "lista R4",
         "descripcion": (
             "Las enumeraciones solo extraen el primer artículo ('arts. 14, 16 y 19' → '14'); "
@@ -69,18 +81,21 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D03": {
         "pr": "R4b",
+        "corregido": "R4b",
         "origen": "lista R4",
         "descripcion": "La ley se resuelve por subcadena: 'Olivares' contiene 'liva' → LIVA.",
         "correcto": "Coincidencia por palabra o abreviatura completa; si no, ley no identificada.",
     },
     "R4-D04": {
         "pr": "R4b",
+        "corregido": "R4b",
         "origen": "lista R4",
         "descripcion": "'constitución de la sociedad' resuelve a la CPEUM ('constitución' es alias).",
         "correcto": "'constitución' sin denominación ni abreviatura no identifica la CPEUM.",
     },
     "R4-D05": {
         "pr": "R4b",
+        "corregido": "R4b",
         "origen": "hallazgo R4a",
         "descripcion": (
             "La ventana derecha (100 caracteres) tiene prioridad y cruza párrafos: en "
@@ -91,6 +106,7 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D06": {
         "pr": "R4b",
+        "corregido": "R4b",
         "origen": "lista R4",
         "descripcion": (
             "has_exact_article_heading acepta 'Artículo 4o.-A.-' (y '1004-A.-', '29-B.') "
@@ -182,8 +198,22 @@ def _ref(texto: str) -> dict:
     return refs[0]
 
 
+_SIN_DEFINIR = object()
+
+
 def _articulo(articulo: str, ley: str, fuente: str | None, raw: str, *,
-              fraccion: str = "", inferida: bool = False) -> dict:
+              fraccion: str = "", inferida: bool = False, metodo=_SIN_DEFINIR,
+              motivo: str | None = None, grupo: str | None = None,
+              confirmar: bool = False, cobertura: str | None = None) -> dict:
+    """Referencia esperada. Por omisión: ley a la derecha (o del contexto previo si es
+    inferida), sin motivo, sin cobertura incompleta y con ``group_raw`` igual a ``raw``."""
+    if metodo is _SIN_DEFINIR:
+        if ley == "desconocido":
+            metodo = None
+        else:
+            metodo = "contexto_previo" if inferida else "adyacente_derecha"
+    if ley == "desconocido" and motivo is None:
+        motivo = MOTIVO_SIN_MENCION
     return {
         "type": "article",
         "article": articulo,
@@ -192,6 +222,12 @@ def _articulo(articulo: str, ley: str, fuente: str | None, raw: str, *,
         "source_file": fuente,
         "law_inferred": inferida,
         "raw": raw,
+        # Campos añadidos en R4b.
+        "law_method": metodo,
+        "law_unidentified_reason": motivo,
+        "group_raw": raw if grupo is None else grupo,
+        "law_requires_confirmation": confirmar,
+        "coverage_gap": cobertura,
     }
 
 
@@ -211,11 +247,17 @@ class RegistroDefectosTests(unittest.TestCase):
                 self.assertIn(defecto["pr"], {"R4b", "R4c", "R4d"})
                 self.assertIn(defecto["origen"], {"lista R4", "hallazgo R4a"})
                 self.assertTrue(defecto["descripcion"] and defecto["correcto"])
+                # Solo el PR asignado puede marcarlo corregido.
+                self.assertIn(defecto.get("corregido"), {None, defecto["pr"]})
                 marca = id_.replace("-", "_")
                 self.assertTrue(
                     any(marca in nombre for nombre in nombres),
                     f"ninguna prueba lleva {marca} en el nombre",
                 )
+
+    def test_estado_tras_R4b(self) -> None:
+        corregidos = {id_ for id_, d in DEFECTOS_CONOCIDOS.items() if d.get("corregido")}
+        self.assertEqual(corregidos, {f"R4-D0{n}" for n in range(1, 7)})
 
 
 class ImportacionPerezosaTests(unittest.TestCase):
@@ -327,17 +369,36 @@ class ExtraccionTests(unittest.TestCase):
         )
 
     def test_ley_por_encabezado_lejano_se_marca_inferida(self) -> None:
+        # Ronda 2 de R4b: el encabezado no es solo la denominación de la ley ("Orden
+        # constitucional mexicano (CPEUM)") y está en otro párrafo: ley por confirmar (🟡).
         texto = (
             "### A. Orden constitucional mexicano (CPEUM)\n\n"
             "Texto de relleno para alejar el encabezado de la cita más de cien caracteres "
             "hacia atrás en el documento de prueba.\n"
             "- Art. 16 — legalidad."
         )
-        self.assertEqual(_ref(texto), _articulo("16", "cpeum", CPEUM, "Art. 16", inferida=True))
+        self.assertEqual(_ref(texto), _articulo(
+            "16", "cpeum", CPEUM, "Art. 16", inferida=True,
+            metodo="contexto_previo_otro_parrafo", confirmar=True,
+        ))
 
-    def test_encabezado_cercano_resuelve_por_ventana_amplia_sin_inferencia(self) -> None:
+    def test_R4_D05_encabezado_en_otro_parrafo_se_infiere_por_contexto_previo(self) -> None:
+        # Antes de R4b la ventana amplia (±100 caracteres) cruzaba el párrafo y resolvía
+        # "constitucional" sin marcarla inferida. Ahora la ley del encabezado llega solo por
+        # el contexto previo (sticky-law): la misma CPEUM, por su sigla y marcada inferida.
+        # Ronda 2: desde otro párrafo y sin encabezado inequívoco, además pide confirmación.
         texto = "### A. Orden constitucional mexicano (CPEUM)\n\n- Art. 16 — legalidad."
-        self.assertEqual(_ref(texto), _articulo("16", "constitucional", CPEUM, "Art. 16"))
+        self.assertEqual(_ref(texto), _articulo(
+            "16", "cpeum", CPEUM, "Art. 16", inferida=True,
+            metodo="contexto_previo_otro_parrafo", confirmar=True,
+        ))
+        # Un encabezado que es solo la denominación de la ley sí basta (sin confirmación).
+        texto = ("## Constitución Política de los Estados Unidos Mexicanos\n\n"
+                 "- Art. 16 — legalidad.")
+        self.assertEqual(_ref(texto), _articulo(
+            "16", "constitución política de los estados unidos", CPEUM, "Art. 16",
+            inferida=True, metodo="encabezado",
+        ))
 
     def test_registro_digital_en_minusculas(self) -> None:
         refs = ON.extract_references(
@@ -350,41 +411,130 @@ class ExtraccionTests(unittest.TestCase):
             "ctx_invocado": "Tesis de prueba con",
         }])
 
-    def test_R4_D01_sufijos_ter_quater_y_letra_se_pierden(self) -> None:
+    def test_cabeza_de_articulo_no_dentro_de_otra_palabra(self) -> None:
+        # R4b endurece la misma expresión: "art" dentro de otra palabra no es una cita.
+        self.assertEqual(ON.extract_references("Smart 5 y apart. 3 no son artículos."), [])
+
+    def test_R4_D01_sufijos_ter_quater_y_letra_se_conservan(self) -> None:
         casos = {
             "El artículo 247 Ter del Código Penal Federal se invoca.":
-                _articulo("247", "código penal federal", CPF, "artículo 247"),
+                _articulo("247 Ter", "código penal federal", CPF, "artículo 247 Ter"),
             "El artículo 2 Quáter de la Ley Federal de Delincuencia Organizada se invoca.":
-                _articulo("2", "ley federal de delincuencia organizada", LFDO, "artículo 2"),
+                _articulo("2 Quáter", "ley federal de delincuencia organizada", LFDO,
+                          "artículo 2 Quáter"),
             "El artículo 4o.-A del Código Fiscal de la Federación se invoca.":
+                _articulo("4o.-A", "código fiscal de la federación", CFF, "artículo 4o.-A"),
+            "El artículo 2o. Bis de la LFDO se invoca.":
+                _articulo("2o. Bis", "lfdo", LFDO, "artículo 2o. Bis"),
+            "El artículo 32-B Quáter del CFF se invoca.":
+                _articulo("32-B Quáter", "cff", CFF, "artículo 32-B Quáter"),
+            "Art. 17-H Bis CFF.": _articulo("17-H Bis", "cff", CFF, "Art. 17-H Bis"),
+            "Art. 5A CFF.": _articulo("5A", "cff", CFF, "Art. 5A"),
+            # El punto del ordinal sin sufijo no forma parte de la designación (como antes).
+            "El artículo 4o. del Código Fiscal de la Federación se invoca.":
                 _articulo("4o", "código fiscal de la federación", CFF, "artículo 4o"),
         }
         for texto, esperado in casos.items():
             with self.subTest(texto=texto):
                 self.assertEqual(_ref(texto), esperado)
+        # ARTICLE_RE conserva su contrato: grupo 1 = designación, grupo 2 = fracción.
+        m = ON.ARTICLE_RE.search("artículo 247 Ter, fracción II")
+        self.assertEqual((m.group(1), m.group(2)), ("247 Ter", "II"))
 
-    def test_R4_D02_enumeracion_solo_extrae_el_primero(self) -> None:
+    def test_R4_D02_enumeracion_extrae_cada_articulo_con_la_ley_del_grupo(self) -> None:
+        cpeum = "constitución política de los estados unidos"
+        grupo = "arts. 14, 16 y 19"
         refs = ON.extract_references(
             "Los arts. 14, 16 y 19 de la Constitución Política de los Estados Unidos Mexicanos."
         )
         self.assertEqual(refs, [
-            _articulo("14", "constitución política de los estados unidos", CPEUM, "arts. 14"),
+            _articulo("14", cpeum, CPEUM, "arts. 14", grupo=grupo),
+            _articulo("16", cpeum, CPEUM, "arts. 14, 16", grupo=grupo),
+            _articulo("19", cpeum, CPEUM, "arts. 14, 16 y 19", grupo=grupo),
         ])
-        self.assertEqual(ON.extract_article_numbers("arts. 14, 16 y 19"), [])
+        self.assertEqual(ON.extract_article_numbers("arts. 14, 16 y 19"), ["14", "16", "19"])
 
-    def test_R4_D03_olivares_resuelve_a_liva(self) -> None:
+    def test_R4_D02_rangos_y_fraccion_por_articulo(self) -> None:
+        refs = ON.extract_references("Arts. 155–157, 164–165, 169 Fr. II CNPP")
+        self.assertEqual(
+            [(r["article"], r["fraction"], r["raw"]) for r in refs],
+            [
+                ("155", "", "Arts. 155–157"),
+                ("156", "", "Arts. 155–157"),
+                ("157", "", "Arts. 155–157"),
+                ("164", "", "Arts. 155–157, 164–165"),
+                ("165", "", "Arts. 155–157, 164–165"),
+                ("169", "II", "Arts. 155–157, 164–165, 169 Fr. II"),
+            ],
+        )
+        self.assertEqual({r["source_file"] for r in refs}, {CNPP})
+        self.assertEqual(
+            [r["article"] for r in ON.extract_references("Los artículos 467 a 471 del CNPP.")],
+            ["467", "468", "469", "470", "471"],
+        )
+        # Un rango mayor que MAX_RANGO conserva sus extremos y deja constancia de la cobertura
+        # incompleta (ronda 2 de R4b: el veredicto no puede ser 🟢).
+        refs = ON.extract_references(f"Arts. 1-{MAX_RANGO + 5} CFF.")
+        self.assertEqual([r["article"] for r in refs], ["1", str(MAX_RANGO + 5), f"2 a {MAX_RANGO + 4}"])
+        self.assertEqual([r["coverage_gap"] is not None for r in refs], [False, False, True])
+
+    def test_R4_D02_numero_con_unidad_no_continua_la_enumeracion(self) -> None:
+        refs = ON.extract_references("El artículo 471, 3 días después de la notificación.")
+        self.assertEqual([r["article"] for r in refs], ["471"])
+
+    def test_R4_D03_olivares_no_identifica_la_liva(self) -> None:
         self.assertEqual(
             _ref("El artículo 10, según el dictamen del perito Olivares, resulta aplicable."),
-            _articulo("10", "liva", LIVA, "artículo 10"),
+            _articulo("10", "desconocido", None, "artículo 10"),
+        )
+        # La abreviatura completa sí la identifica; "inconstitucional" no es "constitucional".
+        self.assertEqual(_ref("El artículo 10 de la LIVA se invoca."),
+                         _articulo("10", "liva", LIVA, "artículo 10"))
+        self.assertEqual(
+            _ref("El acto es inconstitucional conforme al artículo 22."),
+            _articulo("22", "desconocido", None, "artículo 22"),
         )
 
-    def test_R4_D04_constitucion_de_la_sociedad_resuelve_a_cpeum(self) -> None:
+    def test_R4_D04_constitucion_sin_denominacion_no_identifica_la_cpeum(self) -> None:
         self.assertEqual(
             _ref("El artículo 2 regula la constitución de la sociedad mercantil."),
-            _articulo("2", "constitución", CPEUM, "artículo 2"),
+            _articulo("2", "desconocido", None, "artículo 2"),
         )
+        generica = _ref("El artículo 14 de la Constitución garantiza la audiencia previa.")
+        self.assertIsNone(generica["source_file"])
+        self.assertIn("sin denominación", generica["law_unidentified_reason"])
+        local = _ref("El artículo 7 de la Constitución local se invoca.")
+        self.assertIsNone(local["source_file"])
+        self.assertIn("Constitución local", local["law_unidentified_reason"])
 
-    def test_R4_D05_ventana_derecha_cruza_parrafos(self) -> None:
+    def test_R4_D04_denominaciones_y_precepto_constitucional(self) -> None:
+        casos = {
+            "El artículo 16 constitucional exige fundamentación.":
+                ("constitucional", CPEUM, "adyacente_derecha", False),
+            "Los artículos 14 y 16 constitucionales consagran la seguridad jurídica.":
+                ("constitucional", CPEUM, "adyacente_derecha", False),
+            "El artículo 1o. de la Constitución Federal reconoce los derechos humanos.":
+                ("constitución federal", CPEUM, "adyacente_derecha", False),
+            "El artículo 4 de la Constitución Política del Estado de Jalisco se invoca.":
+                ("constitución política del estado de jalisco", CPEJ, "adyacente_derecha", False),
+            "La CPEUM es la norma suprema. El artículo 133 de la Constitución lo establece.":
+                ("cpeum", CPEUM, "antecedente", True),
+        }
+        for texto, (ley, fuente, metodo, inferida) in casos.items():
+            with self.subTest(texto=texto):
+                refs = ON.extract_references(texto)
+                self.assertTrue(refs)
+                for ref in refs:
+                    self.assertEqual(
+                        (ref["law"], ref["source_file"], ref["law_method"], ref["law_inferred"]),
+                        (ley, fuente, metodo, inferida),
+                    )
+        ambigua = _ref("La CPEUM y la Constitución Política del Estado de Jalisco rigen. "
+                       "El artículo 4 de la Constitución se invoca.")
+        self.assertIsNone(ambigua["source_file"])
+        self.assertIn("ambiguo", ambigua["law_unidentified_reason"])
+
+    def test_R4_D05_la_ley_no_cruza_parrafos_y_prevalece_la_adyacente(self) -> None:
         refs = ON.extract_references(
             "Art. 5 establece la regla general.\n\n"
             "CFF Art. 42.\n\n"
@@ -393,10 +543,68 @@ class ExtraccionTests(unittest.TestCase):
         )
         cpeum = "constitución política de los estados unidos"
         self.assertEqual(refs, [
-            _articulo("5", "cff", CFF, "Art. 5"),
-            _articulo("42", cpeum, CPEUM, "Art. 42"),
+            _articulo("5", "desconocido", None, "Art. 5"),
+            _articulo("42", "cff", CFF, "Art. 42", metodo="adyacente_izquierda"),
             _articulo("16", cpeum, CPEUM, "artículo 16"),
         ])
+
+    def test_R4_D05_la_ley_generica_exige_un_antecedente_inequivoco(self) -> None:
+        sin_antecedente = _ref("El artículo 5 de la ley establece el plazo.\n\n"
+                               "La Ley de Amparo regula el juicio.")
+        self.assertIsNone(sin_antecedente["source_file"])
+        self.assertIn("antecedente inequívoco", sin_antecedente["law_unidentified_reason"])
+
+        con_antecedente = _ref("La Ley de Amparo regula el juicio.\n\n"
+                               "El artículo 5 de la ley establece el plazo.")
+        self.assertEqual(
+            con_antecedente,
+            _articulo("5", "ley de amparo", LAMP, "artículo 5", inferida=True,
+                      metodo="antecedente", confirmar=True),   # antecedente en otro párrafo
+        )
+        ambigua = _ref("La Ley de Amparo y la LISR rigen. El artículo 5 de la ley establece "
+                       "el plazo.")
+        self.assertIsNone(ambigua["source_file"])
+        self.assertIn("ambiguo", ambigua["law_unidentified_reason"])
+        # "la ley" no remite a un código.
+        incompatible = _ref("El CFF regula la materia. El artículo 5 de la ley fija el plazo.")
+        self.assertIsNone(incompatible["source_file"])
+        # Un ordenamiento concreto fuera del catálogo no se sustituye por otro.
+        concreta = _ref("La Ley de Amparo rige. El artículo 5 de la Ley General de Salud dispone.")
+        self.assertIsNone(concreta["source_file"])
+        self.assertIn("'Ley General de Salud'", concreta["law_unidentified_reason"])
+
+    def test_R4_D05_ley_a_la_izquierda_en_cadena_y_reclamada(self) -> None:
+        self.assertEqual(
+            _ref("La Ley de Amparo regula el juicio, y en su artículo 217 dispone la "
+                 "obligatoriedad de la jurisprudencia."),
+            _articulo("217", "ley de amparo", LAMP, "artículo 217", metodo="posesivo"),
+        )
+        self.assertEqual(
+            [(r["article"], r["source_file"], r["law_method"])
+             for r in ON.extract_references("CFF Art. 42 y Art. 43.")],
+            [("42", CFF, "adyacente_izquierda"), ("43", CFF, "adyacente_izquierda")],
+        )
+        # Entre ambos artículos solo median conectores: comparten la ley del segundo.
+        self.assertEqual(
+            [(r["article"], r["source_file"], r["law_method"])
+             for r in ON.extract_references("El artículo 14 y el artículo 16 de la CPEUM.")],
+            [("14", CPEUM, "adyacente_derecha"), ("16", CPEUM, "adyacente_derecha")],
+        )
+        # La CPEUM ya es la ley del artículo 16 y el 5 no está ligado a ella; una ley que solo
+        # aparece en la misma oración no se asocia (ronda 2): ley no identificada.
+        self.assertEqual(
+            [(r["article"], r["law_method"], r["law_inferred"], r["source_file"])
+             for r in ON.extract_references(
+                 "El artículo 16 de la CPEUM y el artículo 5 establecen reglas.")],
+            [("16", "adyacente_derecha", False, CPEUM), ("5", None, False, None)],
+        )
+        # En una oración anterior del mismo párrafo, el contexto previo sigue como antes.
+        self.assertEqual(
+            [(r["article"], r["law_method"], r["law_inferred"], r["law_requires_confirmation"])
+             for r in ON.extract_references(
+                 "El artículo 16 de la CPEUM exige fundamentación. El artículo 5 fija reglas.")],
+            [("16", "adyacente_derecha", False, False), ("5", "contexto_previo", True, False)],
+        )
 
     def test_R4_D07_registro_en_mayusculas_no_se_detecta(self) -> None:
         refs = ON.extract_references(
@@ -416,19 +624,30 @@ class ResolucionLeyTests(unittest.TestCase):
         self.assertEqual(ON.resolve_law_source("cff y cpeum"), ("cff", CFF))
         self.assertEqual(ON.resolve_law_source("sin ordenamiento"), (None, None))
 
-    def test_R4_D03_resolve_law_source_por_subcadena(self) -> None:
-        self.assertEqual(ON.resolve_law_source("olivares"), ("liva", LIVA))
+    def test_R4_D03_resolve_law_source_por_palabra_completa(self) -> None:
+        self.assertEqual(ON.resolve_law_source("olivares"), (None, None))
+        self.assertEqual(ON.resolve_law_source("el perito Olivares y la LIVA"), ("liva", LIVA))
+        # Cualquier blanco entre palabras de la denominación ("Estados\nUnidos").
+        self.assertEqual(
+            ON.resolve_law_source("de la Constitución Política de los Estados\nUnidos Mexicanos"),
+            ("constitución política de los estados unidos", CPEUM),
+        )
 
     def test_R4_D04_resolve_law_source_constitucion_generica(self) -> None:
-        self.assertEqual(
-            ON.resolve_law_source("la constitución de la sociedad"),
-            ("constitución", CPEUM),
-        )
+        self.assertEqual(ON.resolve_law_source("la constitución de la sociedad"), (None, None))
+        self.assertEqual(ON.resolve_law_source("el orden constitucional"), (None, None))
+        # --law conserva la clave explícita: quien la escribe la pide a propósito.
+        self.assertEqual(ON.resolve_law_alias("constitución"), CPEUM)
 
     def test_resolve_law_source_backward_toma_la_mas_cercana(self) -> None:
         self.assertEqual(
             ON.resolve_law_source_backward("### A. CPEUM\n... Ley de Amparo ...\n- Art."),
             ("ley de amparo", ON.LAW_SOURCE_MAP["ley de amparo"]),
+        )
+        # Una clave contenida en otra mayor no cuenta aparte.
+        self.assertEqual(
+            ON.resolve_law_source_backward("la Ley Federal de Delincuencia Organizada"),
+            ("ley federal de delincuencia organizada", LFDO),
         )
 
     def test_resolve_law_alias(self) -> None:
@@ -448,7 +667,8 @@ class ResolucionLeyTests(unittest.TestCase):
     def test_extract_article_numbers(self) -> None:
         self.assertEqual(ON.extract_article_numbers("artículo 294 y art. 82"), ["294", "82"])
         self.assertEqual(ON.extract_article_numbers("Art.5 y art. 5"), ["5"])
-        self.assertEqual(ON.extract_article_numbers("artículo 247 Ter"), ["247"])
+        # R4-D01: el sufijo se conserva (antes "247").
+        self.assertEqual(ON.extract_article_numbers("artículo 247 Ter"), ["247 Ter"])
 
     def test_article_candidates(self) -> None:
         casos = {
@@ -458,6 +678,10 @@ class ResolucionLeyTests(unittest.TestCase):
             "4o": ["4o"],
             "  7 ": ["7"],
             "": [],
+            # Etiquetas del chunker para designaciones con sufijo (número base incluido).
+            "4o.-A": ["4o", "4o.-A"],
+            "2o. Bis": ["2o", "2o. Bis", "2o.Bis"],
+            "32-B Quáter": ["32-B", "32-B Quáter", "32-BQuáter"],
         }
         for articulo, esperado in casos.items():
             with self.subTest(articulo=articulo):
@@ -470,10 +694,61 @@ class EvidenciaTests(unittest.TestCase):
         self.assertFalse(has_exact_article_heading("conforme al artículo 42, fracción XIII", "42"))
         self.assertFalse(has_exact_article_heading("Artículo 209 Bis.- (Se deroga).", "209"))
 
-    def test_R4_D06_encabezado_con_letra_cuenta_como_el_numero_base(self) -> None:
-        self.assertTrue(has_exact_article_heading("Artículo 4o.-A.- Texto sintético.", "4o"))
-        self.assertTrue(has_exact_article_heading("Artículo 1004-A.- Texto sintético.", "1004"))
-        self.assertTrue(has_exact_article_heading("Artículo 29-B. (Se deroga).", "29"))
+    def test_R4_D06_tras_el_numero_solo_cabe_el_cierre_del_encabezado(self) -> None:
+        # Sufijo no pedido: no es el encabezado del número base.
+        for texto, articulo in (
+            ("Artículo 4o.-A.- Texto sintético.", "4o"),
+            ("Artículo 1004-A.- Texto sintético.", "1004"),
+            ("Artículo 29-B. (Se deroga).", "29"),
+            ("Artículo 2o. Bis.- Texto sintético.", "2o"),
+            ("Artículo 209-Bis.- (Se deroga).", "209"),
+            ("Artículo 17-H Bis. Texto sintético.", "17-H"),
+        ):
+            with self.subTest(texto=texto, articulo=articulo):
+                self.assertFalse(has_exact_article_heading(texto, articulo))
+        # Sufijo pedido: coincide, también con otra grafía del separador o sin acento.
+        for texto, articulo in (
+            ("Artículo 4o.-A.- Texto sintético.", "4o.-A"),
+            ("Artículo 4o.-A.- Texto sintético.", "4o-A"),
+            ("Artículo 1004-A.- Texto sintético.", "1004-A"),
+            ("Artículo 29-B. (Se deroga).", "29-B"),
+            ("Artículo 2o. Bis.- Texto sintético.", "2o. Bis"),
+            ("Artículo 32-B Quáter. Texto sintético.", "32-B Quater"),
+            ("Artículo 247 Ter.- Texto sintético.", "247 Ter"),
+        ):
+            with self.subTest(texto=texto, articulo=articulo):
+                self.assertTrue(has_exact_article_heading(texto, articulo))
+        # Un sufijo pedido no coincide con el artículo base ni con otro sufijo.
+        self.assertFalse(has_exact_article_heading("Artículo 247.- Texto sintético.", "247 Ter"))
+        self.assertFalse(has_exact_article_heading("Artículo 247 Bis.- Texto.", "247 Ter"))
+        self.assertFalse(has_exact_article_heading("Artículo 4o.-B.- Texto.", "4o.-A"))
+        # El ordinal se compara como antes; "5o. A ninguna…" sigue siendo el encabezado del 5o.
+        self.assertTrue(has_exact_article_heading("Artículo 5o. A ninguna persona podrá.", "5o"))
+        self.assertFalse(has_exact_article_heading("Artículo 4o.- Texto.", "4"))
+        self.assertTrue(
+            has_exact_article_heading("Artículo 4o.-A.- Otro.\nArtículo 4o.- Texto.", "4o")
+        )
+
+    def test_R4_D06_sufijo_en_minuscula_sin_confundir_el_cuerpo(self) -> None:
+        # Ronda 2: la exclusión del sufijo no distingue mayúsculas…
+        self.assertFalse(has_exact_article_heading("Artículo 4o.-a.- Texto", "4o"))
+        self.assertFalse(has_exact_article_heading("Artículo 29-b. (Se deroga).", "29"))
+        self.assertTrue(has_exact_article_heading("Artículo 4o.-a.- Texto", "4o.-A"))
+        # …pero el cuerpo del artículo no es un sufijo.
+        for texto in ("Artículo 4o.- a) Los contribuyentes…", "Artículo 4o.-a) Los…",
+                      "Artículo 4o.- Las autoridades…", "Artículo 4o.-Las autoridades…"):
+            with self.subTest(texto=texto):
+                self.assertTrue(has_exact_article_heading(texto, "4o"))
+                self.assertFalse(has_suffixed_variant_heading(texto, "4o"))
+
+    def test_R4_D06_variante_con_sufijo(self) -> None:
+        self.assertTrue(has_suffixed_variant_heading("Artículo 4o.-A.- Texto.", "4o"))
+        self.assertFalse(
+            has_suffixed_variant_heading("Artículo 4o.- Texto.\nArtículo 4o.-A.- Otro.", "4o")
+        )
+        self.assertTrue(has_suffixed_variant_heading("Artículo 247 Bis.- Texto.", "247 Ter"))
+        self.assertFalse(has_suffixed_variant_heading("Artículo 247.- Texto.", "247 Ter"))
+        self.assertFalse(has_suffixed_variant_heading("Artículo 42.- Texto.", "42"))
 
 
 class ConstruccionVvcaTests(unittest.TestCase):
@@ -813,7 +1088,7 @@ class AuditoriaTests(AuditoriaBase):
         self.assertEqual(resultado["alerts"], [])
         self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟢")
 
-    def test_R4_D06_articulo_con_letra_verifica_el_numero_base(self) -> None:
+    def test_R4_D06_articulo_base_no_se_verifica_con_la_variante_con_letra(self) -> None:
         consulta = "Artículo 4o código fiscal de la federación"
         eje = self.codificador.eje(consulta)
         self.coleccion.agregar("Artículo 4o.-A.- Texto sintético del artículo con letra.",
@@ -824,10 +1099,102 @@ class AuditoriaTests(AuditoriaBase):
                                eje=eje, distancia=0.10)
         resultado = self.auditar("El artículo 4o. del Código Fiscal de la Federación se invoca.")
         (fuente,) = resultado["retrieved_sources"]
+        self.assertTrue(fuente["retrieved_text"].startswith("Artículo 4o.- "))
+        self.assertEqual(fuente["page"], "2")
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (90, "🟢"))
+        self.assertEqual(self.estados(resultado), [("artículo 4o", "verified", "corpus_metadata")])
+
+    def test_R4_D01_precepto_con_sufijo_se_verifica_con_su_encabezado(self) -> None:
+        consulta = "Artículo 4o.-A código fiscal de la federación"
+        eje = self.codificador.eje(consulta)
+        # Ambos llevan la etiqueta base "4o" (así los etiqueta el chunker real).
+        self.coleccion.agregar("Artículo 4o.- Texto sintético del artículo base.",
+                               {"source": CFF, "article": "4o", "page": "2"},
+                               eje=eje, distancia=0.05)
+        self.coleccion.agregar("Artículo 4o.-A.- Texto sintético del artículo con letra.",
+                               {"source": CFF, "article": "4o", "page": "3"},
+                               eje=eje, distancia=0.10)
+        resultado = self.auditar("El artículo 4o.-A del Código Fiscal de la Federación se invoca.")
+        self.assertEqual(self.codificador.llamadas, [consulta])
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertEqual(fuente["article"], "4o.-A")
         self.assertTrue(fuente["retrieved_text"].startswith("Artículo 4o.-A.-"))
         self.assertEqual(fuente["page"], "3")
-        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (95, "🟢"))
-        self.assertEqual(self.estados(resultado), [("artículo 4o", "verified", "corpus_metadata")])
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (90, "🟢"))
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 4o.-A", "verified", "corpus_metadata")])
+        self.assertEqual(resultado["alerts"], [])
+
+    def test_R4_D01_precepto_con_sufijo_ausente_es_no_verificable_nunca_rojo(self) -> None:
+        consulta = "Artículo 247 Ter código penal federal"
+        eje = self.codificador.eje(consulta)
+        # El corpus solo tiene el 247 y el 247 Bis, lejos de la consulta: antes de R4b el
+        # "247 Ter" se auditaba como 247; sin la regla de R4b, la distancia lo tacharía de 🔴.
+        self.coleccion.agregar("Artículo 247.- Texto sintético.",
+                               {"source": CPF, "article": "247", "page": "94"},
+                               eje=eje, distancia=0.40)
+        self.coleccion.agregar("Artículo 247 Bis.- Texto sintético.",
+                               {"source": CPF, "article": "247", "page": "94"},
+                               eje=eje, distancia=0.45)
+        resultado = self.auditar("El artículo 247 Ter del Código Penal Federal se invoca.")
+        self.assertEqual(resultado["retrieved_sources"], [])
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 247 Ter", "not_verifiable", "corpus_metadata")])
+        self.assertEqual(resultado["alerts"], [
+            f"🟡 NO VERIFICABLE: 'artículo 247 Ter' — el artículo 247 Ter no aparece con su "
+            f"encabezado exacto en la evidencia recuperada de '{CPF}' (el índice agrupa los "
+            "preceptos con letra o sufijo bajo el número base '247'). NO es alucinación: el "
+            "corpus no permite localizar el precepto. Cotejarlo en la fuente oficial antes de "
+            "citar."
+        ])
+        (traza,) = resultado["traceability"]["records"]
+        self.assertEqual(traza["verification"]["semaforo"], "🟡")
+        self.assertEqual(traza["source"]["locator"], "página 94 · artículo 247 Ter")
+        self.assertTrue(traza["metadata"]["sufijo_solicitado"])
+        resumen = resultado["vvca_summary"]
+        self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (0, 1, 0))
+        self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
+
+    def test_R4_D06_solo_variantes_con_sufijo_es_no_verificable_nunca_rojo(self) -> None:
+        consulta = "Artículo 4o código fiscal de la federación"
+        # Solo la variante "4o.-A", lejos de la consulta. Antes de R4b verificaba el 4o
+        # (🟡 COTEJAR por metadata); con solo el arreglo del encabezado sería 🔴.
+        self.coleccion.agregar("Artículo 4o.-A.- Texto sintético del artículo con letra.",
+                               {"source": CFF, "article": "4o", "page": "3"},
+                               eje=self.codificador.eje(consulta), distancia=0.40)
+        resultado = self.auditar("El artículo 4o. del Código Fiscal de la Federación se invoca.")
+        self.assertEqual(resultado["retrieved_sources"], [])
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 4o", "not_verifiable", "corpus_metadata")])
+        self.assertEqual(resultado["alerts"], [
+            f"🟡 NO VERIFICABLE: 'artículo 4o' — en '{CFF}' solo se localizaron variantes con "
+            "letra o sufijo del artículo 4o (p. ej. '4o-A' o '4o Bis'), no su encabezado "
+            "exacto. NO es alucinación: el corpus no permite localizar el precepto. Cotejarlo "
+            "en la fuente oficial antes de citar."
+        ])
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    def test_R4_D02_enumeracion_audita_cada_articulo(self) -> None:
+        consultas = [
+            f"Artículo {n} constitución política de los estados unidos" for n in ("14", "16")
+        ]
+        for numero, consulta in zip(("14", "16"), consultas):
+            self.coleccion.agregar(f"Artículo {numero}. Texto sintético.",
+                                   {"source": CPEUM, "article": numero, "page": "19"},
+                                   eje=self.codificador.eje(consulta), distancia=0.08)
+        resultado = self.auditar(
+            "Los arts. 14 y 16 de la Constitución Política de los Estados Unidos Mexicanos "
+            "se invocan."
+        )
+        self.assertEqual(self.codificador.llamadas, consultas)
+        self.assertEqual(self.estados(resultado), [
+            ("arts. 14", "verified", "corpus_metadata"),
+            ("arts. 14 y 16", "verified", "corpus_metadata"),
+        ])
+        self.assertEqual([s["article"] for s in resultado["retrieved_sources"]], ["14", "16"])
+        self.assertEqual(
+            {s["law_method"] for s in resultado["retrieved_sources"]}, {"adyacente_derecha"}
+        )
 
     def test_sin_encabezado_exacto_queda_parcial(self) -> None:
         consulta = "Artículo 42 código fiscal de la federación"
@@ -861,23 +1228,56 @@ class AuditoriaTests(AuditoriaBase):
             "Cotejar el texto citado contra el precepto."
         ])
 
-    def test_ley_no_identificada(self) -> None:
-        consulta = "Artículo 5"
+    def test_ley_no_identificada_es_no_verificable_sin_buscar_por_numero(self) -> None:
+        # R4b: antes se buscaba el "Art. 5" por número en todo el corpus y se mostraba el de
+        # otra ley (🟡 parcial, o 🔴 con distancia alta). Ahora no se adivina la ley: 🟡 NO
+        # VERIFICABLE con el motivo, por el mismo camino que la ley no indexada.
         self.coleccion.agregar("Artículo 5.- Texto sintético.",
-                               {"source": CFF, "article": "5", "page": "3"},
-                               eje=self.codificador.eje(consulta), distancia=0.10)
+                               {"source": CFF, "article": "5", "page": "3"})
         resultado = self.auditar("Art. 5 establece la regla general.")
-        self.assertIn(("query", {"n_results": 3, "where": None, "include": None}),
-                      self.coleccion.llamadas)
-        (fuente,) = resultado["retrieved_sources"]
-        self.assertIsNone(fuente["expected_source"])
-        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (80, "🟡"))
-        self.assertEqual(self.estados(resultado), [("Art. 5", "partial", "corpus_semantic")])
+        self.assertEqual(self.codificador.llamadas, [])
+        self.assertFalse([c for c in self.coleccion.llamadas if c[0] == "query"])
+        self.assertEqual(resultado["retrieved_sources"], [])
+        self.assertEqual(self.estados(resultado), [("Art. 5", "not_verifiable", "resolucion_ley")])
         self.assertEqual(resultado["alerts"], [
-            f"🟡 LEY NO IDENTIFICADA: 'Art. 5' — coincidencia por número de artículo contra "
-            f"'{CFF}'. El contexto no nombró el ordenamiento; verificar que sea la ley correcta "
-            "antes de citar."
+            f"🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: 'Art. 5' (artículo 5) — "
+            f"{MOTIVO_SIN_MENCION}. NO es alucinación: sin el ordenamiento no se puede cotejar "
+            "el precepto. Precisar la ley junto al artículo o verificar en fuente oficial antes "
+            "de citar."
         ])
+        (traza,) = resultado["traceability"]["records"]
+        self.assertEqual(traza["verification"]["reason"],
+                         f"Ley no identificada: {MOTIVO_SIN_MENCION}")
+        self.assertEqual(traza["verification"]["semaforo"], "🟡")
+        self.assertEqual(traza["metadata"], {
+            "ley_no_identificada": True, "motivo": MOTIVO_SIN_MENCION,
+            "law": "desconocido", "law_method": None,
+        })
+        resumen = resultado["vvca_summary"]
+        self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (0, 1, 0))
+        self.assertEqual(resumen["veredicto"]["razon"],
+                         "1 cita(s) normativa(s) con evidencia parcial o no verificable")
+
+    def test_R4_D04_constitucion_generica_reporta_su_motivo(self) -> None:
+        self.coleccion.agregar("Artículo 14. Texto sintético.",
+                               {"source": CPEUM, "article": "14", "page": "19"})
+        resultado = self.auditar("El artículo 14 de la Constitución garantiza la audiencia.")
+        (alerta,) = resultado["alerts"]
+        self.assertTrue(alerta.startswith("🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: "
+                                          "'artículo 14' (artículo 14) — 'Constitución' sin "
+                                          "denominación"))
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 14", "not_verifiable", "resolucion_ley")])
+
+    def test_alias_sin_fuente_es_no_verificable(self) -> None:
+        # "Ejecución Penal" es alias de LAW_ALIASES sin archivo en LAW_SOURCE_MAP.
+        self.coleccion.agregar("Artículo 9.- Texto sintético.",
+                               {"source": CFF, "article": "9", "page": "3"})
+        resultado = self.auditar("Conforme a Ejecución Penal, art. 9 se resuelve.")
+        (alerta,) = resultado["alerts"]
+        self.assertIn("el ordenamiento 'Ley Nacional de Ejecución Penal' no tiene fuente "
+                      "asociada en el corpus", alerta)
+        self.assertEqual(self.estados(resultado), [("art. 9", "not_verifiable", "resolucion_ley")])
 
     def test_R4_D10_sin_coincidencia_confiable_se_refuta(self) -> None:
         consulta = "Artículo 9999 código fiscal de la federación"
@@ -1013,6 +1413,276 @@ class AuditoriaTests(AuditoriaBase):
                          "Artículos con verificación insuficiente (RAG: 0.0)")
 
 
+class VinculoSintacticoTests(AuditoriaBase):
+    """Ronda 2 de R4b: una ley solo se asocia a un artículo por vínculo sintáctico.
+
+    Cada prueba fija artículo, ley, ``law_method`` y el semáforo de la traza en ``audit()``.
+    """
+
+    def _leyes(self, texto: str) -> list[tuple]:
+        return [(r["article"], r["law"], r["source_file"], r["law_method"])
+                for r in ON.extract_references(texto) if r["type"] == "article"]
+
+    def _semaforos(self, resultado: dict) -> list[str]:
+        return [t["verification"]["semaforo"] for t in resultado["traceability"]["records"]]
+
+    def _fragmento(self, consulta: str, texto: str, fuente: str, articulo: str,
+                   distancia: float = 0.05, pagina: str = "1") -> None:
+        self.coleccion.agregar(texto, {"source": fuente, "article": articulo, "page": pagina},
+                               eje=self.codificador.eje(consulta), distancia=distancia)
+
+    # ── Punto 1 ────────────────────────────────────────────────────────────────────────
+    def test_p1_ley_a_la_izquierda_prevalece_sobre_mencion_posterior_no_ligada(self) -> None:
+        texto = ("La Ley de Amparo, en su artículo 16, establece una regla cuyo alcance debe "
+                 "examinarse junto con la CPEUM.")
+        self.assertEqual(self._leyes(texto),
+                         [("16", "ley de amparo", LAMP, "adyacente_izquierda")])
+        self._fragmento("Artículo 16 ley de amparo", "Artículo 16.- Texto sintético.", LAMP, "16")
+        resultado = self.auditar(texto)
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 16", "verified", "corpus_metadata")])
+        self.assertEqual(self._semaforos(resultado), ["🟢"])
+
+    def test_p1_conflicto_o_ley_no_ligada_es_no_identificada(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        casos = {
+            "La Ley de Amparo, en su artículo 16 de la CPEUM, establece.": "vínculos en conflicto",
+            "El artículo 5 establece que conforme a la Ley de Amparo procede.": MOTIVO_SIN_MENCION,
+        }
+        for texto, motivo in casos.items():
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual((ref["source_file"], ref["law_method"]), (None, None))
+                self.assertIn(motivo, ref["law_unidentified_reason"])
+                resultado = self.auditar(texto)
+                self.assertEqual([e[1:] for e in self.estados(resultado)],
+                                 [("not_verifiable", "resolucion_ley")])
+                self.assertEqual(self._semaforos(resultado), ["🟡"])
+
+    # ── Punto 2 ────────────────────────────────────────────────────────────────────────
+    def test_p2_respectivamente_reparte_las_leyes(self) -> None:
+        texto = "Los artículos 14 y 16, de la CPEUM y del CFF, respectivamente."
+        self.assertEqual(self._leyes(texto), [
+            ("14", "cpeum", CPEUM, "adyacente_derecha"),
+            ("16", "cff", CFF, "adyacente_derecha"),
+        ])
+        self._fragmento("Artículo 14 cpeum", "Artículo 14. Texto sintético.", CPEUM, "14")
+        self._fragmento("Artículo 16 cff", "Artículo 16.- Texto sintético.", CFF, "16")
+        resultado = self.auditar(texto)
+        self.assertEqual(self.estados(resultado), [
+            ("artículos 14", "verified", "corpus_metadata"),
+            ("artículos 14 y 16", "verified", "corpus_metadata"),
+        ])
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟢"])
+
+    def test_p2_varias_leyes_sin_reparto_dejan_el_grupo_sin_ley(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        casos = {
+            "Los artículos 14 y 16 de la CPEUM y del CFF.": "sin 'respectivamente'",
+            "Los artículos 14, 16 y 19, de la CPEUM y del CFF, respectivamente.":
+                "no coincide con el de artículos",
+        }
+        for texto, motivo in casos.items():
+            with self.subTest(texto=texto):
+                refs = ON.extract_references(texto)
+                self.assertTrue(refs)
+                for ref in refs:
+                    self.assertEqual((ref["source_file"], ref["law_method"]), (None, None))
+                    self.assertIn(motivo, ref["law_unidentified_reason"])
+                resultado = self.auditar(texto)
+                self.assertEqual(set(self._semaforos(resultado)), {"🟡"})
+                self.assertEqual({e[1] for e in self.estados(resultado)}, {"not_verifiable"})
+
+    # ── Punto 3 ────────────────────────────────────────────────────────────────────────
+    def test_p3_ordenamiento_concreto_fuera_del_catalogo_bloquea_la_inferencia(self) -> None:
+        self.coleccion.agregar("Artículo 5.- Texto sintético.", {"source": LAMP, "article": "5"})
+        for texto in (
+            "La Ley de Amparo rige.\n\nEl Código de Comercio, en su artículo 5, dispone.",
+            "La Ley de Amparo rige.\n\nEl artículo 5 del Código de Comercio dispone.",
+        ):
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual((ref["article"], ref["source_file"], ref["law_method"]),
+                                 ("5", None, None))
+                self.assertTrue(ref["law_unidentified_reason"].startswith(
+                    "ordenamiento fuera del catálogo: 'Código de Comercio'"))
+                resultado = self.auditar(texto)
+                self.assertEqual([e[1:] for e in self.estados(resultado)],
+                                 [("not_verifiable", "resolucion_ley")])
+                self.assertEqual(self._semaforos(resultado), ["🟡"])
+        self.assertEqual(self.codificador.llamadas, [])
+
+    # ── Punto 4 ────────────────────────────────────────────────────────────────────────
+    def test_p4_variante_con_letra_minuscula_no_es_el_articulo_base(self) -> None:
+        consulta = "Artículo 4o código fiscal de la federación"
+        self._fragmento(consulta, "Artículo 4o.-a.- Texto sintético con letra minúscula.",
+                        CFF, "4o", 0.05, "3")
+        self._fragmento(consulta, "Artículo 4o.- a) Texto sintético del artículo base.",
+                        CFF, "4o", 0.10, "2")
+        resultado = self.auditar("El artículo 4o. del Código Fiscal de la Federación se invoca.")
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertEqual((fuente["article"], fuente["page"]), ("4o", "2"))
+        self.assertEqual(self.estados(resultado), [("artículo 4o", "verified", "corpus_metadata")])
+        self.assertEqual(self._semaforos(resultado), ["🟢"])
+
+    # ── Punto 5 ────────────────────────────────────────────────────────────────────────
+    def test_p5_ordenamiento_de_otra_entidad_no_identifica_el_de_jalisco(self) -> None:
+        self.coleccion.agregar("Artículo 42.- Texto sintético.",
+                               {"source": ON.LAW_SOURCE_MAP["cpj"], "article": "42"})
+        for texto, nombre in (
+            ("Artículo 42 del Código Penal para el Estado de México.",
+             "'Código Penal para el Estado de México'"),
+            ("El artículo 5 de la Ley de Carrera Judicial del Estado de Jalisco.",
+             "'Ley de Carrera Judicial del Estado de Jalisco'"),
+        ):
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual((ref["source_file"], ref["law_method"]), (None, None))
+                self.assertIn(nombre, ref["law_unidentified_reason"])
+                resultado = self.auditar(texto)
+                self.assertEqual(self._semaforos(resultado), ["🟡"])
+        self.assertEqual(
+            self._leyes("El artículo 42 del Código Penal para el Estado Libre y Soberano de "
+                        "Jalisco se invoca."),
+            [("42", "código penal para el estado libre y soberano de jalisco",
+              ON.LAW_SOURCE_MAP["cpj"], "adyacente_derecha")],
+        )
+
+    def test_p5_claves_estatales_exigen_la_entidad(self) -> None:
+        genericas = {"código penal para el estado", "ley de movilidad y transporte",
+                     "reglamento de movilidad", "reglamento orgánico del poder judicial"}
+        self.assertFalse(genericas & set(ON.LAW_SOURCE_MAP))
+        for clave in ON.LAW_SOURCE_MAP:
+            if ("del estado" in clave or "para el estado" in clave) and \
+                    "al servicio del estado" not in clave:
+                with self.subTest(clave=clave):
+                    self.assertIn("jalisco", clave)
+
+    # ── Punto 6 ────────────────────────────────────────────────────────────────────────
+    def test_p6_rango_largo_audita_extremos_y_deja_cobertura_incompleta(self) -> None:
+        texto = "Arts. 14-40 CPEUM."
+        refs = ON.extract_references(texto)
+        self.assertEqual([(r["article"], r["source_file"], r["law_method"]) for r in refs], [
+            ("14", CPEUM, "adyacente_derecha"), ("40", CPEUM, "adyacente_derecha"),
+            ("15 a 39", CPEUM, "adyacente_derecha"),
+        ])
+        self._fragmento("Artículo 14 cpeum", "Artículo 14. Texto sintético.", CPEUM, "14")
+        self._fragmento("Artículo 40 cpeum", "Artículo 40. Texto sintético.", CPEUM, "40")
+        resultado = self.auditar(texto)
+        self.assertEqual(self.estados(resultado), [
+            ("Arts. 14-40", "verified", "corpus_metadata"),
+            ("Arts. 14-40", "verified", "corpus_metadata"),
+            ("Arts. 14-40", "not_verifiable", "cobertura_extraccion"),
+        ])
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟢", "🟡"])
+        self.assertEqual(resultado["alerts"], [
+            "🟡 COBERTURA INCOMPLETA: 'Arts. 14-40' — rango de 27 artículos (14 a 40): solo se "
+            "auditaron los extremos; los 25 intermedios no se auditaron. Auditar esos artículos "
+            "por separado o verificarlos en fuente oficial antes de citar."
+        ])
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    # ── Punto 7 ────────────────────────────────────────────────────────────────────────
+    def test_p7_enumeraciones_con_leyes_intercaladas(self) -> None:
+        casos = {
+            "Los artículos 14 de la CPEUM y 42 del CFF.": [
+                ("14", "cpeum", CPEUM, "adyacente_derecha"),
+                ("42", "cff", CFF, "adyacente_derecha"),
+            ],
+            "Se violan los artículos 17 de la Ley de Amparo y 107 constitucional.": [
+                ("17", "ley de amparo", LAMP, "adyacente_derecha"),
+                ("107", "constitucional", CPEUM, "adyacente_derecha"),
+            ],
+            "Se invocan los artículos 16 y 19 de la CPEUM, así como 167 del Código Nacional "
+            "de Procedimientos Penales.": [
+                ("16", "cpeum", CPEUM, "adyacente_derecha"),
+                ("19", "cpeum", CPEUM, "adyacente_derecha"),
+                ("167", "código nacional de procedimientos penales", CNPP, "adyacente_derecha"),
+            ],
+            "Los artículos 1o., 14 y 16 constitucionales, y 8o. de la Convención Americana "
+            "sobre Derechos Humanos.": [
+                ("1o", "constitucional", CPEUM, "adyacente_derecha"),
+                ("14", "constitucional", CPEUM, "adyacente_derecha"),
+                ("16", "constitucional", CPEUM, "adyacente_derecha"),
+                ("8o", "convención americana", ON.LAW_SOURCE_MAP["cadh"], "adyacente_derecha"),
+            ],
+        }
+        for texto, esperado in casos.items():
+            with self.subTest(texto=texto):
+                self.assertEqual(self._leyes(texto), esperado)
+        self._fragmento("Artículo 17 ley de amparo", "Artículo 17.- Texto sintético.", LAMP, "17")
+        self._fragmento("Artículo 107 constitucional", "Artículo 107. Texto sintético.",
+                        CPEUM, "107")
+        resultado = self.auditar(
+            "Se violan los artículos 17 de la Ley de Amparo y 107 constitucional.")
+        self.assertEqual([e[1:] for e in self.estados(resultado)],
+                         [("verified", "corpus_metadata"), ("verified", "corpus_metadata")])
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟢"])
+
+    def test_p7_miembro_no_extraido_con_certeza_queda_como_cobertura_incompleta(self) -> None:
+        texto = "Los artículos 14 de la CPEUM, al igual que el 42 del CFF."
+        refs = ON.extract_references(texto)
+        self.assertEqual([(r["article"], r["source_file"], bool(r["coverage_gap"]))
+                          for r in refs], [("14", CPEUM, False), ("42", None, True)])
+        self._fragmento("Artículo 14 cpeum", "Artículo 14. Texto sintético.", CPEUM, "14")
+        resultado = self.auditar(texto)
+        self.assertEqual([e[1:] for e in self.estados(resultado)], [
+            ("verified", "corpus_metadata"), ("not_verifiable", "cobertura_extraccion"),
+        ])
+        self.assertEqual(self._semaforos(resultado), ["🟢", "🟡"])
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    # ── Punto 8 ────────────────────────────────────────────────────────────────────────
+    def test_p8_ley_inferida_de_otro_parrafo_se_limita_a_amarillo(self) -> None:
+        texto = "El CFF regula la materia.\n\nEl artículo 42 dispone las facultades."
+        (ref,) = ON.extract_references(texto)
+        self.assertEqual(
+            (ref["law"], ref["source_file"], ref["law_method"], ref["law_requires_confirmation"]),
+            ("cff", CFF, "contexto_previo_otro_parrafo", True),
+        )
+        self._fragmento("Artículo 42 cff", "Artículo 42.- Texto sintético.", CFF, "42", 0.05, "91")
+        resultado = self.auditar(texto)
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (84, "🟡"))
+        self.assertTrue(fuente["vvca"]["explicabilidad"]["ley_por_confirmar"])
+        self.assertEqual(self.estados(resultado), [("artículo 42", "partial", "corpus_metadata")])
+        (alerta,) = resultado["alerts"]
+        self.assertTrue(alerta.startswith(
+            "🟡 LEY POR CONFIRMAR (score 84): 'artículo 42' — ley inferida de otro párrafo: "
+            "confirmar el ordenamiento"))
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    def test_p8_ley_por_confirmar_nunca_es_roja(self) -> None:
+        texto = "El CFF regula la materia.\n\nEl artículo 9999 dispone las facultades."
+        self._fragmento("Artículo 9999 cff", "Artículo 1.- Texto sintético.", CFF, "1", 0.60)
+        resultado = self.auditar(texto)
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 9999", "partial", "corpus_semantic")])
+        self.assertEqual(self._semaforos(resultado), ["🟡"])
+        self.assertEqual(resultado["vvca_summary"]["rojos"], 0)
+
+    def test_p8_encabezado_inequivoco_o_mismo_parrafo_no_piden_confirmacion(self) -> None:
+        casos = {
+            "## Código Fiscal de la Federación\n\nEl artículo 42 dispone las facultades.":
+                ("código fiscal de la federación", "encabezado"),
+            "El CFF regula la materia. El artículo 42 dispone las facultades.":
+                ("cff", "contexto_previo"),
+        }
+        for texto, (ley, metodo) in casos.items():
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual((ref["law"], ref["law_method"], ref["law_requires_confirmation"]),
+                                 (ley, metodo, False))
+                coleccion = FakeCollection()
+                coleccion.agregar("Artículo 42.- Texto sintético.",
+                                  {"source": CFF, "article": "42", "page": "91"},
+                                  eje=self.codificador.eje(f"Artículo 42 {ley}"), distancia=0.05)
+                resultado = self.auditar(texto, coleccion=coleccion)
+                self.assertEqual(self.estados(resultado),
+                                 [("artículo 42", "verified", "corpus_metadata")])
+                self.assertEqual(self._semaforos(resultado), ["🟢"])
+
+
 class AuditoriaCaminoPorDefectoTests(unittest.TestCase):
     """Sin inyección, ``audit`` sigue el camino de siempre: modelo → CHROMA_PATH → colección."""
 
@@ -1098,6 +1768,12 @@ class FakeCollectionTests(unittest.TestCase):
         self.assertEqual(ON.exact_article_chunks(coleccion, CFF, "294"), [
             {"source": CFF, "page": "9", "snippet": "Artículo 294. Texto sintético."},
         ])
+        # R4b: la designación se compara con su sufijo.
+        coleccion.agregar("Artículo 4o.-A. Texto sintético con letra.", {"source": CFF, "page": "3"})
+        self.assertEqual(ON.exact_article_chunks(coleccion, CFF, "4o"), [])
+        self.assertEqual(
+            [h["page"] for h in ON.exact_article_chunks(coleccion, CFF, "4o.-A")], ["3"]
+        )
 
 
 class VeredictoTests(unittest.TestCase):

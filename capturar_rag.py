@@ -15,6 +15,8 @@ from pathlib import Path
 
 # playwright, fitz (PyMuPDF) y requests se importan dentro de las funciones que los usan:
 # así el módulo se puede importar —y probar— sin esas dependencias (la CI no las instala).
+# itosturre.audit.referencias es biblioteca estándar pura (designación de artículos, R4b).
+from itosturre.audit.referencias import patron_articulo, sin_acentos
 
 try:
     from dotenv import load_dotenv
@@ -450,18 +452,26 @@ _ARTICULO_HEADER_RE_CACHE: dict = {}
 def _contains_article_header(text: str, article) -> bool:
     """¿El texto recuperado realmente trae un encabezado 'Artículo {N}' para el
     número citado? Evita mostrar como 'prueba' un chunk que coincide en ley y
-    rankeó bien, pero corresponde a OTRO número de artículo (vecino semántico)."""
+    rankeó bien, pero corresponde a OTRO número de artículo (vecino semántico).
+
+    Desde R4b la designación se compara con su sufijo: '247 Ter' exige 'Artículo 247
+    Ter' (no basta 'Artículo 247') y '4o' no se confirma con 'Artículo 4o.-A' (el índice
+    agrupa esas variantes bajo el número base). El ordinal sigue siendo tolerante:
+    '1' se confirma con 'Artículo 1o.'."""
     if not article or not text:
         return True  # sin dato para comparar — no bloqueamos por esto
     m = re.match(r"\d+", str(article))
     if not m:
         return True  # formato no numérico (transitorios, etc.) — no verificable así
-    num = m.group(0)
-    pattern = _ARTICULO_HEADER_RE_CACHE.get(num)
+    clave = str(article)
+    pattern = _ARTICULO_HEADER_RE_CACHE.get(clave)
     if pattern is None:
-        pattern = re.compile(rf"art[íi]culos?\.?\s+{re.escape(num)}(?!\d)", re.IGNORECASE)
-        _ARTICULO_HEADER_RE_CACHE[num] = pattern
-    return bool(pattern.search(text))
+        designacion = patron_articulo(clave, ordinal_estricto=False, espacio=r"\s")
+        if designacion is None:  # designación no descomponible: número base, como antes
+            designacion = rf"{re.escape(m.group(0))}(?!\d)"
+        pattern = re.compile(rf"articulos?\.?\s+{designacion}", re.IGNORECASE)
+        _ARTICULO_HEADER_RE_CACHE[clave] = pattern
+    return bool(pattern.search(sin_acentos(text)))
 
 def build_popup_html(item: dict) -> str:
     snippet_raw = item.get("retrieved_text_full") or item.get("retrieved_text") or ""

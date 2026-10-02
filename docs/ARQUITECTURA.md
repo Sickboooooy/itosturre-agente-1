@@ -44,7 +44,7 @@ del producto.
 | `router_competencia.py` | Enrutamiento determinista de competencia orgánica | Código padre |
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
-| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG | Código padre |
+| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto | Código padre |
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
@@ -160,6 +160,54 @@ Cómo probar el núcleo: `python -m unittest -v tests.test_vvca_nucleo` (con el 
 un Python 3.11 sin paquetes). Los dobles no reproducen distancias ni fragmentos reales: la
 calidad de la recuperación sigue dependiendo de `scripts/run_regression.py`.
 
+## Extracción de referencias y resolución de ley (R4b)
+
+`extract_references` delega los artículos en `itosturre/audit/referencias.py` (biblioteca
+estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01…D06:
+
+- **Designación** completa (`247 Ter`, `2o. Bis`, `4o.-A`, `29-A`, `32-B Quáter`); el grado
+  (`259°`) sigue fuera. `ARTICLE_RE` se conserva con el mismo contrato de grupos.
+- **Enumeraciones y rangos:** una referencia por artículo (`arts. 14, 16 y 19`; `467 a 471`;
+  `155–157`); un número seguido de una unidad o un mes (`471, 3 días`, `10 de junio`) o un
+  ordinal adjetivo (`2o. párrafo`) no es artículo. Las enumeraciones se leen por segmentos,
+  cada uno con su ley ("14 de la CPEUM y 42 del CFF", ", así como 167 del CNPP"). `raw` va de
+  la cabeza del grupo al artículo; `group_raw`, de la cabeza al último artículo del grupo.
+- **Cobertura incompleta** (`coverage_gap`): un rango de más de `MAX_RANGO` (20) artículos
+  conserva sus extremos y añade una referencia "N a M" con el motivo; un número ligado a una
+  ley que no se extrajo con certeza (sin cabeza "artículo" reconocible) también. `audit()`
+  las reporta `🟡 COBERTURA INCOMPLETA` (traza `not_verifiable`, método
+  `cobertura_extraccion`), de modo que el veredicto no puede ser 🟢.
+- **Ley por vínculo sintáctico** (catálogo de patrones por palabra completa desde
+  `LAW_SOURCE_MAP` y `LAW_ALIASES`; una clave contenida en otra mayor no cuenta aparte; una
+  mención seguida de "del Estado de…", "para el Estado de…" o "de la Ciudad de…" es otro
+  ordenamiento). Enlace derecho con gramática explícita: calificadores del precepto →
+  "ambos"/"todos" → "de"/"del" → determinantes → ley; varias leyes unidas por "y de/del" solo
+  se reparten con "respectivamente" y el mismo número que artículos. Enlace izquierdo pegado
+  a la cabeza o posesivo ("en su artículo") con un único ordenamiento en la oración; si
+  izquierda y derecha difieren, ley no identificada (vínculos en conflicto). Coordinación
+  pura comparte el enlace (hacia adelante o hacia atrás); "así como"/"en relación con" solo
+  con distributivo. Sin vínculo: contexto previo en oraciones anteriores (≤ 600 caracteres,
+  `law_inferred=True`); desde otro párrafo y sin encabezado inequívoco,
+  `law_requires_confirmation=True`. Un ordenamiento concreto fuera del catálogo (ligado o el
+  más cercano antes) deja la ley no identificada. Las oraciones se cortan en párrafo,
+  elemento de lista o fila de tabla Markdown, `;`, `?`, `!`, `|` y punto final que no cierra
+  una abreviatura. Campos añadidos por referencia: `law_method` (`adyacente_derecha`,
+  `adyacente_izquierda`, `posesivo`, `antecedente`, `contexto_previo`, `encabezado`,
+  `contexto_previo_otro_parrafo`), `law_unidentified_reason`, `group_raw`,
+  `law_requires_confirmation` y `coverage_gap` (y `law_method` en `retrieved_sources`).
+- **`audit()`:** sin `source_file`, 🟡 NO VERIFICABLE — LEY NO IDENTIFICADA con el motivo,
+  sin consultar el corpus (traza `not_verifiable`, método `resolucion_ley`). Un precepto con
+  sufijo sin su encabezado exacto, o un número base del que el índice solo ofrece variantes
+  con sufijo (en cualquier caja: `4o.-a`), es 🟡 NO VERIFICABLE (traza `not_verifiable`, sin
+  entrada en `retrieved_sources`): el chunker etiqueta `4o.-A` como `4o` y `247 Bis` como
+  `247`. Una re-ingesta con la etiqueta completa eliminaría esa ambigüedad; R4b no
+  re-ingesta. Con `law_requires_confirmation`, `build_vvca` limita el score a 60–84 (🟡) y
+  la traza queda `partial` con la alerta "LEY POR CONFIRMAR" (único ajuste de semáforo de
+  R4b; el resto del veredicto es R4c).
+- **Consumidores:** `extract_article_numbers` y `exact_article_chunks` (comando `query`)
+  y `capturar_rag._contains_article_header` (pop-ups) comparan la designación con su
+  sufijo; `vvca_full.py` deduplica por `(fuente, artículo)` y ya distingue `247` de `247 Ter`.
+
 ## Fuentes canónicas
 
 1. `CLAUDE.md` contiene la política operativa compartida. `AGENTS.md` es su adaptación
@@ -181,7 +229,7 @@ calidad de la recuperación sigue dependiendo de `scripts/run_regression.py`.
 | Gold Set VVCA | `python scripts/evaluate_gold_set.py` | Cada push/PR |
 | Gold Set jurídico v2 | `python scripts/evaluate_gold_set.py --file tests/fixtures/vvca_gold_set_v2.json` | Curaduría del operador; no es gate hasta 30 casos aprobados |
 | Orquestador fail-closed | `python -m unittest -v tests.test_vvca_full` | Cada push/PR |
-| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` |
+| Núcleo VVCA (caracterización) | `python -m unittest -v tests.test_vvca_nucleo tests.test_vvca_referencias` | Cada push/PR (dentro de la suite); colección y codificador falsos, sin corpus ni modelo; fija el comportamiento actual y los defectos de `DEFECTOS_CONOCIDOS` (D01–D06 corregidos en R4b) |
 | Gold Set de planes | `python scripts/evaluate_plan_gold_set.py` | Cada push/PR; falla si un caso no pasa o una regla PL-001…PL-014 queda sin caso |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-017, que el Gold Set no admite porque no tiene paquete. Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
@@ -202,7 +250,7 @@ la lógica del núcleo con dobles, pero no la recuperación real.
   Las siguientes extracciones serán incrementales, conservarán la CLI y pasarán la regresión.
   Desde R4a el módulo se importa sin dependencias pesadas y `audit()` es probable con
   dobles; las correcciones del núcleo (R4b–R4d) cambian las pruebas de caracterización a
-  sabiendas.
+  sabiendas. R4b movió la extracción y la resolución de ley a `itosturre/audit/referencias.py`.
 - `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
   permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.

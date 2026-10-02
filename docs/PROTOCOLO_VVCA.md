@@ -62,21 +62,69 @@ bloquea y una sola cita amarilla impide declarar el documento apto, aunque el pr
 
 ## 4. Guards de resolución de artículos (anti-falso-veredicto)
 
-El parser resuelve la ley de cada artículo en cascada de prioridad:
+**Extracción (R4b).** Cada artículo citado es una referencia propia, con su designación
+completa:
 
-1. **Ventana local** — derecha (100 chars) → línea → amplia (±150).
-2. **Alias** case-sensitive (`LAW_ALIASES`).
-3. **Sticky-law** (`resolve_law_source_backward`) — último recurso: la ley del **encabezado
-   más cercano hacia atrás** (≤600 chars). Maneja el patrón legal de agrupar artículos bajo
-   un título de ley:
+- Sufijos y letras se conservan: `247 Ter`, `2o. Bis`, `4o.-A`, `29-A`, `32-B Quáter` (antes
+  "247 Ter" se auditaba como el 247 y "4o.-A" como el 4o).
+- Enumeraciones y rangos: `arts. 14, 16 y 19`, `467 a 471` y `155–157` producen una
+  referencia por artículo (antes solo se auditaba el primero). En `artículo 471, 3 días` o
+  `10 de junio` el número no es artículo.
+- Enumeraciones con leyes intercaladas se leen por segmentos, cada uno con **su** ley:
+  "los artículos 14 de la CPEUM y 42 del CFF"; "17 de la Ley de Amparo y 107
+  constitucional"; "16 y 19 de la CPEUM, así como 167 del CNPP".
+- **Nada desaparece en silencio.** Un rango de más de 20 artículos conserva sus extremos y
+  deja una referencia `🟡 COBERTURA INCOMPLETA` ("rango de N artículos: solo se auditaron
+  los extremos"); un número ligado a una ley que no se puede extraer con certeza ("…, al
+  igual que el 42 del CFF") también queda como cobertura incompleta. Cuentan como no
+  verificables: el veredicto global no puede ser 🟢.
 
-   ```
-   ### A. Orden constitucional mexicano (CPEUM)
-   - Art. 16 — ...
-   - Art. 19 — ...
-   ```
+**Resolución de la ley: solo por vínculo sintáctico acreditable.** Si no lo hay o hay más de
+un candidato, la ley queda no identificada (🟡, con motivo). Nunca se asocia una ley que solo
+aparece en la misma oración. Las coincidencias son por palabra o abreviatura completa
+("perito Olivares" ya no es la LIVA).
 
-   Estos se marcan `law_inferred=True` (auditable: resueltos por sección, no por adyacencia).
+1. **A la derecha, pegada al precepto:** "artículo 16 de la/del …", "art. 16 CPEUM",
+   "16 constitucional", tras fracción/párrafo/inciso del mismo precepto ("artículo 107,
+   fracción V, inciso a), de la Ley de Amparo"). "El artículo 5 establece que conforme a la
+   Ley de Amparo…" no liga el 5 a la Ley de Amparo.
+2. **A la izquierda:** pegada a la cabeza ("La Ley de Amparo, en su artículo 16", "CFF Art.
+   42") o por posesivo con un único ordenamiento previo en la oración ("La Ley de Amparo
+   regula el juicio, y en su artículo 217…"). Prevalece sobre una mención posterior no
+   ligada; si la izquierda y la derecha nombran leyes distintas, hay **vínculos en
+   conflicto** y la ley queda no identificada. La ley que otro artículo ya tomó a su derecha
+   no sirve a la izquierda ("el artículo 16 de la CPEUM y el artículo 5…": el 5 queda sin ley).
+3. **Varias leyes para un grupo** solo se reparten con "respectivamente" y el mismo número de
+   leyes que de artículos ("Los artículos 14 y 16, de la CPEUM y del CFF, respectivamente");
+   si no, todo el grupo queda no identificado. Nunca se comparte la primera ley.
+4. **Coordinación pura** ("el artículo 14 y el artículo 16 de la CPEUM", "CFF Art. 42 y Art.
+   43") comparte el vínculo; "así como" o "en relación con" solo lo comparten con un
+   distributivo ("…, ambos de la CPEUM").
+5. **Contexto previo / sticky-law** — último recurso, solo con oraciones anteriores (≤600
+   caracteres hacia atrás). Se marca `law_inferred=True`. Dentro del mismo párrafo sigue como
+   antes. Si la mención está en **otro párrafo**, la ley queda **por confirmar**
+   (`law_requires_confirmation=True`): el semáforo se limita a 🟡 (ni 🟢 ni 🔴) con la alerta
+   "LEY POR CONFIRMAR — ley inferida de otro párrafo: confirmar el ordenamiento", salvo que
+   la mención sea un encabezado inequívoco (una línea que es solo la denominación de la ley:
+   "## Código Fiscal de la Federación"). "### A. Orden constitucional mexicano (CPEUM)" no lo
+   es: los artículos bajo ese encabezado quedan por confirmar.
+
+Reglas de identificación:
+
+- "Constitución" sin denominación ("Constitución Política de los Estados Unidos Mexicanos",
+  "Constitución Federal", "Constitución General de la República") ni abreviatura (CPEUM) no
+  identifica la CPEUM ("la constitución de la sociedad" no es la Constitución);
+  "constitucional" solo cuenta junto al precepto ("artículo 16 constitucional").
+- Un genérico ligado al artículo ("de la ley", "del código", "de la Constitución", "del
+  ordenamiento citado", "dicha ley, en su artículo") solo se resuelve si antes se nombra
+  **un único** ordenamiento de ese tipo; si no hay ninguno o hay varios, la ley queda no
+  identificada. Un antecedente de otro párrafo deja la ley por confirmar.
+- Un ordenamiento concreto que no está en el catálogo ("Código de Comercio", "Ley General de
+  Salud", "ley fiscal", "Constitución local"), o uno de otra entidad ("Código Penal para el
+  Estado de México", "Ley de Carrera Judicial del Estado de Jalisco"), deja la ley no
+  identificada con el motivo "ordenamiento fuera del catálogo" y bloquea cualquier inferencia.
+  Las claves estatales del catálogo exigen la entidad completa ("Código Penal para el Estado
+  Libre y Soberano de Jalisco").
 
 Comportamiento al auditar (`audit()`):
 
@@ -87,10 +135,24 @@ Comportamiento al auditar (`audit()`):
 - **Ley identificada pero ausente del corpus** → `🟡 NO VERIFICABLE`. *No* se reporta como
   "alucinación": el corpus simplemente no la contiene. (Guard P0 — antes producía un falso 🔴
   que tachaba de falsa una cita válida, p. ej. LGV/PIDCP.)
-- **Artículo sin ley identificable** (ni siquiera por sticky-law) que igual hace match por
-  número → `🟡 LEY NO IDENTIFICADA`, nunca 🟢 ciego. El score del propio source se **capa a
-  84** (🟡) en `build_vvca` para que el semáforo tampoco quede verde. (Guard P0 — antes un
-  "Art. 5" suelto podía matchear el Art. 5 de cualquier código y pasar verde.)
+- **Artículo sin ley identificada** (R4b) → `🟡 NO VERIFICABLE — LEY NO IDENTIFICADA`
+  con el motivo para el abogado (no se nombra el ordenamiento; genérico sin antecedente
+  inequívoco; ordenamiento fuera del catálogo; alias sin fuente en el corpus). No se busca
+  el número en todo el corpus: eso sería adivinar la ley. Cuenta como amarillo y nunca es
+  🟢 ni 🔴. (Antes un "Art. 5" suelto se cotejaba por número contra el código que saliera
+  más parecido: 🟡 con el score capado a 84 o, con distancia alta, 🔴.)
+- **Precepto con sufijo sin su encabezado exacto** (R4b) → `🟡 NO VERIFICABLE`. El índice
+  actual etiqueta `4o.-A`, `247 Bis` o `29-A Bis` con el número base, así que la búsqueda
+  por metadata devuelve el artículo base y sus variantes; solo un fragmento con el
+  encabezado exacto ("Artículo 247 Ter.-") acredita el precepto. Lo mismo si se cita el
+  número base y el índice solo ofrece variantes con sufijo. Nunca 🟢 contra el artículo
+  base ni 🔴: no se acreditó que el precepto no exista. (Una re-ingesta con la etiqueta
+  completa eliminaría esta limitación; R4b no re-ingesta.)
+- **Cobertura incompleta** (R4b) → `🟡 COBERTURA INCOMPLETA` (traza `not_verifiable`,
+  método `cobertura_extraccion`): rango recortado o número ligado a una ley que no se
+  extrajo con certeza. Auditar esos artículos por separado.
+- **Ley por confirmar** (R4b) → a lo sumo 🟡 (traza `partial`), aunque el fragmento
+  coincida, y nunca 🔴: el cotejo se hizo contra una ley inferida de otro párrafo.
 - **Tesis citada no encontrada** en el corpus local → `🟡 NO VERIFICABLE` (no confirmada
   falsa); cuenta en `amarillos`, no en `rojos`, coherente con el veredicto.
 - **No encontrado con la fuente esperada** → 🔴 alerta crítica (posible alucinación).

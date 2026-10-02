@@ -164,5 +164,44 @@ class MissingDependencyTests(unittest.TestCase):
                 capturar_rag.render_pdf_page_b64(Path("cualquiera.pdf"), "1")
 
 
+class ArticleHeaderTests(unittest.TestCase):
+    """El pop-up solo muestra la página del PDF como prueba si el texto trae el artículo
+    citado con su sufijo (R4b): el índice agrupa "4o.-A" o "247 Bis" bajo el número base."""
+
+    def test_numero_simple_conserva_la_tolerancia_de_siempre(self) -> None:
+        texto = "Artículo 1o. Texto sintético; véase el artículo 16 y el artículo 160."
+        self.assertTrue(capturar_rag._contains_article_header(texto, "1"))
+        self.assertTrue(capturar_rag._contains_article_header(texto, "16"))
+        self.assertFalse(capturar_rag._contains_article_header(texto, "8"))
+        self.assertTrue(capturar_rag._contains_article_header(texto, ""))
+        self.assertTrue(capturar_rag._contains_article_header(texto, "Único"))
+
+    def test_sufijo_pedido_y_no_pedido(self) -> None:
+        base = "Artículo 247.- Texto sintético del artículo base."
+        variante = "Artículo 4o.-A.- Texto sintético del artículo con letra."
+        self.assertFalse(capturar_rag._contains_article_header(base, "247 Ter"))
+        self.assertTrue(capturar_rag._contains_article_header(
+            "Artículo 247 Ter.- Texto sintético.", "247 Ter"))
+        self.assertFalse(capturar_rag._contains_article_header(variante, "4o"))
+        self.assertTrue(capturar_rag._contains_article_header(variante, "4o.-A"))
+        # Sufijo en minúscula (ronda 2) sin confundir el cuerpo del artículo.
+        self.assertFalse(capturar_rag._contains_article_header("Artículo 4o.-a.- Texto.", "4o"))
+        self.assertTrue(capturar_rag._contains_article_header("Artículo 4o.- a) Texto.", "4o"))
+
+    def test_popup_de_sufijo_no_confirmado_no_muestra_la_pagina(self) -> None:
+        html = capturar_rag.build_popup_html({
+            "reference": "artículo 247 Ter",
+            "article": "247 Ter",
+            "semaforo": "🟡",
+            "source_file": "CODIGO SINTETICO.pdf",
+            "expected_source": "CODIGO SINTETICO.pdf",
+            "coincide_fuente": True,
+            "ley_identificada": True,
+            "retrieved_text_full": "Artículo 247.- Texto sintético del artículo base.",
+        })
+        self.assertIn("NÚMERO DE ARTÍCULO NO CONFIRMADO", html)
+        self.assertNotIn("page-img", html.split("</style>")[1])
+
+
 if __name__ == "__main__":
     unittest.main()
