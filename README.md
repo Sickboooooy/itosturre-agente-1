@@ -155,9 +155,13 @@ Lee el JSON: cada referencia trae su `vvca` con **score 0–100** y semáforo:
 
 | Semáforo | Score | Acción |
 |---|---|---|
-| 🟢 | ≥85 | Citar con seguridad |
+| 🟢 | ≥85 | Existencia y ubicación verificadas — cotejar el contenido |
 | 🟡 | 60–84 | Citar con reserva — verificar |
 | 🔴 | <60 | No citar — investigar |
+
+El 🟢 acredita **existencia y ubicación del precepto en el corpus local** (campo
+`alcance_verificacion`), no que el precepto diga lo que el escrito afirma: el contenido y la
+pertinencia se cotejan siempre (Capa 2).
 
 El campo `vvca_summary.veredicto` da una **decisión binaria con razón**: una tesis con
 rubro discrepante bloquea el veredicto (🔴) por sí sola, sin importar el RAG. Si el corpus

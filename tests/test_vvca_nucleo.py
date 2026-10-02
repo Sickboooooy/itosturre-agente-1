@@ -10,9 +10,10 @@ defecto tiene un ID en ``DEFECTOS_CONOCIDOS`` (PR que lo corrige, descripción y
 comportamiento correcto esperado) y su prueba lleva el ID en el nombre: el PR que lo
 corrija (R4b, R4c o R4d) cambia esa prueba a sabiendas. No hay ``expectedFailure``.
 
-R4b corrigió R4-D01 a R4-D06 (``"corregido": "R4b"`` en el registro): sus pruebas ya no
-fijan el defecto sino el comportamiento correcto. R4-D07 a R4-D14 siguen fijando el
-comportamiento actual hasta R4c y R4d.
+R4b corrigió R4-D01 a R4-D06 (``"corregido": "R4b"`` en el registro) y R4c, R4-D08,
+R4-D09, R4-D11 y R4-D12 (``"corregido": "R4c"``): sus pruebas ya no fijan el defecto sino el
+comportamiento correcto. R4-D10 (decisión del responsable) y R4-D07, R4-D13 y R4-D14 (R4d)
+siguen fijando el comportamiento actual.
 
 Las entradas mencionan leyes y artículos reales como TEXTO A AUDITAR, no como citas que se
 afirmen. Los registros de tesis son ficticios (0000001…) y sus rubros dicen FICTICIO o
@@ -30,7 +31,23 @@ from pathlib import Path
 from unittest import mock
 
 from scoring_vvca import veredicto_global
-from itosturre.audit.evidence import has_exact_article_heading, has_suffixed_variant_heading
+from itosturre.audit.evidence import (
+    DEROGACION_AMBIGUA,
+    DEROGADO,
+    clasificar_derogacion,
+    cotejar_precepto,
+    cotejar_unidad,
+    cuerpo_suficiente,
+    has_exact_article_heading,
+    has_suffixed_variant_heading,
+    precepto_derogado,
+)
+from itosturre.audit.policy import (
+    ALCANCE_JURISPRUDENCIA,
+    ALCANCE_NORMATIVA,
+    SEMAFORO_SIN_CITAS,
+    disclaimer_graduado,
+)
 from itosturre.audit.referencias import MAX_RANGO, MOTIVO_SIN_MENCION
 from tests.vvca_falsos import (
     CodificadorFalso,
@@ -127,12 +144,14 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D08": {
         "pr": "R4c",
+        "corregido": "R4c",
         "origen": "lista R4",
         "descripcion": "Un fragmento '(Se deroga)' con encabezado exacto sale 🟢 verified.",
         "correcto": "Un precepto derogado nunca es 🟢; alerta de vigencia según la regla de R4c.",
     },
     "R4-D09": {
         "pr": "R4c",
+        "corregido": "R4c",
         "origen": "lista R4",
         "descripcion": (
             "source_match es True por construcción en audit(): la consulta filtra por la "
@@ -154,12 +173,14 @@ DEFECTOS_CONOCIDOS = {
     },
     "R4-D11": {
         "pr": "R4c",
+        "corregido": "R4c",
         "origen": "lista R4",
         "descripcion": "El 🟢 dice 'Normativa y jurisprudencia verificadas' aunque no haya tesis.",
         "correcto": "La razón enuncia solo lo verificado (p. ej. 'Normativa verificada; sin tesis').",
     },
     "R4-D12": {
         "pr": "R4c",
+        "corregido": "R4c",
         "origen": "hallazgo R4a",
         "descripcion": (
             "Una dimensión sin citas se califica como si hubiera fallado: sin tesis, "
@@ -186,6 +207,9 @@ DEFECTOS_CONOCIDOS = {
             "sentido invertido ('NO ES COMPUTABLE') coincide al 100 % y pasa 🟢."
         ),
         "correcto": "Detectar negaciones o exigir coincidencia literal normalizada del rubro.",
+        # R4c (ronda 2): mientras D13/D14 sigan abiertos, un escrito con SOLO tesis no sale
+        # 🟢 (scoring_vvca.RETENER_VERDE_SOLO_TESIS); R4d debe ponerlo en False al corregirlos.
+        "condiciona": "R4c retiene el 🟢 de escritos con solo tesis (RETENER_VERDE_SOLO_TESIS)",
     },
 }
 
@@ -204,9 +228,13 @@ _SIN_DEFINIR = object()
 def _articulo(articulo: str, ley: str, fuente: str | None, raw: str, *,
               fraccion: str = "", inferida: bool = False, metodo=_SIN_DEFINIR,
               motivo: str | None = None, grupo: str | None = None,
-              confirmar: bool = False, cobertura: str | None = None) -> dict:
+              confirmar: bool = False, cobertura: str | None = None,
+              unidad: list | None = None) -> dict:
     """Referencia esperada. Por omisión: ley a la derecha (o del contexto previo si es
-    inferida), sin motivo, sin cobertura incompleta y con ``group_raw`` igual a ``raw``."""
+    inferida), sin motivo, sin cobertura incompleta, con ``group_raw`` igual a ``raw`` y como
+    unidad citada solo la fracción (R4c, ronda 2)."""
+    if unidad is None:
+        unidad = [{"tipo": "fraccion", "valor": fraccion}] if fraccion else []
     if metodo is _SIN_DEFINIR:
         if ley == "desconocido":
             metodo = None
@@ -228,6 +256,8 @@ def _articulo(articulo: str, ley: str, fuente: str | None, raw: str, *,
         "group_raw": raw if grupo is None else grupo,
         "law_requires_confirmation": confirmar,
         "coverage_gap": cobertura,
+        # Campo añadido en R4c (ronda 2).
+        "unidad_citada": unidad,
     }
 
 
@@ -255,9 +285,19 @@ class RegistroDefectosTests(unittest.TestCase):
                     f"ninguna prueba lleva {marca} en el nombre",
                 )
 
-    def test_estado_tras_R4b(self) -> None:
+    def test_estado_tras_R4c(self) -> None:
         corregidos = {id_ for id_, d in DEFECTOS_CONOCIDOS.items() if d.get("corregido")}
-        self.assertEqual(corregidos, {f"R4-D0{n}" for n in range(1, 7)})
+        self.assertEqual(
+            corregidos,
+            {f"R4-D0{n}" for n in range(1, 7)} | {"R4-D08", "R4-D09", "R4-D11", "R4-D12"},
+        )
+        # R4-D10 espera la decisión del responsable (toca la Regla 4 de CLAUDE.md); R4-D07,
+        # R4-D13 y R4-D14 son de R4d.
+        self.assertIsNone(DEFECTOS_CONOCIDOS["R4-D10"].get("corregido"))
+        # D14 condiciona la retención transitoria del 🟢 de "solo tesis" (ronda 2 de R4c).
+        import scoring_vvca
+        self.assertIn("RETENER_VERDE_SOLO_TESIS", DEFECTOS_CONOCIDOS["R4-D14"]["condiciona"])
+        self.assertTrue(scoring_vvca.RETENER_VERDE_SOLO_TESIS)
 
 
 class ImportacionPerezosaTests(unittest.TestCase):
@@ -606,6 +646,64 @@ class ExtraccionTests(unittest.TestCase):
             [("16", "adyacente_derecha", False, False), ("5", "contexto_previo", True, False)],
         )
 
+    def test_R4_D08_unidad_citada_se_extrae_con_el_articulo(self) -> None:
+        fr = lambda v: {"tipo": "fraccion", "valor": v}   # noqa: E731
+        casos = {
+            "El artículo 31, fracción I, del Código Civil Federal se invoca.": [fr("I")],
+            "El artículo 107, fracción V, inciso a), de la Ley de Amparo dispone.":
+                [fr("V"), {"tipo": "inciso", "valor": "a"}],
+            "El artículo 16, primer párrafo, de la CPEUM exige.":
+                [{"tipo": "parrafo", "valor": "primer"}],
+            "El artículo 19 párrafo 2° de la CPEUM.": [{"tipo": "parrafo", "valor": "2°"}],
+            "El artículo 42, fracciones I y III, del CFF.": [fr("I"), fr("III")],
+            "El artículo 42, fracc. III, del CFF.": [fr("III")],
+            "CFF Art. 42, párrafo segundo.": [{"tipo": "parrafo", "valor": "segundo"}],
+            "El artículo 123, apartado B, fracción XIII, de la CPEUM.":
+                [{"tipo": "apartado", "valor": "B"}, fr("XIII")],
+            "El artículo 16 de la CPEUM exige fundamentación.": [],
+        }
+        for texto, esperado in casos.items():
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual(ref["unidad_citada"], esperado)
+        # Ajuste previo al commit: ordinal con punto antes de la unidad, ordinales en palabra,
+        # "décimo primero", "in fine" y unidades que PRECEDEN al artículo.
+        constitucion = "la Constitución Política de los Estados Unidos Mexicanos"
+        parrafo = lambda v: [{"tipo": "parrafo", "valor": v}]   # noqa: E731
+        previas = {
+            f"El artículo 1o., párrafo tercero, de {constitucion}.": parrafo("tercero"),
+            f"El artículo 1o., tercer párrafo, de {constitucion}.": parrafo("tercer"),
+            f"El párrafo tercero del artículo 1o. de {constitucion}.": parrafo("tercero"),
+            "El último párrafo del artículo 16 de la CPEUM.": parrafo("último"),
+            "El artículo 16, párrafo décimo primero, de la CPEUM.": parrafo("décimo primero"),
+            "El artículo 16, in fine, de la CPEUM.": [{"tipo": "otra", "valor": "in fine"}],
+            "La fracción II del artículo 31 del Código Civil Federal dispone.": [fr("II")],
+            "Las fracciones I y II del artículo 31 del Código Civil Federal.": [fr("I"), fr("II")],
+            f"El inciso a) de la fracción III del artículo 107 de {constitucion}.":
+                [{"tipo": "inciso", "valor": "a"}, fr("III")],
+            "El artículo 16, 2o. párrafo, de la CPEUM.": parrafo("2o."),
+            # Unidades de otro contexto o de una ley: no son del artículo.
+            "En el 2o. párrafo de la sentencia se cita el artículo 16 de la CPEUM.": [],
+            "La fracción II de la Ley de Amparo y el artículo 16 de la CPEUM.": [],
+            "El artículo 16 dispone. En el segundo párrafo se dice algo.": [],
+        }
+        for texto, esperado in previas.items():
+            with self.subTest(texto=texto):
+                refs = [r for r in ON.extract_references(texto) if r["article"] in ("1o", "16",
+                                                                                   "31", "107")]
+                self.assertEqual(len(refs), 1, refs)
+                self.assertEqual(refs[0]["unidad_citada"], esperado)
+        # "2o. párrafo" no abre un artículo 2o.
+        self.assertEqual([r["article"] for r in ON.extract_references(
+            "El artículo 16, 2o. párrafo, de la CPEUM.")], ["16"])
+        # La palabra clave de fracción no vive dentro de otra palabra ("frente a").
+        (ref,) = ON.extract_references("El artículo 5 frente a la ley.")
+        self.assertEqual((ref["fraction"], ref["unidad_citada"]), ("", []))
+        # En una enumeración, el calificador final solo es del último artículo.
+        refs = ON.extract_references("El artículo 14 y el artículo 16, último párrafo, de la CPEUM.")
+        self.assertEqual([r["unidad_citada"] for r in refs],
+                         [[], [{"tipo": "parrafo", "valor": "último"}]])
+
     def test_R4_D07_registro_en_mayusculas_no_se_detecta(self) -> None:
         refs = ON.extract_references(
             "Tesis de prueba con REGISTRO DIGITAL: 0000001 (registro ficticio).\n"
@@ -741,6 +839,113 @@ class EvidenciaTests(unittest.TestCase):
                 self.assertTrue(has_exact_article_heading(texto, "4o"))
                 self.assertFalse(has_suffixed_variant_heading(texto, "4o"))
 
+    def test_R4_D08_precepto_derogado_solo_tras_su_encabezado(self) -> None:
+        # Fórmulas conservadoras justo tras el encabezado exacto del precepto citado.
+        for texto, articulo in (
+            ("Artículo 64.- (Se deroga).", "64"),
+            ("Artículo 2o. (Se deroga).\nArtículo derogado DOF 21-11-1991.", "2o"),
+            ("Artículo 209 Bis.- (Se deroga).", "209 Bis"),
+            ("Artículo 2o.-C. (Se deroga).", "2o.-C"),
+            ("Artículo 9.- Se deroga.", "9"),
+            ("ARTÍCULO 136.-\n(Derogado)", "136"),
+            ("Artículo 135.- Texto sintético.\nArtículo 136.- (Se deroga).", "136"),
+            # Ronda 2: variantes inequívocas (con/sin paréntesis, punto dentro o fuera,
+            # mayúsculas, género y número) y ruido de página entre encabezado y fórmula.
+            ("Artículo 64.- DEROGADO.", "64"),
+            ("Artículo 64.- (Se deroga.)", "64"),
+            ("Artículo 64.- Derogado.", "64"),
+            ("Artículo 64.- Derogado", "64"),
+            ("Artículo 64.- Se deroga", "64"),
+            ("Artículo 64.- (Derogada)", "64"),
+            ("Artículo 64.- (DEROGADO)", "64"),
+            ("Artículo 64.- Se derogan.", "64"),
+            ("Artículo 64.- (Derogado).", "64"),
+            ("Artículo 85.- (DEROGADO, P.O. 5 DE SEPTIEMBRE DE 2009)", "85"),
+            ("Artículo 64.- (Se deroga). Artículo derogado DOF 05-01-1988", "64"),
+            ("Artículo 64.-\n\nCÓDIGO FISCAL DE LA FEDERACIÓN\nCÁMARA DE DIPUTADOS DEL H. "
+             "CONGRESO DE LA UNIÓN\nSecretaría General\n127 de 380\n(Se deroga).", "64"),
+        ):
+            with self.subTest(texto=texto, articulo=articulo):
+                self.assertTrue(precepto_derogado(texto, articulo))
+                self.assertEqual(cotejar_precepto(texto, None, articulo)["derogacion"], DEROGADO)
+        for texto, articulo in (
+            # Otro artículo del mismo fragmento derogado: el citado sigue vigente.
+            ("Artículo 135.- Texto sintético.\nArtículo 136.- (Se deroga).", "135"),
+            # Una fracción derogada no deroga el precepto.
+            ("Artículo 31.- Se reputa domicilio legal:\nI.\n(Se deroga).\nII. Texto.", "31"),
+            # Derogación parcial ("primer párrafo") tampoco.
+            ("Artículo 122.- (Se deroga primer párrafo).\nTexto sintético.", "122"),
+            # Sin encabezado exacto (remisión) o con sufijo no pedido: no se ubicó el precepto.
+            ("conforme al artículo 64 (Se deroga).", "64"),
+            ("Artículo 209 Bis.- (Se deroga).", "209"),
+            ("Artículo 64.- Texto sintético que se deroga más adelante.", "64"),
+            ("Artículo 64.- Quedan derogadas las disposiciones que se opongan.", "64"),
+        ):
+            with self.subTest(texto=texto, articulo=articulo):
+                self.assertFalse(precepto_derogado(texto, articulo))
+        # Ronda 2: una fórmula de derogación junto al encabezado que no es inequívoca no se
+        # ignora: es ambigua (🟡 en la auditoría).
+        for cuerpo in (" (Se deroga primer párrafo).", " Se derogan los artículos 10 y 11.",
+                       " (Derogado por decreto sintético)"):
+            with self.subTest(cuerpo=cuerpo):
+                self.assertEqual(clasificar_derogacion(cuerpo), DEROGACION_AMBIGUA)
+        for cuerpo in (" Texto sintético vigente.", " Quedan derogadas las disposiciones.", ""):
+            with self.subTest(cuerpo=cuerpo):
+                self.assertIsNone(clasificar_derogacion(cuerpo))
+
+    def test_R4_D08_unidad_citada_se_coteja_en_el_cuerpo(self) -> None:
+        cuerpo = (" Se reputa domicilio legal:\nI.\n(Se deroga).\nFracción derogada DOF "
+                  "03-06-2019\nII. Del menor de edad, el de su tutor;\nIII.- Texto sintético:\n"
+                  "a) Inciso sintético vigente;\nb) (Se deroga).\nIV. (Se deroga primer párrafo).")
+        casos = [
+            ([{"tipo": "fraccion", "valor": "I"}], "derogada"),
+            ([{"tipo": "fraccion", "valor": "1"}], "derogada"),       # arábigo → romano
+            ([{"tipo": "fraccion", "valor": "II"}], "cotejada"),
+            ([{"tipo": "fraccion", "valor": "III"}, {"tipo": "inciso", "valor": "a"}], "cotejada"),
+            ([{"tipo": "fraccion", "valor": "III"}, {"tipo": "inciso", "valor": "b"}], "derogada"),
+            ([{"tipo": "fraccion", "valor": "IV"}], "ambigua"),
+            ([{"tipo": "fraccion", "valor": "IX"}], "no_cotejada"),   # no está en el texto
+            ([{"tipo": "fraccion", "valor": "ente"}], "no_cotejada"),  # no reconocible
+            ([{"tipo": "parrafo", "valor": "segundo"}], "no_cotejada"),
+            ([{"tipo": "apartado", "valor": "B"}], "no_cotejada"),
+        ]
+        for unidades, estado in casos:
+            with self.subTest(unidades=unidades):
+                self.assertEqual(cotejar_unidad(cuerpo, unidades)["estado"], estado)
+        # Una marca repetida (p. ej. dos apartados con su propia fracción I) no es inequívoca.
+        repetida = " Apartado A:\nI. Texto sintético.\nApartado B:\nI. Otro texto sintético."
+        self.assertEqual(
+            cotejar_unidad(repetida, [{"tipo": "fraccion", "valor": "I"}])["estado"],
+            "no_cotejada",
+        )
+
+    def test_R4_D08_cuerpo_suficiente_y_continuacion_del_mismo_precepto(self) -> None:
+        self.assertFalse(cuerpo_suficiente(""))
+        self.assertFalse(cuerpo_suficiente(" Las"))
+        self.assertFalse(cuerpo_suficiente("\nCÓDIGO FISCAL DE LA FEDERACIÓN\n127 de 380\n"))
+        self.assertTrue(cuerpo_suficiente(" (Se deroga)."))
+        self.assertTrue(cuerpo_suficiente(" Se crea el fondo."))
+        meta = {"source": CFF, "article": "64", "chunk_index": "10"}
+        # El fragmento termina en el encabezado; la continuación (mismo precepto, índice
+        # consecutivo) trae la fórmula de derogación.
+        candidatos = [
+            ("[LEY 64]\n(Se deroga).\nArtículo 65.- Texto sintético.",
+             {"source": CFF, "article": "64", "chunk_index": "11"}),
+            ("Artículo 64.- Texto de OTRA ley.", {"source": CPEUM, "article": "64",
+                                                  "chunk_index": "11"}),
+        ]
+        cotejo = cotejar_precepto("Texto sintético.\nArtículo 64.-", meta, "64", (), candidatos)
+        self.assertEqual((cotejo["derogacion"], cotejo["completo"], cotejo["continuaciones"]),
+                         (DEROGADO, True, 1))
+        # Sin continuación localizable: evidencia incompleta (no 🟢).
+        cotejo = cotejar_precepto("Texto sintético.\nArtículo 64.-", meta, "64")
+        self.assertEqual((cotejo["derogacion"], cotejo["completo"]), (None, False))
+        # Un candidato no consecutivo o de otra etiqueta no es continuación.
+        lejano = [("(Se deroga).", {"source": CFF, "article": "64", "chunk_index": "13"}),
+                  ("(Se deroga).", {"source": CFF, "article": "65", "chunk_index": "11"})]
+        cotejo = cotejar_precepto("Artículo 64.-", meta, "64", (), lejano)
+        self.assertEqual((cotejo["completo"], cotejo["continuaciones"]), (False, 0))
+
     def test_R4_D06_variante_con_sufijo(self) -> None:
         self.assertTrue(has_suffixed_variant_heading("Artículo 4o.-A.- Texto.", "4o"))
         self.assertFalse(
@@ -799,14 +1004,33 @@ class ConstruccionVvcaTests(unittest.TestCase):
             "Coincidencia débil — posible alucinación (dist=0.400, umbral=0.25)",
         )
 
-    def test_fuente_distinta_penaliza_solo_si_se_le_pide(self) -> None:
-        # La función pura sí aplica −15; desde audit() nunca llega False (R4-D09).
-        vvca = ON.build_vvca(self.ref, 0.10, False, CFF, "3", article_heading_verified=True)
-        self.assertEqual((vvca["score"], vvca["semaforo"]), (75, "🟡"))
-        self.assertEqual(
-            vvca["V_validacion"],
-            f"Fuente distinta: se encontró en '{CFF}', se esperaba '{CPEUM}'",
-        )
+    def test_R4_D09_fuente_distinta_es_amarilla_en_ambos_sentidos(self) -> None:
+        # −15 de vvca_score (desde R4c audit() sí llega con False) y límite 60–84: la
+        # evidencia de otro ordenamiento no acredita la cita (nunca 🟢) ni la refuta (nunca 🔴).
+        for distancia, esperado in ((0.10, 75), (0.0, 84), (0.60, 60)):
+            with self.subTest(distancia=distancia):
+                vvca = ON.build_vvca(self.ref, distancia, False, CFF, "3",
+                                     article_heading_verified=True)
+                self.assertEqual((vvca["score"], vvca["semaforo"]), (esperado, "🟡"))
+                self.assertFalse(vvca["explicabilidad"]["coincide_fuente"])
+                self.assertTrue(vvca["V_verificacion"].startswith("Evidencia de otro ordenamiento"))
+                self.assertEqual(
+                    vvca["V_validacion"],
+                    f"Fuente distinta: se encontró en '{CFF}', se esperaba '{CPEUM}'",
+                )
+
+    def test_R4_D08_derogado_nunca_verde_ni_rojo(self) -> None:
+        for distancia, metadata, esperado in ((0.05, True, 84), (0.60, False, 60)):
+            with self.subTest(distancia=distancia):
+                vvca = ON.build_vvca(self.ref, distancia, True, CPEUM, "19",
+                                     metadata_verificado=metadata,
+                                     article_heading_verified=True, derogado=True)
+                self.assertEqual((vvca["score"], vvca["semaforo"]), (esperado, "🟡"))
+                self.assertTrue(vvca["explicabilidad"]["precepto_derogado"])
+                self.assertTrue(vvca["V_verificacion"].startswith("Precepto derogado"))
+        # Sin derogación la explicabilidad no cambia de forma (campo solo si es True).
+        vvca = ON.build_vvca(self.ref, 0.05, True, CPEUM, "19", article_heading_verified=True)
+        self.assertNotIn("precepto_derogado", vvca["explicabilidad"])
 
 
 def _tesis_ficticia(**cambios) -> dict:
@@ -1045,6 +1269,9 @@ class AuditoriaTests(AuditoriaBase):
         self.assertEqual(fuente["relevance_score"], 0.92)
         self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (92, "🟢"))
         self.assertTrue(fuente["vvca"]["explicabilidad"]["coincide_fuente"])
+        # R4c (campos añadidos por referencia).
+        self.assertFalse(fuente["precepto_derogado"])
+        self.assertEqual(fuente["alcance_verificacion"], ALCANCE_NORMATIVA)
         self.assertEqual(
             self.estados(resultado),
             [("artículo 16", "verified", "corpus_metadata")],
@@ -1053,29 +1280,41 @@ class AuditoriaTests(AuditoriaBase):
 
         resumen = resultado["vvca_summary"]
         self.assertEqual(sorted(resumen), [
+            "alcance_verificacion", "alcance_verificacion_tesis",
             "amarillos", "articulos_ok", "articulos_total", "disclaimer",
-            "normativa_no_verificable", "normativa_refutada", "rojos", "score_rag",
-            "score_sjf", "semaforo_rag", "semaforo_sjf", "tesis_mismatch",
-            "tesis_no_encontradas", "tesis_ok", "tesis_por_fuerza", "tesis_rojas",
-            "tesis_superadas", "tesis_total", "verdes", "veredicto",
+            "normativa_no_verificable", "normativa_refutada", "rag_sin_citas", "rojos",
+            "score_rag", "score_sjf", "semaforo_rag", "semaforo_sjf", "sjf_sin_citas",
+            "tesis_mismatch", "tesis_no_encontradas", "tesis_ok", "tesis_parciales",
+            "tesis_por_fuerza", "tesis_rojas", "tesis_superadas", "tesis_total", "verdes",
+            "veredicto",
         ])
         self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (1, 0, 0))
-        # R4-D11: la razón menciona jurisprudencia aunque no se citó ninguna tesis.
+        # R4-D11 (corregido en R4c): la razón enuncia solo lo verificado.
         self.assertEqual(resumen["veredicto"], {
             "apto": True,
             "semaforo": "🟢",
-            "razon": "Normativa y jurisprudencia verificadas",
+            "razon": "Normativa verificada; sin tesis citadas",
             "accion": "Proceder con revisión de pertinencia procesal por el operador",
         })
-        # R4-D12: sin tesis, la dimensión SJF sale 0.0 🔴.
-        self.assertEqual((resumen["score_sjf"], resumen["semaforo_sjf"]), (0.0, "🔴"))
+        # R4-D12 (corregido en R4c): sin tesis, la dimensión SJF es "sin citas" (valor nulo y
+        # semáforo neutro), no 0.0 🔴.
+        self.assertEqual((resumen["score_sjf"], resumen["semaforo_sjf"]),
+                         (None, SEMAFORO_SIN_CITAS))
+        self.assertEqual((resumen["rag_sin_citas"], resumen["sjf_sin_citas"]), (False, True))
         self.assertEqual(
             resultado["summary"],
-            "RAG 92.0 🟢 (1 arts) · SJF 0.0 🔴 (0/0 tesis ok) · "
-            "Veredicto: 🟢 Normativa y jurisprudencia verificadas",
+            "RAG 92.0 🟢 (1 arts) · SJF sin citas · "
+            "Veredicto: 🟢 Normativa verificada; sin tesis citadas",
         )
+        # Alcance explícito: el texto del 🟢 al abogado dice qué acredita y qué no.
+        self.assertEqual(resumen["alcance_verificacion"], ALCANCE_NORMATIVA)
+        self.assertEqual(resumen["alcance_verificacion_tesis"], ALCANCE_JURISPRUDENCIA)
+        texto = resumen["disclaimer"]["texto"]
+        self.assertIn("(Normativa verificada; sin tesis citadas)", texto)
+        self.assertIn(f"Alcance del 🟢: {ALCANCE_NORMATIVA}", texto)
+        self.assertIn("no significa que lo citado diga lo que el escrito afirma", texto)
 
-    def test_R4_D08_articulo_derogado_sale_verde(self) -> None:
+    def test_R4_D08_articulo_derogado_es_amarillo_nunca_verde(self) -> None:
         consulta = "Artículo 64 código fiscal de la federación"
         self.coleccion.agregar("Artículo 64.- (Se deroga).",
                                {"source": CFF, "article": "64", "page": "127"},
@@ -1083,10 +1322,69 @@ class AuditoriaTests(AuditoriaBase):
         resultado = self.auditar("El artículo 64 del Código Fiscal de la Federación se invoca.")
         (fuente,) = resultado["retrieved_sources"]
         self.assertEqual(fuente["retrieved_text"], "Artículo 64.- (Se deroga).")
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (84, "🟡"))
+        self.assertTrue(fuente["precepto_derogado"])
+        self.assertTrue(fuente["vvca"]["explicabilidad"]["precepto_derogado"])
+        self.assertEqual(self.estados(resultado), [("artículo 64", "partial", "corpus_metadata")])
+        self.assertEqual(resultado["alerts"], [
+            f"🟡 PRECEPTO DEROGADO (score 84): 'artículo 64' — en '{CFF}' (pág. 127) el artículo "
+            "64 dice que se deroga: el texto vigente no contiene norma. Verificar si el escrito "
+            "cita una versión anterior del precepto o un régimen transitorio aplicable antes de "
+            "citar."
+        ])
+        resumen = resultado["vvca_summary"]
+        self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (0, 1, 0))
+        self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
+        self.assertEqual(resumen["veredicto"]["razon"],
+                         "1 cita(s) normativa(s) con evidencia parcial o no verificable")
+        self.assertEqual(resultado["summary"],
+                         "RAG 84.0 🟡 (1 arts; 1 no verificable) · SJF sin citas · Veredicto: 🟡 "
+                         "1 cita(s) normativa(s) con evidencia parcial o no verificable")
+
+    def test_R4_D08_derogado_con_distancia_alta_no_es_rojo(self) -> None:
+        # El precepto se ubicó (encabezado exacto) y su texto vigente es la derogación: 🟡,
+        # nunca la rama "sin coincidencia confiable" (🔴) aunque la distancia sea alta.
+        consulta = "Artículo 209 Bis código fiscal de la federación"
+        self.coleccion.agregar("Artículo 209 Bis.- (Se deroga).",
+                               {"source": CFF, "article": "209", "page": "241"},
+                               eje=self.codificador.eje(consulta), distancia=0.45)
+        resultado = self.auditar(
+            "El artículo 209 Bis del Código Fiscal de la Federación se invoca.")
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (70, "🟡"))
+        self.assertEqual([e[1] for e in self.estados(resultado)], ["partial"])
+        (alerta,) = resultado["alerts"]
+        self.assertTrue(alerta.startswith("🟡 PRECEPTO DEROGADO (score 70): 'artículo 209 Bis'"))
+        self.assertEqual(resultado["vvca_summary"]["rojos"], 0)
+
+    def test_R4_D08_derogacion_de_otro_articulo_o_de_una_fraccion_no_cuenta(self) -> None:
+        consulta = "Artículo 135 ley federal de protección al consumidor"
+        lfpc = ON.LAW_SOURCE_MAP["lfpc"]
+        self.coleccion.agregar(
+            "Artículo 135.- Texto sintético vigente.\nI. (Se deroga).\nII. Texto.\n"
+            "Artículo 136.- (Se deroga).",
+            {"source": lfpc, "article": "135", "page": "70"},
+            eje=self.codificador.eje(consulta), distancia=0.10,
+        )
+        resultado = self.auditar(
+            "El artículo 135 de la Ley Federal de Protección al Consumidor se invoca.")
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertFalse(fuente["precepto_derogado"])
         self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (90, "🟢"))
-        self.assertEqual(self.estados(resultado), [("artículo 64", "verified", "corpus_metadata")])
         self.assertEqual(resultado["alerts"], [])
-        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟢")
+
+    def test_R4_D08_derogado_y_ley_por_confirmar_conservan_ambas_alertas(self) -> None:
+        consulta = "Artículo 64 cff"
+        self.coleccion.agregar("Artículo 64.- (Se deroga).",
+                               {"source": CFF, "article": "64", "page": "127"},
+                               eje=self.codificador.eje(consulta), distancia=0.05)
+        resultado = self.auditar("El CFF regula la materia.\n\nEl artículo 64 dispone.")
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertTrue(fuente["precepto_derogado"])
+        self.assertTrue(fuente["law_requires_confirmation"])
+        self.assertEqual([a.split(" (score")[0].split(":")[0] for a in resultado["alerts"]],
+                         ["🟡 LEY POR CONFIRMAR", "🟡 PRECEPTO DEROGADO"])
+        self.assertEqual([e[1] for e in self.estados(resultado)], ["partial"])
 
     def test_R4_D06_articulo_base_no_se_verifica_con_la_variante_con_letra(self) -> None:
         consulta = "Artículo 4o código fiscal de la federación"
@@ -1319,7 +1617,9 @@ class AuditoriaTests(AuditoriaBase):
                          "No se encontró coincidencia en una fuente que sí está indexada")
         self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🔴")
 
-    def test_R4_D09_respaldo_sin_filtro_presenta_otra_fuente_como_correcta(self) -> None:
+    def test_R4_D09_respaldo_sin_filtro_prefiere_la_fuente_esperada(self) -> None:
+        # Antes de R4c: el respaldo borraba expected_source y el art. 16 del CFF (más cercano)
+        # salía 🟢 95 "Fuente correcta". Ahora se prefiere la evidencia de la ley citada.
         coleccion = FakeCollection(fallar_consultas_filtradas=True)
         consulta = "Artículo 16 constitución política de los estados unidos"
         eje = self.codificador.eje(consulta)
@@ -1337,16 +1637,57 @@ class AuditoriaTests(AuditoriaBase):
         # Metadata (falla) → filtro por fuente (falla) → consulta sin filtro.
         self.assertEqual(self.codificador.llamadas, [consulta] * 3)
         (fuente,) = resultado["retrieved_sources"]
-        self.assertEqual(fuente["source_file"], CFF)
-        self.assertIsNone(fuente["expected_source"])
+        self.assertEqual((fuente["source_file"], fuente["page"]), (CPEUM, "19"))
+        self.assertEqual(fuente["expected_source"], CPEUM)
         explicabilidad = fuente["vvca"]["explicabilidad"]
         self.assertTrue(explicabilidad["coincide_fuente"])
-        self.assertTrue(explicabilidad["match_metadata"])
+        self.assertTrue(explicabilidad["filtro_fuente_fallido"])
         self.assertEqual(explicabilidad["fuente_esperada"], CPEUM)
-        self.assertEqual(fuente["vvca"]["V_validacion"], f"Fuente correcta: {CFF}")
-        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (95, "🟢"))
-        self.assertEqual(resultado["alerts"], [])
-        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟢")
+        self.assertEqual(fuente["vvca"]["V_validacion"], f"Fuente correcta: {CPEUM}")
+        # Distancia 0.30 > umbral: metadata + encabezado conservan el piso 🟡 (COTEJAR).
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (70, "🟡"))
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    def test_R4_D09_evidencia_de_otro_ordenamiento_nunca_es_verde(self) -> None:
+        coleccion = FakeCollection(fallar_consultas_filtradas=True)
+        consulta = "Artículo 16 constitución política de los estados unidos"
+        eje = self.codificador.eje(consulta)
+        # La CPEUM está indexada (cobertura completa), pero su fragmento queda fuera de los
+        # tres vecinos de la consulta sin filtro: solo llega evidencia de otros ordenamientos.
+        coleccion.agregar("Artículo 16. Texto sintético de la Constitución.",
+                          {"source": CPEUM, "article": "16", "page": "19"})
+        coleccion.agregar("Artículo 16.- (Se deroga).",
+                          {"source": CFF, "article": "16", "page": "7"},
+                          eje=eje, distancia=0.0)
+        for pagina in ("8", "9"):
+            coleccion.agregar("Texto sintético de otro ordenamiento.",
+                              {"source": LIVA, "article": "3", "page": pagina},
+                              eje=eje, distancia=0.20)
+        resultado = self.auditar(
+            "El artículo 16 de la Constitución Política de los Estados Unidos Mexicanos "
+            "exige fundamentación.",
+            coleccion=coleccion,
+        )
+        (fuente,) = resultado["retrieved_sources"]
+        self.assertEqual((fuente["source_file"], fuente["expected_source"]), (CFF, CPEUM))
+        # 100 − 15 = 85 sería 🟢: la evidencia de otro ordenamiento se limita a 🟡 (84).
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (84, "🟡"))
+        self.assertFalse(fuente["vvca"]["explicabilidad"]["coincide_fuente"])
+        self.assertFalse(fuente["vvca"]["explicabilidad"]["match_metadata"])
+        self.assertEqual(fuente["vvca"]["V_validacion"],
+                         f"Fuente distinta: se encontró en '{CFF}', se esperaba '{CPEUM}'")
+        # La derogación de un fragmento de OTRO ordenamiento no se atribuye a la cita.
+        self.assertFalse(fuente["precepto_derogado"])
+        self.assertEqual(self.estados(resultado),
+                         [("artículo 16", "not_verifiable", "corpus_semantic")])
+        self.assertEqual(resultado["alerts"], [
+            f"🟡 EVIDENCIA DE OTRO ORDENAMIENTO (score 84): 'artículo 16' — el fragmento "
+            f"recuperado es de '{CFF}', no de '{CPEUM}' (el filtro por fuente falló). No acredita "
+            "ni refuta la cita: cotejar el precepto en la ley citada."
+        ])
+        resumen = resultado["vvca_summary"]
+        self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (0, 1, 0))
+        self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
 
     def test_tesis_encontrada_y_no_encontrada(self) -> None:
         self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
@@ -1378,19 +1719,83 @@ class AuditoriaTests(AuditoriaBase):
                          "1/2 tesis no verificables (ausentes del corpus local — no "
                          "confirmadas como falsas)")
 
-    def test_R4_D12_solo_tesis_verificadas_sale_amarillo_por_rag_cero(self) -> None:
+    def test_R4_D12_solo_tesis_verificadas_sin_articulos_no_es_insuficiencia(self) -> None:
+        # Antes de R4c: "RAG 0.0 🔴" y 🟡 "Artículos con verificación insuficiente (RAG: 0.0)"
+        # sin artículos citados. Ronda 2: la razón ya no habla de artículos, pero el 🟢 se
+        # RETIENE (🟡 transitorio) hasta que R4d corrija el cotejo léxico del rubro (D13/D14).
         self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
         self.guardar_tesis([_tesis_ficticia()])
-        resultado = self.auditar(
-            "Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
-            "COMPUTABLE, registro digital: 0000001."
-        )
+        texto = ("Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+                 "COMPUTABLE, registro digital: 0000001.")
+        resultado = self.auditar(texto)
         resumen = resultado["vvca_summary"]
-        self.assertEqual((resumen["score_rag"], resumen["semaforo_rag"]), (0.0, "🔴"))
+        self.assertEqual((resumen["score_rag"], resumen["semaforo_rag"]),
+                         (None, SEMAFORO_SIN_CITAS))
+        self.assertTrue(resumen["rag_sin_citas"])
         self.assertEqual((resumen["score_sjf"], resumen["semaforo_sjf"]), (95.0, "🟢"))
+        self.assertEqual(self.estados(resultado),
+                         [("registro digital: 0000001", "verified", "corpus_jurisprudencia")])
         self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
         self.assertEqual(resumen["veredicto"]["razon"],
-                         "Artículos con verificación insuficiente (RAG: 0.0)")
+                         "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)")
+        self.assertEqual(resultado["summary"],
+                         "RAG sin citas · SJF 95.0 🟢 (1/1 tesis ok) · Veredicto: 🟡 "
+                         "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)")
+        (tesis,) = resultado["retrieved_sources"]
+        self.assertEqual(tesis["alcance_verificacion"], ALCANCE_JURISPRUDENCIA)
+        # Cuando R4d corrija D13/D14 (bandera en False) el escrito sería 🟢 con su razón.
+        import scoring_vvca
+        with mock.patch.object(scoring_vvca, "RETENER_VERDE_SOLO_TESIS", False):
+            veredicto = self.auditar(texto)["vvca_summary"]["veredicto"]
+        self.assertEqual((veredicto["semaforo"], veredicto["razon"]),
+                         ("🟢", "Jurisprudencia verificada; sin artículos citados"))
+
+    def test_R4_D12_dimension_sin_puntaje_no_es_cero_rojo(self) -> None:
+        # Todas las citas normativas no verificables: antes "RAG 0.0 🔴 (0 arts)".
+        self.coleccion.agregar("Artículo 5.- Texto sintético.",
+                               {"source": CFF, "article": "5", "page": "3"})
+        resultado = self.auditar("Art. 5 establece la regla general.")
+        resumen = resultado["vvca_summary"]
+        self.assertEqual((resumen["score_rag"], resumen["semaforo_rag"]), (None, "🟡"))
+        self.assertEqual(resultado["summary"],
+                         "RAG — 🟡 (1 arts; 1 no verificable) · SJF sin citas · Veredicto: 🟡 1 "
+                         "cita(s) normativa(s) con evidencia parcial o no verificable")
+        # Tesis invocadas y ninguna en el corpus local: 🟡, no 0.0 🔴.
+        resultado = self.auditar("Tesis con registro digital: 0000009 (registro ficticio).")
+        resumen = resultado["vvca_summary"]
+        self.assertEqual((resumen["score_sjf"], resumen["semaforo_sjf"]), (None, "🟡"))
+        self.assertTrue(resultado["summary"].startswith(
+            "RAG sin citas · SJF — 🟡 (0/1 tesis ok), 1 no encontradas · Veredicto: 🟡"))
+
+    def test_R4_D12_subpuntaje_verde_dice_cuantas_quedaron_sin_verificar(self) -> None:
+        consulta = "Artículo 16 cpeum"
+        self.coleccion.agregar("Artículo 16. Texto sintético.",
+                               {"source": CPEUM, "article": "16", "page": "19"},
+                               eje=self.codificador.eje(consulta), distancia=0.08)
+        resultado = self.auditar(
+            "Art. 16 CPEUM. El artículo 5 de la Ley General de Salud dispone.")
+        resumen = resultado["vvca_summary"]
+        # El promedio solo cuenta la cita con evidencia (🟢), pero el subpuntaje dice cuántas
+        # quedaron sin verificar; el veredicto sigue la peor traza (🟡).
+        self.assertEqual((resumen["score_rag"], resumen["semaforo_rag"]), (92.0, "🟢"))
+        self.assertTrue(resultado["summary"].startswith(
+            "RAG 92.0 🟢 (2 arts; 1 no verificable) · SJF sin citas · Veredicto: 🟡"))
+
+    def test_R4_D12_sin_citas_no_es_verde_vacio(self) -> None:
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        resultado = self.auditar("Texto sin citas: el plazo vence mañana.")
+        resumen = resultado["vvca_summary"]
+        self.assertEqual(
+            (resumen["score_rag"], resumen["semaforo_rag"], resumen["score_sjf"],
+             resumen["semaforo_sjf"]),
+            (None, SEMAFORO_SIN_CITAS, None, SEMAFORO_SIN_CITAS),
+        )
+        self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
+        self.assertEqual(resumen["veredicto"]["razon"],
+                         "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar")
+        self.assertEqual(resultado["summary"],
+                         "RAG sin citas · SJF sin citas · Veredicto: 🟡 Sin citas detectadas: no "
+                         "hay normativa ni jurisprudencia que verificar")
 
     def test_tesis_superada_bloquea(self) -> None:
         self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
@@ -1409,8 +1814,12 @@ class AuditoriaTests(AuditoriaBase):
         resultado = self.auditar("Tesis de prueba con REGISTRO DIGITAL: 0000001 (registro ficticio).")
         self.assertEqual(resultado["total_references_found"], 0)
         self.assertEqual(resultado["traceability"]["records"], [])
-        self.assertEqual(resultado["vvca_summary"]["veredicto"]["razon"],
-                         "Artículos con verificación insuficiente (RAG: 0.0)")
+        # El defecto D07 (R4d) no cambia: la tesis desaparece. R4c solo cambió la razón del
+        # mismo 🟡 (antes "Artículos con verificación insuficiente (RAG: 0.0)", R4-D12).
+        veredicto = resultado["vvca_summary"]["veredicto"]
+        self.assertEqual(veredicto["semaforo"], "🟡")
+        self.assertEqual(veredicto["razon"],
+                         "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar")
 
 
 class VinculoSintacticoTests(AuditoriaBase):
@@ -1842,6 +2251,263 @@ class RondaTresTests(AuditoriaBase):
                 self.assertEqual(self._semaforos(resultado), ["🟡"])
 
 
+class RondaDosR4cTests(AuditoriaBase):
+    """Ronda 2 de R4c (revisión de Codex y del coordinador). Cada prueba fija el semáforo por
+    referencia, la traza y el veredicto global."""
+
+    CCF = ON.LAW_SOURCE_MAP["ccf"]
+    ART31 = ("Artículo 31.- Se reputa domicilio legal:\nI.\n(Se deroga).\nFracción derogada DOF "
+             "03-06-2019\nII. Del menor de edad no emancipado, el de quien ejerza la patria "
+             "potestad;\nIII. Texto sintético de la tercera fracción.")
+
+    def _resultado(self, texto: str) -> tuple[dict, dict, dict]:
+        resultado = self.auditar(texto)
+        (fuente,) = resultado["retrieved_sources"]
+        (traza,) = resultado["traceability"]["records"]
+        return resultado, fuente, traza
+
+    def _articulo31(self, consulta: str) -> None:
+        self.coleccion.agregar(self.ART31, {"source": self.CCF, "article": "31", "page": "5",
+                                            "chunk_index": "30"},
+                               eje=self.codificador.eje(consulta), distancia=0.10)
+
+    # ── Punto 1: fracción derogada ─────────────────────────────────────────────────────
+    def test_p1_fraccion_derogada_es_amarilla_sin_derogar_el_articulo(self) -> None:
+        self._articulo31("Artículo 31 fracción I código civil federal")
+        resultado, fuente, traza = self._resultado(
+            "El artículo 31, fracción I, del Código Civil Federal se invoca.")
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (84, "🟡"))
+        self.assertFalse(fuente["precepto_derogado"])
+        self.assertEqual(fuente["unidad_derogada"], "fracción I")
+        self.assertFalse(fuente["unidad_cotejada"])
+        self.assertEqual(traza["verification"]["status"], "partial")
+        (alerta,) = resultado["alerts"]
+        self.assertTrue(alerta.startswith(
+            "🟡 PRECEPTO DEROGADO (score 84): 'artículo 31, fracción I' — en "
+            f"'{self.CCF}' (pág. 5) la fracción I del artículo 31 dice que se deroga (el resto "
+            "del artículo no se declara derogado)"))
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    def test_p1_fraccion_vigente_cotejada_y_articulo_completo_siguen_verdes(self) -> None:
+        for texto, consulta, unidad in (
+            ("El artículo 31, fracción II, del Código Civil Federal se invoca.",
+             "Artículo 31 fracción II código civil federal", True),
+            ("El artículo 31 del Código Civil Federal se invoca.",
+             "Artículo 31 código civil federal", None),
+        ):
+            with self.subTest(texto=texto):
+                self.coleccion = FakeCollection()
+                self._articulo31(consulta)
+                resultado, fuente, traza = self._resultado(texto)
+                self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]),
+                                 (90, "🟢"))
+                self.assertEqual(fuente["unidad_cotejada"], unidad)
+                self.assertEqual(traza["verification"]["status"], "verified")
+                self.assertEqual(resultado["alerts"], [])
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟢")
+
+    def test_p1_unidad_no_ubicable_no_es_verde(self) -> None:
+        for texto, consulta, motivo in (
+            ("El artículo 31, fracción IX, del Código Civil Federal se invoca.",
+             "Artículo 31 fracción IX código civil federal",
+             "la fracción IX no se ubica de forma inequívoca"),
+            ("El artículo 31, párrafo segundo, del Código Civil Federal se invoca.",
+             "Artículo 31 código civil federal",
+             "la unidad citada (párrafo segundo) no se puede ubicar con certeza"),
+        ):
+            with self.subTest(texto=texto):
+                self.coleccion = FakeCollection()
+                self._articulo31(consulta)
+                resultado, fuente, traza = self._resultado(texto)
+                self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]),
+                                 (84, "🟡"))
+                self.assertIn(motivo, fuente["unidad_no_cotejada"])
+                self.assertEqual(traza["verification"]["status"], "partial")
+                (alerta,) = resultado["alerts"]
+                self.assertTrue(alerta.startswith("🟡 UNIDAD CITADA NO COTEJADA (score 84)"))
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    def test_p1_unidad_previa_u_ordinal_en_palabra_se_coteja(self) -> None:
+        # Ajuste previo al commit: la unidad que precede al artículo, o que sigue a un ordinal
+        # con punto ("1o., párrafo tercero"), se coteja igual que la pegada a la derecha.
+        constitucion = "la Constitución Política de los Estados Unidos Mexicanos"
+        cpeum = "constitución política de los estados unidos"
+        art1 = ("Artículo 1o. Texto sintético del primer párrafo.\n\nTexto sintético del "
+                "segundo párrafo.\n\nTexto sintético del tercer párrafo.")
+        art107 = ("Artículo 107. Texto sintético:\nIII.- Texto sintético de la fracción:\n"
+                  "a) Inciso sintético vigente de la fracción tercera;\nb) (Se deroga).\n"
+                  "IV.- Texto sintético de la cuarta fracción.")
+        casos = [
+            # (texto, consulta, fragmento, metadata, semáforo, score, estado, alerta)
+            (f"El artículo 1o., párrafo tercero, de {constitucion}.", f"Artículo 1o {cpeum}",
+             art1, {"source": CPEUM, "article": "1o"}, "🟡", 84, "partial",
+             "🟡 UNIDAD CITADA NO COTEJADA"),
+            (f"El artículo 1o., tercer párrafo, de {constitucion}.", f"Artículo 1o {cpeum}",
+             art1, {"source": CPEUM, "article": "1o"}, "🟡", 84, "partial",
+             "🟡 UNIDAD CITADA NO COTEJADA"),
+            (f"El párrafo tercero del artículo 1o. de {constitucion}.", f"Artículo 1o {cpeum}",
+             art1, {"source": CPEUM, "article": "1o"}, "🟡", 84, "partial",
+             "🟡 UNIDAD CITADA NO COTEJADA"),
+            (f"El artículo 1o. de {constitucion} se invoca.", f"Artículo 1o {cpeum}",
+             art1, {"source": CPEUM, "article": "1o"}, "🟢", 90, "verified", None),
+            ("La fracción II del artículo 31 del Código Civil Federal dispone.",
+             "Artículo 31 código civil federal", self.ART31,
+             {"source": self.CCF, "article": "31"}, "🟢", 90, "verified", None),
+            ("La fracción I del artículo 31 del Código Civil Federal dispone.",
+             "Artículo 31 código civil federal", self.ART31,
+             {"source": self.CCF, "article": "31"}, "🟡", 84, "partial",
+             "🟡 PRECEPTO DEROGADO"),
+            (f"El inciso a) de la fracción III del artículo 107 de {constitucion}.",
+             f"Artículo 107 {cpeum}", art107, {"source": CPEUM, "article": "107"}, "🟢", 90,
+             "verified", None),
+            (f"El inciso b) de la fracción III del artículo 107 de {constitucion}.",
+             f"Artículo 107 {cpeum}", art107, {"source": CPEUM, "article": "107"}, "🟡", 84,
+             "partial", "🟡 PRECEPTO DEROGADO"),
+        ]
+        for texto, consulta, fragmento, metadata, semaforo, score, estado, alerta in casos:
+            with self.subTest(texto=texto):
+                self.coleccion = FakeCollection()
+                self.coleccion.agregar(fragmento, dict(metadata, page="1"),
+                                       eje=self.codificador.eje(consulta), distancia=0.10)
+                resultado, fuente, traza = self._resultado(texto)
+                self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]),
+                                 (score, semaforo))
+                self.assertEqual(traza["verification"]["status"], estado)
+                if alerta:
+                    (aviso,) = resultado["alerts"]
+                    self.assertTrue(aviso.startswith(alerta), aviso)
+                else:
+                    self.assertEqual(resultado["alerts"], [])
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], semaforo)
+
+    # ── Punto 2: variantes de la fórmula y fórmula ambigua ────────────────────────────
+    def test_p2_variantes_de_derogacion_y_formula_ambigua(self) -> None:
+        for cuerpo, alerta_esperada in (
+            ("DEROGADO.", "🟡 PRECEPTO DEROGADO (score 84)"),
+            ("(Se deroga.)", "🟡 PRECEPTO DEROGADO (score 84)"),
+            ("Derogado.", "🟡 PRECEPTO DEROGADO (score 84)"),
+            ("(Se deroga primer párrafo).\nTexto sintético del segundo párrafo.",
+             "🟡 POSIBLE DEROGACIÓN (score 84)"),
+        ):
+            with self.subTest(cuerpo=cuerpo):
+                self.coleccion = FakeCollection()
+                self.coleccion.agregar(
+                    f"Artículo 64.- {cuerpo}", {"source": CFF, "article": "64", "page": "127"},
+                    eje=self.codificador.eje("Artículo 64 código fiscal de la federación"),
+                    distancia=0.10)
+                resultado, fuente, traza = self._resultado(
+                    "El artículo 64 del Código Fiscal de la Federación se invoca.")
+                self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]),
+                                 (84, "🟡"))
+                self.assertEqual(traza["verification"]["status"], "partial")
+                (alerta,) = resultado["alerts"]
+                self.assertTrue(alerta.startswith(alerta_esperada))
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    # ── Punto 3: evidencia incompleta y continuación ─────────────────────────────────
+    def test_p3_encabezado_sin_cuerpo_resuelve_la_continuacion_o_queda_amarillo(self) -> None:
+        consulta = "Artículo 64 código fiscal de la federación"
+        for continuacion, alerta_esperada, derogado in (
+            ("[LEY 64]\n(Se deroga).", "🟡 PRECEPTO DEROGADO (score 84)", True),
+            (None, "🟡 EVIDENCIA INCOMPLETA (score 84)", False),
+        ):
+            with self.subTest(continuacion=continuacion):
+                self.coleccion = FakeCollection()
+                eje = self.codificador.eje(consulta)
+                self.coleccion.agregar(
+                    "Texto sintético del artículo anterior.\nArtículo 64.-",
+                    {"source": CFF, "article": "64", "page": "127", "chunk_index": "450"},
+                    eje=eje, distancia=0.10)
+                if continuacion:
+                    self.coleccion.agregar(
+                        continuacion,
+                        {"source": CFF, "article": "64", "page": "127", "chunk_index": "451"},
+                        eje=eje, distancia=0.30)
+                resultado, fuente, traza = self._resultado(
+                    "El artículo 64 del Código Fiscal de la Federación se invoca.")
+                self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]),
+                                 (84, "🟡"))
+                self.assertEqual(fuente["precepto_derogado"], derogado)
+                self.assertEqual(fuente["evidencia_incompleta"], not derogado)
+                self.assertEqual(traza["verification"]["status"], "partial")
+                (alerta,) = resultado["alerts"]
+                self.assertTrue(alerta.startswith(alerta_esperada))
+                self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
+
+    def test_p3_continuacion_vigente_completa_el_precepto(self) -> None:
+        consulta = "Artículo 64 código fiscal de la federación"
+        eje = self.codificador.eje(consulta)
+        self.coleccion.agregar(
+            "Texto sintético del artículo anterior.\nArtículo 64.-",
+            {"source": CFF, "article": "64", "page": "127", "chunk_index": "450"},
+            eje=eje, distancia=0.10)
+        self.coleccion.agregar(
+            "[LEY 64]\nLas autoridades sintéticas podrán ejercer facultades de prueba.",
+            {"source": CFF, "article": "64", "page": "128", "chunk_index": "451"},
+            eje=eje, distancia=0.30)
+        resultado, fuente, traza = self._resultado(
+            "El artículo 64 del Código Fiscal de la Federación se invoca.")
+        self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (90, "🟢"))
+        self.assertEqual(fuente["vvca"]["explicabilidad"]["fragmentos_continuacion"], 1)
+        self.assertEqual(traza["verification"]["status"], "verified")
+        self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟢")
+
+    # ── Punto 4: tesis parciales cuentan en el veredicto ─────────────────────────────
+    def test_p4_tesis_aislada_parcial_no_deja_verde_el_documento(self) -> None:
+        self.coleccion.agregar("Artículo 16. Texto sintético.",
+                               {"source": CPEUM, "article": "16", "page": "19"},
+                               eje=self.codificador.eje("Artículo 16 cpeum"), distancia=0.08)
+        self.guardar_tesis([_tesis_ficticia(tipo_tesis="Aislada", numero_tesis="CLAVE-FICTICIA 1")])
+        invoca = ("Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+                  "COMPUTABLE, registro digital: 0000001.")
+        for texto, estados in (
+            (invoca, [("registro digital: 0000001", "partial", "corpus_jurisprudencia")]),
+            ("Art. 16 CPEUM.\n\n" + invoca,
+             [("Art. 16", "verified", "corpus_metadata"),
+              ("registro digital: 0000001", "partial", "corpus_jurisprudencia")]),
+        ):
+            with self.subTest(texto=texto[:20]):
+                resultado = self.auditar(texto)
+                tesis = [s for s in resultado["retrieved_sources"]
+                         if s["ref_type"] == "jurisprudencia"][0]
+                self.assertEqual((tesis["vvca"]["score"], tesis["vvca"]["semaforo"]), (72, "🟡"))
+                self.assertEqual(self.estados(resultado), estados)
+                resumen = resultado["vvca_summary"]
+                self.assertEqual((resumen["tesis_ok"], resumen["tesis_parciales"]), (0, 1))
+                self.assertEqual(resumen["veredicto"]["semaforo"], "🟡")
+                self.assertEqual(resumen["veredicto"]["razon"],
+                                 "1/1 tesis con verificación parcial (localizadas con puntaje "
+                                 "menor a 85, p. ej. tesis aislada)")
+                self.assertIn("SJF 72.0 🟡 (0/1 tesis ok), 1 parcial", resultado["summary"])
+
+    def test_e_el_flujo_real_pasa_articulos_total_y_tesis_parciales(self) -> None:
+        # Adjudicación (e): ``articulos_total`` es opcional en veredicto_global, pero audit()
+        # siempre lo pasa (la llamada sin él conserva la regla anterior; ver VeredictoTests).
+        self.coleccion.agregar("Artículo 1.- Texto sintético.", {"source": CFF, "article": "1"})
+        with mock.patch.object(ON, "veredicto_global", wraps=ON.veredicto_global) as espia:
+            self.auditar("Texto sin citas.")
+        (_, nombrados), = [(c.args, c.kwargs) for c in espia.call_args_list]
+        self.assertEqual((nombrados["articulos_total"], nombrados["tesis_parciales"]), (0, 0))
+
+    # ── Punto 6: alcance en la salida Telegram ───────────────────────────────────────
+    def test_p6_telegram_muestra_el_alcance_de_cada_dimension(self) -> None:
+        self.coleccion.agregar("Artículo 16. Texto sintético.",
+                               {"source": CPEUM, "article": "16", "page": "19"},
+                               eje=self.codificador.eje("Artículo 16 cpeum"), distancia=0.08)
+        self.guardar_tesis([_tesis_ficticia()])
+        invoca = ("Se invoca la tesis RUBRO FICTICIO DE PRUEBA VVCA. EL PLAZO SINTÉTICO ES "
+                  "COMPUTABLE, registro digital: 0000001.")
+        ambos = ON.formato_telegram(self.auditar("Art. 16 CPEUM.\n\n" + invoca))
+        self.assertIn(f"Alcance (normas): {ALCANCE_NORMATIVA}", ambos)
+        self.assertIn(f"Alcance (tesis): {ALCANCE_JURISPRUDENCIA}", ambos)
+        normas = ON.formato_telegram(self.auditar("Art. 16 CPEUM."))
+        self.assertIn("Alcance (normas):", normas)
+        self.assertNotIn("Alcance (tesis):", normas)
+        self.assertIn("SJF: sin citas", normas)
+        # Un 🟡 no lleva la línea de alcance del 🟢.
+        self.assertNotIn("Alcance", ON.formato_telegram(self.auditar(invoca)))
+
+
 class AuditoriaCaminoPorDefectoTests(unittest.TestCase):
     """Sin inyección, ``audit`` sigue el camino de siempre: modelo → CHROMA_PATH → colección."""
 
@@ -1962,15 +2628,54 @@ class VeredictoTests(unittest.TestCase):
                 self.assertEqual((veredicto["semaforo"], veredicto["razon"]), (semaforo, razon))
                 self.assertEqual(veredicto["apto"], semaforo == "🟢")
 
-    def test_R4_D11_verde_sin_tesis_menciona_jurisprudencia(self) -> None:
-        veredicto = veredicto_global(92.0, 0.0, 0, 0, 0)
-        self.assertEqual(veredicto["semaforo"], "🟢")
-        self.assertEqual(veredicto["razon"], "Normativa y jurisprudencia verificadas")
+    def test_R4_D11_verde_enuncia_solo_lo_verificado(self) -> None:
+        # Antes: "Normativa y jurisprudencia verificadas" aunque no hubiera tesis.
+        for posicionales in ((92.0, None, 0, 0, 0), (92.0, 0.0, 0, 0, 0)):
+            with self.subTest(posicionales=posicionales):
+                veredicto = veredicto_global(*posicionales, articulos_total=1)
+                self.assertEqual((veredicto["semaforo"], veredicto["razon"]),
+                                 ("🟢", "Normativa verificada; sin tesis citadas"))
+        # Sin el dato nuevo (llamada anterior a R4c) la razón también es honesta.
+        self.assertEqual(veredicto_global(92.0, 0.0, 0, 0, 0)["razon"],
+                         "Normativa verificada; sin tesis citadas")
+        self.assertEqual(veredicto_global(92.0, 95.0, 0, 0, 2, articulos_total=1)["razon"],
+                         "Normativa y jurisprudencia verificadas")
+        # El 🟢 al abogado dice su alcance.
+        disclaimer = disclaimer_graduado(veredicto_global(92.0, None, 0, 0, 0, articulos_total=1))
+        self.assertEqual(disclaimer["nivel"], "🟢")
+        self.assertIn("no significa que lo citado diga lo que el escrito afirma",
+                      disclaimer["texto"])
 
-    def test_R4_D12_sin_articulos_es_insuficiente(self) -> None:
+    def test_R4_D12_sin_articulos_no_es_insuficiencia(self) -> None:
+        # Con articulos_total=0 la dimensión normativa no tiene citas: no hay insuficiencia.
+        # Ronda 2: el 🟢 de "solo tesis" queda retenido (🟡) hasta R4d (D13/D14).
+        veredicto = veredicto_global(None, 95.0, 0, 0, 1, articulos_total=0)
+        self.assertEqual(
+            (veredicto["apto"], veredicto["semaforo"], veredicto["razon"]),
+            (False, "🟡", "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)"),
+        )
+        import scoring_vvca
+        with mock.patch.object(scoring_vvca, "RETENER_VERDE_SOLO_TESIS", False):
+            veredicto = veredicto_global(None, 95.0, 0, 0, 1, articulos_total=0)
+        self.assertEqual((veredicto["apto"], veredicto["semaforo"], veredicto["razon"]),
+                         (True, "🟢", "Jurisprudencia verificada; sin artículos citados"))
+        # Sin artículos ni tesis no hay nada verificado: 🟡 con su razón verdadera (no un 🟢
+        # vacío; antes, "RAG 0.0" insuficiente).
+        veredicto = veredicto_global(None, None, 0, 0, 0, articulos_total=0)
+        self.assertEqual(
+            (veredicto["apto"], veredicto["semaforo"], veredicto["razon"]),
+            (False, "🟡",
+             "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar"),
+        )
+        # Artículos sin puntaje (llamada directa): insuficiencia explícita, nunca 🟢.
+        veredicto = veredicto_global(None, None, 0, 0, 0, articulos_total=2)
+        self.assertEqual((veredicto["semaforo"], veredicto["razon"]),
+                         ("🟡", "Artículos con verificación insuficiente (RAG: sin puntaje)"))
+        # Compatibilidad: sin ``articulos_total`` no se distingue "sin artículos" de "0
+        # puntos" y la regla anterior se conserva (Gold Set v1).
         veredicto = veredicto_global(0.0, 95.0, 0, 0, 1)
-        self.assertEqual(veredicto["semaforo"], "🟡")
-        self.assertEqual(veredicto["razon"], "Artículos con verificación insuficiente (RAG: 0.0)")
+        self.assertEqual((veredicto["semaforo"], veredicto["razon"]),
+                         ("🟡", "Artículos con verificación insuficiente (RAG: 0.0)"))
 
 
 if __name__ == "__main__":

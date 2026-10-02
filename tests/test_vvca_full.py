@@ -472,6 +472,53 @@ class TelegramOptInTests(unittest.TestCase):
         self.assertEqual(item["motivo_ley"], vvca_full.MOTIVO_CONFIRMAR)
         self.assertEqual(summary["pasos"]["rag_popup_articulos"]["ley_por_confirmar"], 1)
 
+    def test_precepto_derogado_y_fuente_distinta_llegan_al_popup(self) -> None:
+        # R4c: la alerta de precepto derogado (D08) y la evidencia de otro ordenamiento (D09)
+        # viajan al pop-up junto con las de R4b, que no se pierden.
+        payload = audit_with_yellow_article()
+        derogado = payload["retrieved_sources"][0]
+        derogado["expected_source"] = "LEY SINTETICA.pdf"
+        derogado["precepto_derogado"] = True
+        derogado["law_requires_confirmation"] = True
+        otra = json.loads(json.dumps(derogado, ensure_ascii=False))
+        otra.update({"article": "2", "reference": "Art. 2 LEY SINTÉTICA",
+                     "source_file": "OTRA LEY SINTETICA.pdf", "precepto_derogado": False,
+                     "law_requires_confirmation": False})
+        otra["vvca"]["explicabilidad"] = {"coincide_fuente": False}
+        payload["retrieved_sources"].append(otra)
+        self.fake = FakeSubprocesses(audit_stdout=json.dumps(payload, ensure_ascii=False))
+        code, summary, _popup = self.run_with_popups()
+        self.assertEqual(code, 0)
+        items = json.loads((self.case / "articulos_popup.json").read_text(encoding="utf-8"))
+        self.assertEqual([(i["precepto_derogado"], i["ley_por_confirmar"], i["coincide_fuente"])
+                          for i in items], [(True, True, True), (False, False, False)])
+        paso = summary["pasos"]["rag_popup_articulos"]
+        self.assertEqual((paso["precepto_derogado"], paso["fuente_no_coincide"],
+                          paso["ley_por_confirmar"]), (1, 1, 1))
+
+    def test_unidad_citada_y_evidencia_incompleta_llegan_al_popup(self) -> None:
+        # R4c, ronda 2: fracción derogada, unidad no cotejada y evidencia incompleta.
+        payload = audit_with_yellow_article()
+        fuente = payload["retrieved_sources"][0]
+        fuente.update({"expected_source": "LEY SINTETICA.pdf", "unidad_derogada": "fracción I",
+                       "evidencia_incompleta": True})
+        otra = json.loads(json.dumps(fuente, ensure_ascii=False))
+        otra.update({"article": "2", "unidad_derogada": None, "evidencia_incompleta": False,
+                     "unidad_no_cotejada": "el párrafo segundo no se puede ubicar"})
+        payload["retrieved_sources"].append(otra)
+        self.fake = FakeSubprocesses(audit_stdout=json.dumps(payload, ensure_ascii=False))
+        code, summary, _popup = self.run_with_popups()
+        self.assertEqual(code, 0)
+        items = json.loads((self.case / "articulos_popup.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [(i["unidad_derogada"], i["unidad_no_cotejada"], i["evidencia_incompleta"])
+             for i in items],
+            [("fracción I", None, True), (None, "el párrafo segundo no se puede ubicar", False)],
+        )
+        paso = summary["pasos"]["rag_popup_articulos"]
+        self.assertEqual((paso["precepto_derogado"], paso["unidad_no_cotejada"],
+                          paso["evidencia_incompleta"]), (1, 1, 1))
+
     def test_cobertura_pendiente_es_visible_sin_captura_falsa(self) -> None:
         payload = audit_with_yellow_article()
         payload["traceability"]["records"] = [{

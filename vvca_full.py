@@ -607,6 +607,8 @@ def main(argv: list[str] | None = None) -> int:
                 # que "se confirmó que la ley es la correcta". Se distingue con
                 # ley_identificada para no mostrar como probada una página que en
                 # realidad viene de un match semántico sin ley de referencia.
+                # Desde R4c (R4-D09) audit() ya no borra expected_source: coincide_fuente
+                # compara de verdad y False lleva al pop-up "FUENTE NO COINCIDE".
                 "coincide_fuente": explicabilidad.get("coincide_fuente", True),
                 "ley_identificada": bool(s.get("expected_source")),
                 # R4b: ley inferida de otro párrafo. La página acredita la ubicación del
@@ -620,6 +622,25 @@ def main(argv: list[str] | None = None) -> int:
                     if s.get("law_requires_confirmation")
                     or explicabilidad.get("ley_por_confirmar")
                     else None
+                ),
+                # R4c (R4-D08): el precepto ubicado está derogado. La página acredita la
+                # derogación, no el contenido que el escrito le atribuye.
+                "precepto_derogado": bool(
+                    s.get("precepto_derogado") or explicabilidad.get("precepto_derogado")
+                ),
+                # R4c, ronda 2: unidad citada derogada (sin declarar derogado el artículo),
+                # fórmula de derogación ambigua, unidad no cotejada y evidencia incompleta.
+                "unidad_derogada": (
+                    s.get("unidad_derogada") or explicabilidad.get("unidad_derogada")
+                ),
+                "derogacion_ambigua": bool(
+                    s.get("derogacion_ambigua") or explicabilidad.get("derogacion_ambigua")
+                ),
+                "unidad_no_cotejada": (
+                    s.get("unidad_no_cotejada") or explicabilidad.get("unidad_no_cotejada")
+                ),
+                "evidencia_incompleta": bool(
+                    s.get("evidencia_incompleta") or explicabilidad.get("evidencia_incompleta")
                 ),
                 "retrieved_text_full": s.get("retrieved_text_full") or s.get("retrieved_text"),
                 "veces_citado": 1,
@@ -678,6 +699,14 @@ def main(argv: list[str] | None = None) -> int:
                     "items": len(popup_items),
                     "telegram": "solicitado" if args.telegram else "no_solicitado",
                     "ley_por_confirmar": sum(1 for i in popup_items if i["ley_por_confirmar"]),
+                    "precepto_derogado": sum(
+                        1 for i in popup_items if i["precepto_derogado"] or i["unidad_derogada"]
+                    ),
+                    "unidad_no_cotejada": sum(1 for i in popup_items if i["unidad_no_cotejada"]),
+                    "evidencia_incompleta": sum(
+                        1 for i in popup_items if i["evidencia_incompleta"]
+                    ),
+                    "fuente_no_coincide": sum(1 for i in popup_items if not i["coincide_fuente"]),
                     "cobertura_pendiente": len(cobertura_pendiente),
                 }
     else:

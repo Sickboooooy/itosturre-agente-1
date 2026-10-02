@@ -56,11 +56,13 @@ paso manual por caso (ver MENÚ 1 → opción 1 más abajo).
   ─ [🟢] art. 16 CPEUM — score 88 · encontrado en corpus
   ─ [🟡] art. 5 LGV  — NO VERIFICABLE · ley no indexada (re-indexar)
 
-  Score RAG (arts) : 0.82 · Score SJF (tesis) : 0.00
+  Score RAG (arts) : 82.0 · Score SJF (tesis) : sin citas
 
 ════════════════════════════════════════════════
-  ⚠️ Capa 1 (automatizada). La pertinencia al caso
-  es Capa 2 — requiere tu criterio experto.
+  ⚠️ Capa 1 (automatizada): 🟢 acredita existencia y
+  ubicación del precepto en el corpus local, no que
+  diga lo que el escrito afirma. La pertinencia al
+  caso es Capa 2 — requiere tu criterio experto.
 ════════════════════════════════════════════════
 
 ¿Qué hacemos ahora?
@@ -72,6 +74,15 @@ paso manual por caso (ver MENÚ 1 → opción 1 más abajo).
 
 > **🟡 NO VERIFICABLE ≠ 🔴 alucinación.** Regla permanente: está en `CLAUDE.md`
 > (sección REGLAS DE CITA Y COMPETENCIA).
+>
+> **Lectura del JSON (R4c):** `score_rag`/`score_sjf` en `null` significan "sin citas" en esa
+> dimensión (`rag_sin_citas`/`sjf_sin_citas`) o "sin puntaje" (todas no verificables): nunca
+> mostrarlos como 0.00. El alcance del 🟢 está en `alcance_verificacion` (y en
+> `alcance_verificacion_tesis` para las tesis). Las alertas "🟡 PRECEPTO DEROGADO" (también de
+> una fracción o inciso citados), "🟡 POSIBLE DEROGACIÓN", "🟡 UNIDAD CITADA NO COTEJADA",
+> "🟡 EVIDENCIA INCOMPLETA" y "🟡 EVIDENCIA DE OTRO ORDENAMIENTO" se reportan tal cual; una
+> cita de párrafo o fracción no se da por verificada con el solo encabezado del artículo
+> (ver `docs/PROTOCOLO_VVCA.md`).
 
 ---
 

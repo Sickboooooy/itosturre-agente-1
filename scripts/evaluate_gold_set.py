@@ -96,10 +96,6 @@ def _validate_case_contract(
                     f"{location}.expected.score debe ser entero entre 0 y 100"
                 )
     else:
-        for field in ("score_rag", "score_sjf"):
-            _require_number(
-                inputs.get(field), f"{location}.input.{field}", minimum=0, maximum=100
-            )
         for field in (
             "tesis_discrepantes",
             "tesis_no_encontradas",
@@ -107,6 +103,23 @@ def _validate_case_contract(
             "tesis_superadas",
         ):
             _require_nonnegative_int(inputs.get(field), f"{location}.input.{field}")
+        # R4c: campos opcionales del veredicto (si vienen, enteros no negativos).
+        for field in ("articulos_total", "tesis_parciales", "normativa_refutada",
+                      "normativa_no_verificable"):
+            if field in inputs:
+                _require_nonnegative_int(inputs.get(field), f"{location}.input.{field}")
+        # R4c (R4-D12): un puntaje nulo solo donde el caso declara "sin citas" en esa
+        # dimensión (``articulos_total: 0`` para score_rag; ``tesis_total: 0`` para score_sjf).
+        sin_citas = {
+            "score_rag": inputs.get("articulos_total") == 0,
+            "score_sjf": inputs.get("tesis_total") == 0,
+        }
+        for field in ("score_rag", "score_sjf"):
+            if inputs.get(field) is None and field in inputs and sin_citas[field]:
+                continue
+            _require_number(
+                inputs.get(field), f"{location}.input.{field}", minimum=0, maximum=100
+            )
         if not isinstance(expected.get("apto"), bool):
             raise GoldSetValidationError(f"{location}.expected.apto debe ser booleano")
 

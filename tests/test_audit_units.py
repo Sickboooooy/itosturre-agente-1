@@ -7,12 +7,15 @@ from pathlib import Path
 
 import fetch_tesis_detalle
 from itosturre.audit import (
+    ALCANCE_NORMATIVA,
+    SEMAFORO_SIN_CITAS,
     build_trace_record,
     classify_fuerza_vinculante,
     disclaimer_graduado,
     has_exact_article_heading,
     rubro_keywords,
     select_article_evidence,
+    semaforo_dimension,
     traceability_bundle,
     vvca_contextualizacion,
     vvca_score,
@@ -31,6 +34,32 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(vvca_semaforo(85), "🟢")
         self.assertEqual(vvca_semaforo(60), "🟡")
         self.assertEqual(vvca_semaforo(59), "🔴")
+
+    def test_dimension_semaforo_distinguishes_no_citations_from_failure(self) -> None:
+        # R4c (R4-D12): sin citas → neutro; sin puntaje → 🟡 (🔴 solo con refutadas).
+        self.assertEqual(semaforo_dimension(None, 0), SEMAFORO_SIN_CITAS)
+        self.assertEqual(semaforo_dimension(None, 2), "🟡")
+        self.assertEqual(semaforo_dimension(None, 2, refutadas=1), "🔴")
+        self.assertEqual(semaforo_dimension(92.0, 1), "🟢")
+        self.assertEqual(semaforo_dimension(59.0, 1), "🔴")
+
+    def test_capture_table_tolerates_null_score(self) -> None:
+        import capturar_rag
+
+        self.assertEqual(capturar_rag.semaforo(None), ("⚪", "score-none"))
+        self.assertEqual(capturar_rag.semaforo(90), ("🟢", "score-green"))
+        html = capturar_rag.build_html(
+            [{"precepto": "Art. 1 SINTÉTICO", "aplicacion": "Fixture", "score_rag": None}]
+        )
+        self.assertIn("—/100", html)
+
+    def test_green_disclaimer_states_scope(self) -> None:
+        result = disclaimer_graduado(
+            {"semaforo": "🟢", "razon": "Normativa verificada; sin tesis citadas"}
+        )
+        self.assertFalse(result["requiere_acuse"])
+        self.assertIn(ALCANCE_NORMATIVA, result["texto"])
+        self.assertIn("no significa que lo citado diga lo que el escrito afirma", result["texto"])
 
     def test_disclaimer_blocks_red_documents(self) -> None:
         result = disclaimer_graduado({"semaforo": "🔴", "razon": "cita falsa"})
@@ -300,6 +329,42 @@ class GoldSetTests(unittest.TestCase):
             fixture.write_text(json.dumps(data), encoding="utf-8")
             with self.assertRaises(GoldSetValidationError):
                 evaluate_gold_set(fixture)
+
+    def test_verdict_null_score_only_where_dimension_declares_no_citations(self) -> None:
+        # R4c: un puntaje nulo solo es válido si el caso declara "sin citas" en esa dimensión.
+        def caso(entrada: dict, esperado: dict) -> dict:
+            return {
+                "schema_version": "1.0",
+                "status": "seed_synthetic",
+                "cases": [{"id": "caso", "category": "sin_citas", "component": "verdict",
+                           "input": entrada, "expected": esperado}],
+            }
+
+        base = {"tesis_discrepantes": 0, "tesis_no_encontradas": 0, "tesis_superadas": 0}
+        validos = [
+            (dict(base, score_rag=None, score_sjf=None, tesis_total=0, articulos_total=0),
+             {"apto": False, "semaforo": "🟡"}),
+            (dict(base, score_rag=90, score_sjf=None, tesis_total=0, articulos_total=1),
+             {"apto": True, "semaforo": "🟢"}),
+        ]
+        invalidos = [
+            dict(base, score_rag=None, score_sjf=None, tesis_total=0),       # sin articulos_total
+            dict(base, score_rag=None, score_sjf=0, tesis_total=0, articulos_total=2),
+            dict(base, score_rag=90, score_sjf=None, tesis_total=1, articulos_total=1),
+            dict(base, score_rag=90, score_sjf=95, tesis_total=1, articulos_total=-1),
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = Path(temp) / "gold.json"
+            for entrada, esperado in validos:
+                with self.subTest(entrada=entrada):
+                    fixture.write_text(json.dumps(caso(entrada, esperado)), encoding="utf-8")
+                    self.assertEqual(evaluate_gold_set(fixture)["failed"], 0)
+            for entrada in invalidos:
+                with self.subTest(entrada=entrada):
+                    fixture.write_text(json.dumps(caso(entrada, {"apto": False, "semaforo": "🟡"})),
+                                       encoding="utf-8")
+                    with self.assertRaises(GoldSetValidationError):
+                        evaluate_gold_set(fixture)
 
 
 class LegacyFetchTests(unittest.TestCase):

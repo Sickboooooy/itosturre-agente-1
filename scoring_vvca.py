@@ -22,16 +22,26 @@ Distinción crítica entre tipos de problema en tesis:
 
 from __future__ import annotations
 
+from typing import Optional
+
+# R4c (ronda 2) — TRANSITORIO hasta R4d. El cotejo del rubro es léxico (R4-D13, R4-D14: un
+# rubro con el sentido invertido coincide al 100 %). Mientras R4d no lo corrija, un escrito
+# que SOLO cita tesis (sin artículos) no puede salir 🟢: su único sustento sería ese cotejo.
+# R4d lo pondrá en False al corregir D13/D14 (y lo dirá en DEFECTOS_CONOCIDOS).
+RETENER_VERDE_SOLO_TESIS = True
+
 
 def veredicto_global(
-    score_rag: float,
-    score_sjf: float,
+    score_rag: Optional[float],
+    score_sjf: Optional[float],
     tesis_discrepantes: int,
     tesis_no_encontradas: int,
     tesis_total: int,
     tesis_superadas: int = 0,
     normativa_refutada: int = 0,
     normativa_no_verificable: int = 0,
+    articulos_total: Optional[int] = None,
+    tesis_parciales: int = 0,
 ) -> dict:
     """
     Veredicto binario con razón explícita. No promedia los dos scores.
@@ -39,15 +49,25 @@ def veredicto_global(
     Reglas de precedencia (se evalúan en orden):
       1. tesis_discrepantes > 0  → ROJO bloqueante (rubro falsificado o equivocado)
       2. tesis_superadas > 0     → ROJO bloqueante (falso verde: cita real, criterio muerto)
-      3. normativa_refutada > 0  → ROJO bloqueante (fuente incorrecta o cita sin sustento)
+      3. normativa_refutada > 0  → ROJO bloqueante (cita normativa refutada)
       4. tesis_no_encontradas > 0 → AMARILLO (corpus incompleto, no necesariamente error)
+      4b. tesis_parciales > 0    → AMARILLO (tesis localizada sin verificación plena, p. ej.
+         aislada; R4c ronda 2: cuentan como las normativas parciales)
       5. normativa_no_verificable > 0 → AMARILLO (evidencia parcial o insuficiente)
-      6. RAG < 70                → AMARILLO (artículos con verificación insuficiente)
-      7. Sin problemas           → VERDE
+      6. RAG < 70 (o sin puntaje) → AMARILLO (artículos con verificación insuficiente); no
+         aplica si ``articulos_total == 0``: una dimensión sin citas no es insuficiente
+         (R4-D12, R4c)
+      7. Sin artículos ni tesis  → AMARILLO (no hubo citas que verificar; R4c)
+      7b. Solo tesis, sin artículos → AMARILLO transitorio hasta R4d
+         (``RETENER_VERDE_SOLO_TESIS``): el cotejo del rubro aún es léxico (D13/D14)
+      8. Sin problemas           → VERDE, con una razón que enuncia solo lo verificado
+         ("Normativa verificada; sin tesis citadas"; R4-D11, R4c)
 
     Args:
-        score_rag:              promedio VVCA de artículos verificados (0-100)
-        score_sjf:              promedio VVCA de tesis verificadas (0 si ninguna ok)
+        score_rag:              promedio VVCA de artículos con evidencia (0-100); None si
+                                ningún artículo tuvo evidencia evaluable (R4c)
+        score_sjf:              promedio VVCA de tesis encontradas (0-100); None si ninguna
+                                se encontró en el corpus local (R4c)
         tesis_discrepantes:     tesis con rubro que NO coincide con el corpus SJF real
         tesis_no_encontradas:   tesis invocadas que no se encontraron en el corpus local
         tesis_total:            total de tesis invocadas en el documento
@@ -56,6 +76,12 @@ def veredicto_global(
                                 Default 0: sin dato de vigencia el veredicto no cambia.
         normativa_refutada:     artículos cuya traza quedó refutada. Un solo caso bloquea.
         normativa_no_verificable: artículos parciales o no verificables. Exigen revisión.
+        articulos_total:        referencias normativas auditadas (R4c). Con 0, la dimensión
+                                normativa no tiene citas y la regla 6 no aplica. None
+                                (omitido) conserva el comportamiento anterior: sin el dato no
+                                se distingue "sin artículos" de "artículos con 0 puntos".
+        tesis_parciales:        tesis localizadas cuya traza quedó ``partial`` (puntaje < 85,
+                                p. ej. aislada). Default 0 (llamadas anteriores a la ronda 2).
 
     Returns:
         dict con apto, semaforo, razon, accion
@@ -105,6 +131,18 @@ def veredicto_global(
             "accion": "Verificar manualmente en SJF o ampliar el corpus antes de uso procesal",
         }
 
+    # R4c (ronda 2): una tesis localizada sin verificación plena no es "verificada".
+    if tesis_parciales > 0:
+        return {
+            "apto": False,
+            "semaforo": "🟡",
+            "razon": (
+                f"{tesis_parciales}/{tesis_total} tesis con verificación parcial "
+                "(localizadas con puntaje menor a 85, p. ej. tesis aislada)"
+            ),
+            "accion": "Cotejar la tesis en el SJF y valorar su fuerza vinculante antes de uso procesal",
+        }
+
     if normativa_no_verificable > 0:
         return {
             "apto": False,
@@ -116,17 +154,55 @@ def veredicto_global(
             "accion": "Cotejar el precepto en la fuente oficial antes de uso procesal",
         }
 
-    if score_rag < 70:
+    # R4c (R4-D12): sin artículos citados la dimensión normativa no tiene nada que verificar;
+    # antes se calificaba "RAG 0.0" como verificación insuficiente aunque las tesis estuvieran
+    # verificadas. Sin el dato (articulos_total=None) se conserva la regla anterior.
+    sin_articulos = articulos_total == 0
+    if not sin_articulos and (score_rag is None or score_rag < 70):
+        puntaje = score_rag if score_rag is not None else "sin puntaje"
         return {
             "apto": False,
             "semaforo": "🟡",
-            "razon": f"Artículos con verificación insuficiente (RAG: {score_rag})",
+            "razon": f"Artículos con verificación insuficiente (RAG: {puntaje})",
             "accion": "Revisar referencias normativas contra corpus oficial",
         }
 
+    # R4c: sin artículos ni tesis no hay nada verificado; un 🟢 sería vacío. Se conserva el 🟡
+    # que antes producía el "RAG 0.0", ahora con su razón verdadera.
+    if sin_articulos and tesis_total == 0:
+        return {
+            "apto": False,
+            "semaforo": "🟡",
+            "razon": "Sin citas detectadas: no hay normativa ni jurisprudencia que verificar",
+            "accion": (
+                "Confirmar que el texto no cita normas ni tesis; la extracción automática "
+                "puede omitir formatos no reconocidos"
+            ),
+        }
+
+    # R4c (ronda 2) — TRANSITORIO hasta R4d: solo tesis y todas localizadas con rubro
+    # coincidente. El 🟢 dependería solo del cotejo léxico del rubro (D13/D14): se retiene 🟡.
+    if sin_articulos and RETENER_VERDE_SOLO_TESIS:
+        return {
+            "apto": False,
+            "semaforo": "🟡",
+            "razon": "Jurisprudencia localizada; cotejo de sentido del rubro pendiente (R4d)",
+            "accion": (
+                "Cotejar en el SJF que el rubro y el criterio de cada tesis respalden lo "
+                "afirmado antes de uso procesal"
+            ),
+        }
+
+    # R4c (R4-D11): la razón enuncia solo lo verificado.
+    if sin_articulos:
+        razon = "Jurisprudencia verificada; sin artículos citados"
+    elif tesis_total == 0:
+        razon = "Normativa verificada; sin tesis citadas"
+    else:
+        razon = "Normativa y jurisprudencia verificadas"
     return {
         "apto": True,
         "semaforo": "🟢",
-        "razon": "Normativa y jurisprudencia verificadas",
+        "razon": razon,
         "accion": "Proceder con revisión de pertinencia procesal por el operador",
     }
