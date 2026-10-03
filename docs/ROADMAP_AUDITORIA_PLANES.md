@@ -105,9 +105,9 @@ cotejo de fidelidad.
    (`evidencia agregar-*` → ledger → `cotejar` → `lint`); sus correcciones son el PR
    "Kit PEN-01". **Implementado y probado** (rama propuesta `feat/menu16-auditar-plan`):
    MENÚ 16, Regla absoluta 10 y CLI `plantilla` (fricción principal del piloto: el ledger
-   se construía entero a mano). Se expone con el soporte de DOF y Corte IDH (C8) y la
-   decisión D11 aún pendientes, declarados como límites en el propio menú. Antes del merge,
-   el responsable aprueba el texto exacto de los cambios a `CLAUDE.md`/`AGENTS.md`.
+   se construía entero a mano). Se expone con el soporte de DOF y Corte IDH (C8) aún
+   pendiente, declarado como límite en el propio menú. El responsable aprobó el texto exacto
+   de los cambios a `CLAUDE.md`/`AGENTS.md` y decidió D11 (2-oct-2026).
 
 Pendientes derivados de PR-2, sin lugar asignado en el orden: **R5** (época del scraper
 anclada en "Registro digital:") y **C8** (descarga y caché de evidencia fuera del repo:
@@ -323,8 +323,9 @@ Pendientes derivados de la Exposición (MENÚ 16):
   cambiarlo cuando la afirmación la aporta una persona o la fuente.
 - La línea de marcadores pendientes de `lint` solo sale en la consola: `--json` y `--md` no la
   incluyen (el reporte Markdown lista hallazgos, no los campos que conservan un marcador).
-- D11 sigue abierta: el MENÚ 16 pide el nombre de la persona si se propone "Itosturre" o
-  "JustIA" como responsable, pero el lint aún no distingue esos casos.
+- D11 decidida por el responsable (2-oct-2026): `responsable_no_humano` rechaza "Itosturre" y
+  "JustIA" en cualquier posición (`NOMBRES_SISTEMA` en `itosturre/plan/estados.py`), así que
+  PL-012 se dispara; Gold Set de planes con el caso `pl012_responsable_nombre_del_sistema`.
 
 ## Qué no construir
 
@@ -335,11 +336,13 @@ contradicciones; interfaz web.
 
 ## Decisiones pendientes del responsable
 
-- Regla 3 de `CLAUDE.md` (el RAG como fuente de verificación) frente a D4.
+- ~~Regla 3 de `CLAUDE.md` (el RAG como fuente de verificación) frente a D4~~ — resuelto por la
+  regla absoluta 10 (2-oct-2026), acotada al ledger: dentro de la auditoría de planes el RAG
+  localiza (a lo sumo CANDIDATO); la Regla 3 sigue vigente para las citas de escritos.
 - Cuarentena de `agentes/vigilancia_jurisprudencial.py`, que consume el microservicio interno.
 - Lista de responsables no humanos: hoy rechaza cargos como "Agente del MP" (falla cerrado).
-- D11 del piloto PEN-01: PL-012 acepta "Itosturre / JustIA" como responsable de una
-  decisión, y "Itosturre" es también el nombre del agente que redactó el entregable.
+- ~~D11 del piloto PEN-01: "Itosturre / JustIA" como responsable~~ — decidido (2-oct-2026):
+  se rechazan como responsables humanos.
 - Cobertura cuando la ley aparece a la izquierda del artículo ("la Ley de Amparo, en su
   artículo 217"): hoy produce hallazgos de más, nunca un falso verde.
 - ~~R4-D10: severidad de "no localizado en una ley indexada"~~ — decidido (opción C,

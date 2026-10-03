@@ -49,8 +49,7 @@ ESTADO_INVALIDO = "ESTADO INVÁLIDO"
 # Tokens de agente o sistema. Un responsable es no humano si su valor completo es uno
 # de estos tokens ("Claude", "IA") o si empieza por uno seguido de una palabra de
 # modelo/versión ("Claude Opus 5.5", "gpt-4o", "Codex CLI"). "Claude Martínez" y
-# "Talbot" son personas válidas. "Itosturre" y "JustIA" NO están aquí a propósito: el
-# operador los usa como responsables ("Itosturre (responsable jurídico)").
+# "Talbot" son personas válidas. Los nombres del sistema van aparte, en NOMBRES_SISTEMA.
 TOKENS_AGENTE = frozenset(
     {
         "agente",
@@ -92,6 +91,10 @@ PALABRAS_MODELO = frozenset(
 # Palabras que delatan a un agente en cualquier posición ("Claude (agente)",
 # "itosclaude_bot", "revisión por IA").
 PALABRAS_AGENTE_SUELTAS = frozenset({"agente", "llm", "bot", "ia"})
+# Nombres del propio sistema en cualquier posición: "Itosturre" es el agente (CLAUDE.md) y
+# JustIA su plataforma. Criterio del responsable (2-oct-2026, regla absoluta 10): solo una
+# persona identificada firma decisiones y aprobaciones.
+NOMBRES_SISTEMA = frozenset({"itosturre", "justia"})
 
 MINIMO_LETRAS_PERSONA = 3
 
@@ -152,7 +155,8 @@ def responsable_no_humano(nombre: Any) -> bool:
 
     Reglas: el valor completo es un token de agente; o empieza por un token de agente
     seguido de una palabra de modelo, otro token de agente o una versión numérica; o
-    contiene la palabra suelta ``agente``, ``llm``, ``bot`` o ``ia``.
+    contiene la palabra suelta ``agente``, ``llm``, ``bot`` o ``ia``; o contiene un nombre
+    del sistema (``Itosturre``, ``JustIA``).
     """
     if not isinstance(nombre, str):
         return False
@@ -165,6 +169,8 @@ def responsable_no_humano(nombre: Any) -> bool:
         segundo = tokens[1]
         if segundo in PALABRAS_MODELO or segundo in TOKENS_AGENTE or segundo[0].isdigit():
             return True
+    if NOMBRES_SISTEMA.intersection(tokens):
+        return True
     return bool(PALABRAS_AGENTE_SUELTAS.intersection(tokens))
 
 
