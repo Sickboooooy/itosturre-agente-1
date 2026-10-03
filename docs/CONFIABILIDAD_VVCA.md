@@ -67,6 +67,16 @@ la evidencia debe contener el encabezado exacto del precepto. La ejecución corr
 la página 91 en lugar de la remisión interna de la página 105. El caso rechazado permanece en el
 Gold Set como antecedente histórico y la salida remediada requiere revisión expresa independiente.
 
+**Verde determinista (criterio del responsable, 3-oct-2026: opción A).** Con evidencia completa
+(metadata `source+article`, encabezado exacto, fuente coincidente, ley identificada y no por
+confirmar, sin derogación, unidad sin cotejar ni evidencia incompleta, distancia ≤ 0.25) la cita
+normativa es 🟢 por regla determinista; la distancia queda como dato informativo
+(`explicabilidad.score_similitud`). Detalle en `docs/PROTOCOLO_VVCA.md` §2. Consecuencia para el
+Gold Set v2: `scripts/evaluate_gold_set.py` sigue evaluando `vvca_score`/`vvca_semaforo` con el
+`input.distance` observado el 16-sep (sin cambios), pero de punta a punta los 9 verdes aprobados
+salen 🟢 (antes CNPP 109/113/131 y CFF 38 salían 🟡 por distancia). La re-observación de
+`input`/`candidate_evidence` es decisión del operador; el fixture no se edita aquí.
+
 ## Trazabilidad por referencia
 
 `OpenNotebook.audit()` devuelve `traceability`, con una traza por cada referencia procesada,

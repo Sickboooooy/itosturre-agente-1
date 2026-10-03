@@ -5,7 +5,7 @@ import re
 import unicodedata
 from typing import Any, Iterable, Mapping
 
-from .referencias import patron_articulo, patron_variante_con_sufijo
+from .referencias import LATINOS, patron_articulo, patron_variante_con_sufijo
 
 
 def _without_accents(value: str) -> str:
@@ -16,6 +16,20 @@ def _without_accents(value: str) -> str:
 # Línea con forma de encabezado: "Artículo 42.", "Artículo 38.-", "Art. 1004-A.-".
 _PREFIJO_ENCABEZADO = r"^[ \t]*art(?:iculo)?\.?[ \t]+"
 _CIERRE_ENCABEZADO = r"[ \t]*(?:\.\-|[.\-:])"
+# Ordinales (3-oct-2026, ronda 2) — Sufijo partido entre líneas: "Artículo 1o.\nBis.- …" o
+# "Artículo 1o.\n-A.- …" son el encabezado del 1o Bis o del 1o-A, no del 1o. Solo un sufijo
+# latino o "-Letra", con su cierre, al inicio de la línea siguiente; nunca una letra suelta:
+# "Artículo 26.\nA. El Estado…", "Artículo 37.\nA) Ningún…" o "Artículo 185.\nA efecto de…"
+# (apartados, incisos o texto) siguen siendo el encabezado del 26, el 37 o el 185.
+_SUFIJO_EN_LINEA_SIGUIENTE = (
+    rf"[ \t]*\n[ \t]*(?:-[ \t]*[A-Za-z]|(?:{'|'.join(LATINOS)}))(?![^\W\d_])"
+    rf"{_CIERRE_ENCABEZADO}"
+)
+# Ronda 2 — Encabezado AUTÉNTICO: con "A" mayúscula ("Artículo", "ARTÍCULO", "Art.") y un
+# cierre que no sigue con "," ni ";". "artículo 41." que el PDF dejó al inicio de una línea es
+# una remisión (el chunker la toma por encabezado y etiqueta el fragmento con el 41), y
+# "Artículo 2o., fracción I, inciso H." una cita capitalizada: ninguna acredita el precepto.
+_SIGUE_REMISION = re.compile(r"[ \t]*[,;]")
 
 
 def _patron_literal(article: str) -> str | None:
@@ -26,7 +40,7 @@ def _patron_literal(article: str) -> str | None:
     return re.escape(normalized_article).replace(r"\ ", r"[ \t]+")
 
 
-def has_exact_article_heading(text: str, article: str) -> bool:
+def has_exact_article_heading(text: str, article: str, *, ordinal_literal: bool = False) -> bool:
     """Indica si ``text`` contiene el encabezado del artículo solicitado.
 
     Una remisión como ``artículo 42, fracción XIII`` no cuenta. Para acreditar la
@@ -36,22 +50,61 @@ def has_exact_article_heading(text: str, article: str) -> bool:
     Tras el número solo cabe el cierre del encabezado (R4-D06): ``Artículo 4o.-A.-`` no es
     el encabezado del artículo ``4o``, ni ``Artículo 29-B.`` el del ``29``, ni
     ``Artículo 209 Bis.-`` el del ``209``. Un sufijo de letra o latino solo coincide si se
-    pidió (``4o.-A``, ``29-B``, ``209 Bis``). El ordinal se compara tal como se pidió.
+    pidió (``4o.-A``, ``29-B``, ``209 Bis``).
+
+    Ordinales (3-oct-2026): el ordinal se compara por equivalencia (``patron_articulo`` con
+    ``ordinal_equivalente=True``): ``Artículo 1o.``, ``Artículo 1º`` y ``Artículo 1.`` son el
+    encabezado del ``1`` y del ``1o``; nunca del ``10`` ni del ``11``, y ``Artículo 1o.-A.-``
+    sigue sin ser el del ``1``, tampoco con el sufijo en la línea siguiente (``Artículo
+    1o.\\nBis.-``). Antes se comparaba el ordinal tal como se pidió ("CPEUM Art. 1." no veía
+    "Artículo 1o."); ``ordinal_literal=True`` conserva esa comparación. La caja del prefijo no
+    se exige aquí (D10 no cambia): el encabezado AUTÉNTICO lo distingue
+    ``ocurrencias_encabezado``.
     """
-    heading = _encabezado_exacto(article)
+    heading = _encabezado_exacto(article, ordinal_literal=ordinal_literal)
     if heading is None:
         return False
     return bool(heading.search(_without_accents(text)))
 
 
-def _encabezado_exacto(article: str) -> re.Pattern | None:
-    article_pattern = patron_articulo(article) or _patron_literal(article)
+def _encabezado_exacto(article: str, *, ordinal_literal: bool = False) -> re.Pattern | None:
+    article_pattern = (
+        patron_articulo(article, ordinal_equivalente=not ordinal_literal)
+        or _patron_literal(article)
+    )
     if not article_pattern:
         return None
     return re.compile(
-        rf"{_PREFIJO_ENCABEZADO}{article_pattern}{_CIERRE_ENCABEZADO}",
+        rf"{_PREFIJO_ENCABEZADO}{article_pattern}{_CIERRE_ENCABEZADO}"
+        rf"(?!{_SUFIJO_EN_LINEA_SIGUIENTE})",
         re.IGNORECASE | re.MULTILINE,
     )
+
+
+def ocurrencias_encabezado(text: str, article: str) -> list[dict[str, Any]]:
+    """Cada encabezado exacto del artículo en ``text`` (sin acentos): ``inicio``, ``fin`` y si
+    es AUTÉNTICO (ronda 2): "A" mayúscula en el prefijo y cierre no seguido de "," ni ";".
+    Las posiciones son del texto sin acentos (las mismas que usa ``reconstruir_cuerpo``)."""
+    heading = _encabezado_exacto(article)
+    if heading is None:
+        return []
+    normalizado = _without_accents(text)
+    return [
+        {
+            "inicio": m.start(),
+            "fin": m.end(),
+            "autentico": (
+                normalizado[m.start():m.end()].lstrip()[:1] == "A"
+                and not _SIGUE_REMISION.match(normalizado, m.end())
+            ),
+        }
+        for m in heading.finditer(normalizado)
+    ]
+
+
+def encabezado_autentico(text: str, article: str) -> bool:
+    """¿``text`` trae un encabezado AUTÉNTICO del artículo (no una remisión)? Ronda 2."""
+    return any(o["autentico"] for o in ocurrencias_encabezado(text, article))
 
 
 # ─────────────────────────────────────────
@@ -172,21 +225,26 @@ def reconstruir_cuerpo(
     metadata: Mapping[str, Any] | None,
     article: str,
     candidatos: Iterable[tuple[str, Mapping[str, Any] | None]] = (),
+    *,
+    solo_autentico: bool = False,
 ) -> dict[str, Any] | None:
     """Cuerpo del precepto citado: lo que sigue a su encabezado exacto hasta el encabezado
     de otro artículo. Si el fragmento termina antes (``cerrado`` False), se reúne la
     continuación entre los ``candidatos`` del MISMO precepto: misma fuente, misma etiqueta
     de artículo y ``chunk_index`` consecutivo (así guarda la ingesta los subfragmentos de un
     texto largo). Sin esos datos no se adivina la continuación. None sin encabezado exacto.
+
+    Ronda 2: ``solo_autentico`` parte del primer encabezado AUTÉNTICO del fragmento (la misma
+    ocurrencia que eligió ``select_article_evidence``), no de una remisión anterior.
     """
-    heading = _encabezado_exacto(article)
-    if heading is None:
+    ocurrencias = [
+        o for o in ocurrencias_encabezado(document, article)
+        if o["autentico"] or not solo_autentico
+    ]
+    if not ocurrencias:
         return None
     normalized = _without_accents(document)
-    match = heading.search(normalized)
-    if not match:
-        return None
-    resto = normalized[match.end():]
+    resto = normalized[ocurrencias[0]["fin"]:]
     siguiente = _ENCABEZADO_SIGUIENTE.search(resto)
     cuerpo, cerrado = (resto[:siguiente.start()], True) if siguiente else (resto, False)
     usados = 0
@@ -343,14 +401,18 @@ def cotejar_precepto(
     article: str,
     unidades: Iterable[Mapping[str, str]] = (),
     candidatos: Iterable[tuple[str, Mapping[str, Any] | None]] = (),
+    *,
+    solo_autentico: bool = False,
 ) -> dict[str, Any] | None:
     """Coteja el precepto ubicado (encabezado exacto): derogación del precepto completo,
     suficiencia del cuerpo (con su continuación, si la hay) y la unidad citada.
 
     Devuelve None si el fragmento no trae el encabezado exacto. Con un precepto derogado
     por completo la unidad citada no se coteja (todo el precepto carece de norma).
+    ``solo_autentico`` (ronda 2): coteja desde el encabezado auténtico elegido.
     """
-    reconstruido = reconstruir_cuerpo(document, metadata, article, candidatos)
+    reconstruido = reconstruir_cuerpo(document, metadata, article, candidatos,
+                                      solo_autentico=solo_autentico)
     if reconstruido is None:
         return None
     cuerpo = reconstruido["cuerpo"]
@@ -376,19 +438,42 @@ def has_suffixed_variant_heading(text: str, article: str) -> bool:
     metadata los ofrece como candidatos del artículo base. Que el índice solo devuelva
     variantes no prueba nada sobre el precepto pedido: la cita queda no verificable.
     """
-    variant_pattern = patron_variante_con_sufijo(article)
+    variant_pattern = patron_variante_con_sufijo(article, ordinal_equivalente=True)
     if not variant_pattern:
         return False
+    # Ronda 2: también la variante con el sufijo partido en la línea siguiente
+    # ("Artículo 4o.\n-A.-", "Artículo 1o.\nBis.-").
+    base = patron_articulo(article, ordinal_equivalente=True)
+    partida = (
+        rf"|{base}{_CIERRE_ENCABEZADO}(?={_SUFIJO_EN_LINEA_SIGUIENTE})" if base else ""
+    )
     heading = re.compile(
-        rf"{_PREFIJO_ENCABEZADO}{variant_pattern}", re.IGNORECASE | re.MULTILINE
+        rf"{_PREFIJO_ENCABEZADO}(?:{variant_pattern}{partida})", re.IGNORECASE | re.MULTILINE
     )
     return bool(heading.search(_without_accents(text))) and not has_exact_article_heading(
         text, article
     )
 
 
+def _primera_aparicion(indices: list[int], metadatas: list) -> int:
+    """De los resultados ``indices`` (en orden de ranking) con el encabezado exacto, el de
+    menor ``chunk_index`` si todos son de la misma fuente y lo traen entero; si no, el mejor
+    rankeado (el primero)."""
+    fuentes, claves = set(), []
+    for posicion, index in enumerate(indices):
+        metadata = metadatas[index] if index < len(metadatas) else None
+        chunk = _indice(metadata)
+        if chunk is None:
+            return indices[0]
+        fuentes.add((metadata or {}).get("source"))
+        claves.append((chunk, posicion, index))
+    if len(fuentes) != 1:
+        return indices[0]
+    return min(claves)[2]
+
+
 def select_article_evidence(
-    results: Mapping[str, Any] | None, article: str
+    results: Mapping[str, Any] | None, article: str, *, preferido: int | None = None
 ) -> dict[str, Any] | None:
     """Elige el resultado mejor rankeado que muestre el encabezado exacto.
 
@@ -396,6 +481,23 @@ def select_article_evidence(
     prefiere el encabezado. Si ninguno lo contiene, se conserva el primer resultado
     para auditabilidad, pero se marca como no corroborado; ``variant_heading`` indica
     entonces si algún resultado era una variante con sufijo del mismo número.
+
+    Ordinales y verde determinista (3-oct-2026): si VARIOS fragmentos de la misma fuente
+    traen el encabezado exacto, se elige la primera aparición en el documento (menor
+    ``chunk_index``), no la de menor distancia: el cuerpo de la ley precede a sus
+    transitorios, y con la equivalencia ordinal "Artículo 1o.-" del cuerpo convive, p. ej.,
+    con "Artículo 1º.- Esta Ley entrará en vigor…" de los transitorios (LFT) o con "Artículo
+    1.- Se reforma…" de un decreto (CCF). Desde que la distancia no decide el 🟢 de una cita
+    con evidencia completa, la ubicación no puede depender de qué fragmento se parece más a
+    la consulta. Sin ``chunk_index`` entero en todos ellos, o con fuentes distintas, decide
+    el ranking como antes.
+
+    Ronda 2: antes de la primera aparición se prefieren los encabezados AUTÉNTICOS
+    (``ocurrencias_encabezado``): la remisión "artículo 41." al inicio de una línea suele
+    estar en el fragmento del 40 y, sin esta preferencia, ganaba al "Artículo 41." del
+    cuerpo. ``heading_authentic`` dice si el elegido es auténtico y ``autenticos`` lista los
+    resultados que lo son (para ``itosturre.audit.ubicacion``). ``preferido`` fuerza el
+    resultado (un índice de ``autenticos``) cuando la frontera del cuerpo lo decide.
     """
     if not results:
         return None
@@ -410,12 +512,20 @@ def select_article_evidence(
     distances = distances_batches[0] if distances_batches else []
 
     selected_index = 0
-    heading_verified = False
-    for index, document in enumerate(documents):
-        if has_exact_article_heading(document, article):
-            selected_index = index
-            heading_verified = True
-            break
+    con_encabezado = [
+        index for index, document in enumerate(documents)
+        if has_exact_article_heading(document, article)
+    ]
+    autenticos = [
+        index for index in con_encabezado if encabezado_autentico(documents[index], article)
+    ]
+    heading_verified = bool(con_encabezado)
+    if preferido is not None and preferido in autenticos:
+        selected_index = preferido
+    elif autenticos:
+        selected_index = _primera_aparicion(autenticos, metadatas)
+    elif con_encabezado:
+        selected_index = _primera_aparicion(con_encabezado, metadatas)
 
     variant_heading = not heading_verified and any(
         has_suffixed_variant_heading(document, article) for document in documents
@@ -427,6 +537,16 @@ def select_article_evidence(
         "metadata": metadata or {},
         "distance": float(distance),
         "heading_verified": heading_verified,
+        # Ronda 2 (campos añadidos): el elegido es un encabezado auténtico, y los resultados
+        # con encabezado auténtico (índices en ``results``).
+        "heading_authentic": selected_index in autenticos,
+        "autenticos": autenticos,
+        # Ordinales (3-oct-2026, campo añadido): el encabezado elegido coincide también con el
+        # ordinal tal como se citó; False si solo coincide por la equivalencia ("2" frente a
+        # "ARTÍCULO 2o.-"). ``audit`` lo usa en la ruta semántica (sin metadata).
+        "heading_literal": heading_verified and has_exact_article_heading(
+            documents[selected_index], article, ordinal_literal=True
+        ),
         "variant_heading": variant_heading,
         "rank": selected_index + 1,
     }

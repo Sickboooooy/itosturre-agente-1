@@ -118,6 +118,7 @@ from itosturre.audit.referencias import (
     construir_catalogo,
     designaciones_articulo,
     extraer_articulos,
+    ordinales_equivalentes,
     partes_articulo,
     patron_articulo,
     primera_mencion,
@@ -129,8 +130,11 @@ from itosturre.audit.inexistencia import (
     describir_posterior,
     describir_prueba,
     evaluar_inexistencia,
+    frontera_creible,
     preparar_ley,
 )
+from itosturre.audit.ubicacion import NO_ACREDITADA as UBICACION_NO_ACREDITADA
+from itosturre.audit.ubicacion import ubicar_en_cuerpo
 from itosturre.audit.jurisprudence import (
     ESTADOS_VIGENCIA,
     RUBRO_BLOQUEANTE,
@@ -953,10 +957,13 @@ def exact_article_chunks(collection, source: str, article_num: str) -> List[Dict
     existía en el corpus pero no rankeó dentro de n=4 resultados semánticos).
 
     Desde R4b la designación se compara completa: '4o' no coincide con 'Artículo 4o.-A.'
-    ni '247' con 'Artículo 247 Bis.', y '247 Ter' exige el sufijo.
+    ni '247' con 'Artículo 247 Bis.', y '247 Ter' exige el sufijo. Ordinales (3-oct-2026): el
+    ordinal se compara por equivalencia ('1' coincide con 'Artículo 1o.').
     """
     res = collection.get(where={"source": source}, include=["documents", "metadatas"])
-    designacion = patron_articulo(article_num, espacio=r"\s") or re.escape(
+    designacion = patron_articulo(
+        article_num, ordinal_equivalente=True, espacio=r"\s"
+    ) or re.escape(
         sin_acentos(article_num)
     )
     pattern = re.compile(rf"articulo\s+{designacion}\s*\.", re.IGNORECASE)
@@ -1124,7 +1131,16 @@ def _article_candidates(article: str) -> List[str]:
     El chunker guarda el número base ('Art. 247 Bis' → '247' porque el label corta en el
     espacio); la referencia puede traer el sufijo. Se generan ambas formas (y la variante sin
     espacios internos) para no perder el match por espaciado — p. ej. '247 Bis' → ['247 Bis',
-    '247', '247Bis'], '1004-A' → ['1004-A'], '19' → ['19'].
+    '247', '247Bis'].
+
+    Ordinales (3-oct-2026): el chunker etiqueta "Artículo 1o." como '1o', "Artículo 1º"
+    como '1º' y "Artículo 1." o "Artículo 1°" como '1'; el escrito puede citar cualquiera de
+    esas grafías. Se añaden las etiquetas del mismo número con cada indicador ordinal
+    equivalente ('1' → ['1', '1o', '1º']; '1o' → los mismos), con su letra si la trae
+    ('4o.-A' → también '4-A', '4o-A'…). Solo amplía los candidatos: el encabezado exacto (que
+    sigue exigiendo el número completo y el sufijo pedido) decide cuál acredita el precepto.
+    Antes 'CPEUM Art. 1.' no tenía candidatos por metadata y caía a la búsqueda semántica, que
+    mostraba la evidencia de otro artículo. Lista ordenada (determinista).
     """
     a = (article or "").strip()
     if not a:
@@ -1135,7 +1151,16 @@ def _article_candidates(article: str) -> List[str]:
         cands.add(m.group(0))
     if " " in a:
         cands.add(a.replace(" ", ""))
-    return list(cands)
+    partes = partes_articulo(a)
+    if partes is not None:
+        for ordinal in ordinales_equivalentes(partes.ordinal):
+            if ordinal == "°":
+                continue  # no es carácter de palabra: la etiqueta de "Artículo 1°" es '1'
+            base = partes.numero + ordinal
+            cands.add(base)
+            if partes.letra:
+                cands.update({f"{base}-{partes.letra}", f"{base}{partes.letra}"})
+    return sorted(cands)
 
 
 def _unidades_de(ref: Dict) -> List[Dict]:
@@ -1169,6 +1194,59 @@ def _preferir_fuente(results: Optional[Dict], fuente: Optional[str]) -> Optional
     }
 
 
+# Verde determinista (criterio del responsable, 3-oct-2026: opción A) — Puntaje mínimo de
+# una cita normativa con evidencia completa: el umbral del 🟢 de ``vvca_semaforo`` (85).
+VERDE_DETERMINISTA = 85
+
+
+def _evidencia_completa(
+    ref: Dict,
+    distance: float,
+    source_match: bool,
+    metadata_verificado: bool,
+    article_heading_verified: Optional[bool],
+    derogado: bool,
+    unidad_derogada: Optional[str],
+    derogacion_ambigua: bool,
+    unidad_no_cotejada: Optional[str],
+    evidencia_incompleta: bool,
+    encabezado_autentico: bool = True,
+    ubicacion_no_acreditada: Optional[str] = None,
+) -> bool:
+    """¿La cita normativa tiene EVIDENCIA COMPLETA para el 🟢 determinista? Todas a la vez:
+
+    - ``metadata_verificado`` (``metadata_hit`` de ``audit``: candidato por metadata
+      source+article, encabezado exacto en el fragmento seleccionado, fuente recuperada ==
+      esperada y, desde la ronda 2, etiqueta del fragmento elegido entre los candidatos), con
+      el encabezado exacto y la coincidencia de fuente también aquí;
+    - ronda 2: encabezado AUTÉNTICO ("A" mayúscula y cierre no seguido de "," ni ";"), no una
+      remisión al inicio de línea, y ubicación en el cuerpo acreditada
+      (``itosturre.audit.ubicacion``: sin ambigüedad ni encabezado tras la frontera);
+    - ley identificada (``source_file``) y no por confirmar (``law_requires_confirmation``);
+    - precepto no derogado, sin unidad derogada ni derogación ambigua;
+    - sin unidad citada no cotejada ni evidencia incompleta;
+    - distancia ≤ ``COSINE_THRESHOLD``. Salvaguarda de anomalía (decisión del coordinador):
+      con metadata y encabezado pero distancia mayor que el umbral se conserva el
+      comportamiento anterior (piso 70, 🟡 COTEJAR). En el corpus real esas distancias van
+      de 0.116 a 0.193.
+    """
+    return bool(
+        metadata_verificado
+        and article_heading_verified is True
+        and source_match
+        and ref.get("source_file")
+        and not ref.get("law_requires_confirmation")
+        and not derogado
+        and not unidad_derogada
+        and not derogacion_ambigua
+        and not unidad_no_cotejada
+        and not evidencia_incompleta
+        and encabezado_autentico
+        and not ubicacion_no_acreditada
+        and distance <= COSINE_THRESHOLD
+    )
+
+
 def build_vvca(
     ref: Dict,
     distance: float,
@@ -1184,6 +1262,9 @@ def build_vvca(
     unidad_no_cotejada: Optional[str] = None,
     evidencia_incompleta: bool = False,
     no_localizado: bool = False,
+    ordinal_equivalente: bool = False,
+    encabezado_autentico: bool = True,
+    ubicacion_no_acreditada: Optional[str] = None,
 ) -> Dict:
     """Score, semáforo y explicación VVCA de una cita normativa con evidencia.
 
@@ -1197,10 +1278,42 @@ def build_vvca(
     aparte (``itosturre.audit.inexistencia``); la distancia alta sin metadata limita el
     puntaje a 60–84. ``no_localizado``: el fragmento no trae el encabezado exacto, la
     distancia supera el umbral y no hubo prueba (antes "Posible alucinación").
+
+    Verde determinista (criterio del responsable, 3-oct-2026: opción A): con EVIDENCIA
+    COMPLETA (``_evidencia_completa``) la cita es 🟢 por regla determinista (puntaje mínimo
+    85): la distancia coseno de una consulta corta ("Artículo 109 cnpp") al fragmento con el
+    encabezado exacto no mide la existencia del precepto. El puntaje por similitud queda como
+    dato informativo (``explicabilidad["score_similitud"]``). El 🟢 de una norma acredita
+    existencia y ubicación en la versión indexada (``ALCANCE_NORMATIVA``), no vigencia ni
+    contenido. Fuera de esa ruta (sin metadata) la distancia decide como antes.
+
+    Ordinales (3-oct-2026): ``ordinal_equivalente`` indica que el encabezado solo coincide por
+    la equivalencia del ordinal ("2" frente a "ARTÍCULO 2o.-"). Con metadata no cambia nada
+    (la etiqueta del índice ya identifica el artículo); sin metadata limita a 84: la
+    equivalencia ubica el precepto, pero el 🟢 de la ruta semántica no se amplía a otras
+    grafías del ordinal.
+
+    Ronda 2: ``encabezado_autentico`` False (la línea es una remisión: "artículo 41." en
+    minúscula o "Artículo 2o., fracción I") y ``ubicacion_no_acreditada`` (motivo: encabezado
+    repetido que la frontera TRANSITORIOS no desambigua, o el único tras ella) impiden el 🟢
+    en cualquier ruta (tope 84).
     """
     # Desde R4c ``source_match`` compara de verdad la fuente recuperada con la esperada
     # (R4-D09): la penalización −15 de ``vvca_score`` deja de ser inalcanzable.
     score = vvca_score(distance, source_match, has_source_file=bool(ref.get("source_file")))
+    score_similitud = score
+    por_confirmar = bool(ref.get("law_requires_confirmation"))
+    verde_determinista = _evidencia_completa(
+        ref, distance, source_match, metadata_verificado, article_heading_verified, derogado,
+        unidad_derogada, derogacion_ambigua, unidad_no_cotejada, evidencia_incompleta,
+        encabezado_autentico, ubicacion_no_acreditada,
+    )
+    # Verde determinista: metadata source+article, encabezado exacto en el fragmento
+    # seleccionado, fuente recuperada == esperada, ley identificada y no por confirmar, sin
+    # derogación ni unidad sin cotejar ni evidencia incompleta, y distancia ≤ umbral. Los
+    # topes de abajo siguen aplicándose después (con evidencia completa ninguno se activa).
+    if verde_determinista:
+        score = max(score, VERDE_DETERMINISTA)
     # Anti-falso-🟢: sin ley identificada en el contexto el match es solo por número de
     # artículo; no dar verde aunque la distancia sea baja — capar a 🟡 (84).
     if not ref.get("source_file"):
@@ -1216,7 +1329,6 @@ def build_vvca(
     # R4b: ley inferida de otro párrafo (no de un encabezado inequívoco). El cotejo se hizo
     # contra una ley que el abogado debe confirmar: el semáforo se limita a 🟡 en ambos
     # sentidos (ni 🟢 ni 🔴 por una ley supuesta). Mínimo necesario; el resto es R4c.
-    por_confirmar = bool(ref.get("law_requires_confirmation"))
     if por_confirmar:
         score = max(60, min(score, 84))
     # R4c (R4-D09): evidencia de OTRO ordenamiento. No acredita la cita (nunca 🟢) ni la
@@ -1236,6 +1348,17 @@ def build_vvca(
     # Antes, con distancia > 0.40, el puntaje caía bajo 60 (🔴) sin prueba de inexistencia.
     if distance > COSINE_THRESHOLD and not metadata_verificado:
         score = max(60, min(score, 84))
+    # Ordinales (3-oct-2026): en la ruta semántica (sin metadata) un encabezado que solo
+    # coincide por la equivalencia del ordinal ubica el precepto, pero no da 🟢.
+    ordinal_sin_metadata = ordinal_equivalente and not metadata_verificado
+    if ordinal_sin_metadata:
+        score = min(score, 84)
+    # Ronda 2: solo una remisión al inicio de línea ("artículo 41.", "Artículo 2o., fracción
+    # I") o una ubicación no acreditada en el cuerpo (encabezado repetido sin frontera que lo
+    # desambigüe, o el único tras la frontera TRANSITORIOS): nunca 🟢, en ninguna ruta.
+    solo_remision = bool(article_heading_verified) and not encabezado_autentico
+    if solo_remision or ubicacion_no_acreditada:
+        score = min(score, 84)
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
     art = ref.get("article", "?")
@@ -1267,6 +1390,26 @@ def build_vvca(
         v_verificacion = (
             f"Evidencia incompleta: el fragmento trae el encabezado exacto, pero no cuerpo "
             f"suficiente para cotejar el precepto (dist={distance:.3f})"
+        )
+    elif solo_remision:
+        # Ronda 2: la línea con forma de encabezado es una remisión, no el encabezado.
+        v_verificacion = (
+            f"Solo remisión: el fragmento trae el artículo citado al inicio de una línea en "
+            f"minúscula o seguido de coma (remisión o cita), no su encabezado; no acredita el "
+            f"precepto (dist={distance:.3f})"
+        )
+    elif ubicacion_no_acreditada:
+        v_verificacion = (
+            f"Ubicación no acreditada: {ubicacion_no_acreditada} (dist={distance:.3f})"
+        )
+    elif verde_determinista:
+        # Verde determinista: la verificación es determinista; la distancia se muestra
+        # como dato informativo, no como fundamento del 🟢.
+        v_verificacion = (
+            f"Verificación determinista: artículo localizado por metadata (ley y artículo) con "
+            f"su encabezado exacto en la ley citada; existencia y ubicación en la versión "
+            f"indexada, no vigencia ni contenido. Distancia informativa: dist={distance:.3f} "
+            f"(≤ umbral {COSINE_THRESHOLD}; puntaje por similitud {score_similitud})"
         )
     elif metadata_verificado:
         v_verificacion = (
@@ -1300,6 +1443,11 @@ def build_vvca(
         v_verificacion = f"Ley inferida de otro párrafo (confirmar el ordenamiento); {v_verificacion}"
     if unidad_no_cotejada:
         v_verificacion = f"{v_verificacion}; unidad citada no cotejada: {unidad_no_cotejada}"
+    if ordinal_sin_metadata:
+        v_verificacion = (
+            f"{v_verificacion}; encabezado ubicado solo por equivalencia del ordinal, en un "
+            f"fragmento sin metadata del artículo: no acredita el precepto"
+        )
     c_contextualizacion = vvca_contextualizacion(source_file)
     a_auditabilidad = f"{art_label} · {law} · pág. {page} · corpus: {source_file}"
 
@@ -1329,6 +1477,20 @@ def build_vvca(
         explicabilidad["evidencia_incompleta"] = True
     if no_localizado:
         explicabilidad["no_localizado"] = True
+    if ordinal_equivalente:
+        # Ordinales (3-oct-2026, campo añadido): el encabezado coincide con otra grafía del
+        # ordinal ("Artículo 1o." para el "1"); informativo con metadata, tope sin ella.
+        explicabilidad["ordinal_equivalente"] = True
+    if solo_remision:
+        # Ronda 2 (campo añadido): el "encabezado" es una remisión al inicio de línea.
+        explicabilidad["encabezado_autentico"] = False
+    if ubicacion_no_acreditada:
+        explicabilidad["ubicacion_no_acreditada"] = ubicacion_no_acreditada
+    if verde_determinista:
+        # Verde determinista (campos añadidos): la regla que dio el 🟢 y el puntaje por
+        # similitud (informativo) que habría dado la distancia sola.
+        explicabilidad["verde_determinista"] = True
+        explicabilidad["score_similitud"] = score_similitud
     return {
         "score": score,
         "semaforo": semaforo,
@@ -1732,7 +1894,23 @@ def _evaluar_inexistencia(ref: Dict, collection, leyes: Dict) -> Dict:
                 f"'{metodo}'): no se puede acreditar la inexistencia"
             ),
         }
-    fuente = ref.get("source_file")
+    preparada = _ley_preparada(ref.get("source_file"), collection, leyes)
+    if preparada is None:
+        return {
+            "acreditada": False,
+            "prueba": None,
+            "motivo": "no se pudieron leer los fragmentos de la ley indexada",
+        }
+    return evaluar_inexistencia(preparada[0], ref["article"])
+
+
+def _ley_preparada(
+    fuente: Optional[str], collection, leyes: Dict
+) -> Optional[Tuple[object, Dict[int, str]]]:
+    """La ley ``fuente`` leída (por metadata ``source``) y preparada (``preparar_ley``) una sola
+    vez por auditoría, con sus textos originales por ``chunk_index``; None si la lectura
+    falla. La comparten la prueba de inexistencia (D10) y la frontera del cuerpo del verde
+    determinista (ronda 2)."""
     if fuente not in leyes:
         try:
             res = collection.get(where={"source": fuente}, include=["documents", "metadatas"])
@@ -1748,13 +1926,7 @@ def _evaluar_inexistencia(ref: Dict, collection, leyes: Dict) -> Dict:
         leyes[fuente] = (
             (preparar_ley(pares, _denominaciones(fuente)), originales) if pares else None
         )
-    if leyes[fuente] is None:
-        return {
-            "acreditada": False,
-            "prueba": None,
-            "motivo": "no se pudieron leer los fragmentos de la ley indexada",
-        }
-    return evaluar_inexistencia(leyes[fuente][0], ref["article"])
+    return leyes[fuente]
 
 
 def _alerta_posterior(ref: Dict, posterior: Dict, score: Optional[int] = None) -> str:
@@ -2088,6 +2260,7 @@ def audit(
             # que resulte semánticamente parecido (el problema real de la búsqueda por coseno).
             metadata_hit = False
             metadata_candidate_found = False
+            cands: List[str] = []
             results = None
             if expected_source:
                 cands = _article_candidates(ref["article"])
@@ -2116,6 +2289,11 @@ def audit(
                             results = None
                     except Exception:
                         results = None  # sintaxis where no soportada → fallback semántico
+            # Ronda 2 (Codex P1): si la consulta exacta se abandona (falla o vuelve vacía), la
+            # evidencia sale de la búsqueda semántica y no hereda la bandera de metadata (antes
+            # un fragmento del respaldo con otra etiqueta obtenía ``metadata_hit``).
+            if results is None:
+                metadata_candidate_found = False
 
             filtro_fuente_fallido = False
             if results is None:
@@ -2143,17 +2321,55 @@ def audit(
                     filtro_fuente_fallido = True
 
             selected = select_article_evidence(results, ref["article"])
+            ubicacion = None
             if selected:
+                # Ronda 2 (pertenencia al cuerpo): con metadata y encabezado auténtico, la
+                # ubicación se acredita con la frontera TRANSITORIOS creíble de la ley citada
+                # (``itosturre.audit.ubicacion``); si lo decide otro resultado, se elige ese.
+                if (
+                    metadata_candidate_found
+                    and selected["heading_authentic"]
+                    and (selected["metadata"] or {}).get("source") == expected_source
+                ):
+                    preparada = _ley_preparada(expected_source, collection, leyes_preparadas)
+                    ubicacion = ubicar_en_cuerpo(
+                        (results.get("documents") or [[]])[0] or [],
+                        (results.get("metadatas") or [[]])[0] or [],
+                        ref["article"],
+                        expected_source,
+                        frontera_creible(preparada[0] if preparada else None),
+                    )
+                    otro = ubicacion["indice"]
+                    if otro is not None and otro != selected["rank"] - 1:
+                        selected = select_article_evidence(
+                            results, ref["article"], preferido=ubicacion["indice"]
+                        )
                 best_doc = selected["document"]
                 best_meta = selected["metadata"]
                 best_source = best_meta.get("source", "desconocido")
                 best_distance = selected["distance"]
                 article_heading_verified = selected["heading_verified"]
+                # Ronda 2: el encabezado elegido es auténtico (no una remisión al inicio de línea).
+                encabezado_autentico = bool(selected["heading_authentic"])
+                # Ordinales (3-oct-2026): el encabezado elegido solo coincide por la equivalencia
+                # del ordinal ("2" frente a "ARTÍCULO 2o.-"), no con la grafía citada.
+                ordinal_equivalente = bool(
+                    article_heading_verified and not selected.get("heading_literal", True)
+                )
                 # R4c (R4-D09): comparación real con la fuente esperada (desde R4b siempre
                 # existe aquí: una cita sin ley identificada no llega a la consulta).
                 source_match = best_source == expected_source
-                # La metadata solo corrobora si la evidencia es de la ley citada.
-                metadata_hit = metadata_candidate_found and article_heading_verified and source_match
+                # La metadata solo corrobora si la evidencia es de la ley citada. Ronda 2
+                # (Codex P1): y si la etiqueta del fragmento ELEGIDO está entre los candidatos.
+                metadata_hit = (
+                    metadata_candidate_found and article_heading_verified and source_match
+                    and str(best_meta.get("article", "")) in cands
+                )
+                ubicacion_no_acreditada = (
+                    ubicacion["motivo"]
+                    if metadata_hit and ubicacion and ubicacion["estado"] in UBICACION_NO_ACREDITADA
+                    else None
+                )
                 por_confirmar = bool(ref.get("law_requires_confirmation"))
 
                 # R4-D10 (criterio del responsable, 2-oct-2026: opción C) — El precepto no se
@@ -2208,8 +2424,10 @@ def audit(
                         )
                         if (meta or {}).get("source") == best_source
                     ]
+                    # Ronda 2: el cuerpo se reconstruye desde la MISMA ocurrencia elegida (el
+                    # encabezado auténtico, no una remisión anterior del fragmento).
                     cotejo = cotejar_precepto(best_doc, best_meta, ref["article"], unidades,
-                                              candidatos)
+                                              candidatos, solo_autentico=encabezado_autentico)
                 derogado = bool(cotejo and cotejo["derogacion"] == DEROGADO)
                 derogacion_ambigua = bool(cotejo and cotejo["derogacion"] == DEROGACION_AMBIGUA)
                 evidencia_incompleta = bool(cotejo and not cotejo["completo"])
@@ -2245,7 +2463,19 @@ def audit(
                     no_localizado=(
                         evaluacion is not None and best_distance > COSINE_THRESHOLD
                     ),
+                    ordinal_equivalente=ordinal_equivalente,
+                    encabezado_autentico=encabezado_autentico or not article_heading_verified,
+                    ubicacion_no_acreditada=ubicacion_no_acreditada,
                 )
+                if ubicacion and metadata_hit:
+                    # Ronda 2 (campo añadido): cómo se acreditó (o no) la pertenencia al cuerpo.
+                    vvca["explicabilidad"]["ubicacion"] = {
+                        "estado": ubicacion["estado"],
+                        "encabezados_autenticos": ubicacion["encabezados"],
+                        "paginas": ubicacion["paginas"],
+                        "frontera_creible": ubicacion["frontera_creible"],
+                        "motivo_frontera": ubicacion["motivo_frontera"],
+                    }
                 if evaluacion is not None and best_distance > COSINE_THRESHOLD:
                     vvca["explicabilidad"]["inexistencia_no_acreditada"] = evaluacion["motivo"]
                 if posterior:
@@ -2387,6 +2617,24 @@ def audit(
                             f"inequívoca. Verificar qué parte del precepto está vigente antes de "
                             f"citar."
                         )
+                elif article_heading_verified and not encabezado_autentico:
+                    # Ronda 2: la línea con forma de encabezado es una remisión ("artículo 41."
+                    # al inicio de línea, en minúscula) o una cita ("Artículo 2o., fracción I").
+                    alerts.append(
+                        f"🟡 COTEJAR (score {vvca['score']}): '{ref['raw']}' — en "
+                        f"'{best_source}' (pág. {best_meta.get('page', '?')}) solo se ubicó una "
+                        f"remisión al artículo {ref['article']} al inicio de una línea, no su "
+                        f"encabezado: no acredita el precepto. Cotejarlo en la fuente oficial "
+                        f"antes de citar."
+                    )
+                elif ubicacion_no_acreditada:
+                    # Ronda 2 (pertenencia al cuerpo): encabezado repetido sin frontera que lo
+                    # desambigüe, o el único tras la frontera TRANSITORIOS.
+                    alerts.append(
+                        f"🟡 UBICACIÓN NO ACREDITADA (score {vvca['score']}): '{ref['raw']}' — "
+                        f"en '{best_source}': {ubicacion_no_acreditada}. Cotejar el precepto en "
+                        f"la fuente oficial antes de citar."
+                    )
                 elif metadata_hit:
                     # Artículo confirmado por metadata (ley+artículo exactos) → verificado.
                     # Distancia alta ya NO es "alucinación": es texto de otra porción del
@@ -2414,6 +2662,18 @@ def audit(
                         alerts.append(_alerta_posterior(ref, posterior, vvca["score"]))
                     else:
                         alerts.append(_alerta_no_localizado(ref, best_source, vvca["score"]))
+                elif ordinal_equivalente:
+                    # Ordinales (3-oct-2026): ruta semántica (sin metadata del artículo) con el
+                    # encabezado ubicado solo por la equivalencia del ordinal: 🟡 (tope 84), como
+                    # quedaba esa grafía antes de la equivalencia; el 🟢 de la ruta semántica no
+                    # se amplía.
+                    alerts.append(
+                        f"🟡 COTEJAR (score {vvca['score']}): '{ref['raw']}' — se ubicó en "
+                        f"'{best_source}' el encabezado del artículo {ref['article']} con otra "
+                        f"grafía del ordinal, en un fragmento sin metadata de ese artículo: la "
+                        f"equivalencia lo ubica pero no lo acredita. Cotejar el precepto antes "
+                        f"de citar."
+                    )
                 elif article_heading_verified is False and posterior:
                     # D10 (ronda 2): el número sigue al último artículo de la versión indexada
                     # sin superar el margen: una reforma posterior pudo adicionarlo (🟡).
