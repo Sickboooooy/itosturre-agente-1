@@ -426,6 +426,74 @@ def preparar_ley(
     )
 
 
+def _motivo_frontera_no_creible(ley: LeyPreparada) -> str:
+    """"" si la frontera TRANSITORIOS de ``ley`` (ya observada, con encabezados numerados en el
+    cuerpo) delimita el cuerpo con credibilidad; si no, el motivo. Son los controles de la
+    prueba 2 (P6/P7): el último encabezado del cuerpo es el de mayor número, ninguna línea
+    candidata del cuerpo ni ninguna línea con forma de artículo tras la frontera tiene un
+    número mayor (frontera dudosa), el cuerpo está completo desde el ``chunk_index`` 0 y la
+    densidad de páginas no delata texto perdido."""
+    encabezados = list(ley.encabezados)
+    numerados = [e for e in encabezados if e.tipo == NUMERADO]
+    mayor = max(e.clave[0] for e in numerados)
+    ultimo = numerados[-1]
+    if ultimo.clave[0] != mayor:
+        return (
+            f"el último encabezado del cuerpo ({' '.join(ultimo.designacion.split())}) no es el "
+            f"de mayor número ({mayor})"
+        )
+    candidatas = [e for e in encabezados if e.tipo == CANDIDATA and e.numero > mayor]
+    if candidatas:
+        return (
+            f"una línea candidata a encabezado tiene un número mayor que el último "
+            f"artículo ({candidatas[0].designacion}): no se acredita dónde termina el cuerpo"
+        )
+    for texto in ley.posteriores:
+        for e in _encabezados_de(texto, -1):
+            if _con_forma_de_articulo(e) and e.numero > mayor:
+                return (
+                    f"tras la frontera TRANSITORIOS hay una línea con forma de artículo y "
+                    f"número mayor ({e.designacion}): frontera dudosa"
+                )
+    indices = [f.chunk_index for f in ley.fragmentos[: ley.frontera[0] + 1]]
+    if indices[0] != 0:
+        return f"el cuerpo no empieza en el chunk_index 0 ({indices[0]})"
+    if indices != list(range(len(indices))):
+        hueco = next(b for a, b in zip(indices, indices[1:]) if b != a + 1)
+        return f"cuerpo incompleto: hueco de chunk_index antes del {hueco}"
+    return ley.densidad
+
+
+def frontera_creible(ley: Optional[LeyPreparada]) -> dict[str, Any]:
+    """¿La primera línea TRANSITORIOS de la ley delimita su cuerpo con credibilidad?
+
+    Verde determinista, ronda 2 (pertenencia al cuerpo): la frontera cruda no basta (en un
+    reglamento aparece en el índice del fragmento 3; en el CFPC un artículo auténtico del
+    cuerpo queda tras ella). Se exigen la estructura utilizable de la ley y los mismos
+    controles de credibilidad que la prueba 2 (``_motivo_frontera_no_creible``). Devuelve
+    ``creible``, ``motivo`` ("" si es creíble) y ``chunk_index`` del fragmento de la frontera.
+    """
+    def no(motivo: str) -> dict[str, Any]:
+        return {"creible": False, "motivo": motivo, "chunk_index": None}
+
+    if ley is None:
+        return no("no se pudieron leer los fragmentos de la ley indexada")
+    if ley.motivo:
+        return no(ley.motivo)
+    if ley.frontera is None:
+        return no("sin línea TRANSITORIOS: no se delimita el cuerpo de la ley")
+    if not any(e.tipo == NUMERADO for e in ley.encabezados):
+        return no("el cuerpo no tiene encabezados de artículo numerados")
+    motivo = _motivo_frontera_no_creible(ley)
+    if motivo:
+        return no(motivo)
+    return {
+        "creible": True,
+        "motivo": "",
+        "chunk_index": ley.fragmentos[ley.frontera[0]].chunk_index,
+    }
+
+
 def _menciona(texto: str, tolerante: re.Pattern, base: int, con_sufijo: bool) -> bool:
     """¿El texto menciona el artículo citado (``tolerante``: su designación con cualquier
     ordinal y espacio)? Tras "artículo(s)"/"art(s)." en una enumeración o un rango que lo
@@ -515,32 +583,12 @@ def evaluar_inexistencia(
     mayor = max(e.clave[0] for e in numerados)
     if citada[0] > mayor:
         ultimo = numerados[-1]
-        if ultimo.clave[0] != mayor:
-            return _sin_prueba(
-                f"el último encabezado del cuerpo ({describir(ultimo)['articulo']}) no es el "
-                f"de mayor número ({mayor})"
-            )
-        candidatas = [e for e in encabezados if e.tipo == CANDIDATA and e.numero > mayor]
-        if candidatas:
-            return _sin_prueba(
-                f"una línea candidata a encabezado tiene un número mayor que el último "
-                f"artículo ({candidatas[0].designacion}): no se acredita dónde termina el cuerpo"
-            )
-        for texto in ley.posteriores:
-            for e in _encabezados_de(texto, -1):
-                if _con_forma_de_articulo(e) and e.numero > mayor:
-                    return _sin_prueba(
-                        f"tras la frontera TRANSITORIOS hay una línea con forma de artículo y "
-                        f"número mayor ({e.designacion}): frontera dudosa"
-                    )
+        # Controles de credibilidad de la frontera (factorizados en la ronda 2 del verde
+        # determinista para reutilizarlos en ``frontera_creible``; mismos motivos y orden).
+        motivo = _motivo_frontera_no_creible(ley)
+        if motivo:
+            return _sin_prueba(motivo)
         indices = [f.chunk_index for f in ordenados[: ley.frontera[0] + 1]]
-        if indices[0] != 0:
-            return _sin_prueba(f"el cuerpo no empieza en el chunk_index 0 ({indices[0]})")
-        if indices != list(range(len(indices))):
-            hueco = next(b for a, b in zip(indices, indices[1:]) if b != a + 1)
-            return _sin_prueba(f"cuerpo incompleto: hueco de chunk_index antes del {hueco}")
-        if ley.densidad:
-            return _sin_prueba(ley.densidad)
         margen = margen_prueba_numero(mayor)
         if citada[0] < mayor + margen:
             return _sin_prueba(

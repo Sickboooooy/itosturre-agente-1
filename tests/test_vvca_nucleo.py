@@ -867,21 +867,33 @@ class ResolucionLeyTests(unittest.TestCase):
         self.assertEqual(ON.extract_article_numbers("artículo 247 Ter"), ["247 Ter"])
 
     def test_article_candidates(self) -> None:
+        # Ordinales (3-oct-2026): cada forma suma las etiquetas del chunker del mismo número
+        # con el indicador ordinal equivalente ('' / 'o' / 'º'; '°' no es carácter de palabra
+        # y la etiqueta de "Artículo 1°" es '1'), con su letra si la trae. Antes: '19' → ['19'],
+        # '4o' → ['4o'], '1004-A' → ['1004-A'], '4o.-A' → ['4o', '4o.-A'], etc.
         casos = {
-            "247 Bis": ["247", "247 Bis", "247Bis"],
-            "1004-A": ["1004-A"],
-            "19": ["19"],
-            "4o": ["4o"],
-            "  7 ": ["7"],
+            "247 Bis": ["247", "247 Bis", "247Bis", "247o", "247º"],
+            "1004-A": ["1004", "1004-A", "1004A", "1004o", "1004o-A", "1004oA", "1004º",
+                       "1004º-A", "1004ºA"],
+            "19": ["19", "19o", "19º"],
+            "4o": ["4", "4o", "4º"],
+            "  7 ": ["7", "7o", "7º"],
             "": [],
             # Etiquetas del chunker para designaciones con sufijo (número base incluido).
-            "4o.-A": ["4o", "4o.-A"],
-            "2o. Bis": ["2o", "2o. Bis", "2o.Bis"],
-            "32-B Quáter": ["32-B", "32-B Quáter", "32-BQuáter"],
+            "4o.-A": ["4", "4-A", "4A", "4o", "4o-A", "4o.-A", "4oA", "4º", "4º-A", "4ºA"],
+            "2o. Bis": ["2", "2o", "2o. Bis", "2o.Bis", "2º"],
+            "32-B Quáter": ["32", "32-B", "32-B Quáter", "32-BQuáter", "32B", "32o", "32o-B",
+                            "32oB", "32º", "32º-B", "32ºB"],
+            # El femenino no se usa en la numeración de artículos: solo consigo mismo.
+            "1a": ["1a", "1ª"],
+            "1°": ["1", "1o", "1°", "1º"],
         }
         for articulo, esperado in casos.items():
             with self.subTest(articulo=articulo):
-                self.assertEqual(sorted(ON._article_candidates(articulo)), esperado)
+                # Lista ordenada (determinista): el filtro de ChromaDB no depende del hash.
+                self.assertEqual(ON._article_candidates(articulo), esperado)
+        # Nunca otro número: "1" no trae "10", "11" ni etiquetas con letra.
+        self.assertEqual(ON._article_candidates("1"), ["1", "1o", "1º"])
 
 
 class EvidenciaTests(unittest.TestCase):
@@ -918,9 +930,11 @@ class EvidenciaTests(unittest.TestCase):
         self.assertFalse(has_exact_article_heading("Artículo 247.- Texto sintético.", "247 Ter"))
         self.assertFalse(has_exact_article_heading("Artículo 247 Bis.- Texto.", "247 Ter"))
         self.assertFalse(has_exact_article_heading("Artículo 4o.-B.- Texto.", "4o.-A"))
-        # El ordinal se compara como antes; "5o. A ninguna…" sigue siendo el encabezado del 5o.
+        # "5o. A ninguna…" sigue siendo el encabezado del 5o (no el sufijo "A").
         self.assertTrue(has_exact_article_heading("Artículo 5o. A ninguna persona podrá.", "5o"))
-        self.assertFalse(has_exact_article_heading("Artículo 4o.- Texto.", "4"))
+        # Ordinales (3-oct-2026): el ordinal se compara por equivalencia ("4" ≡ "4o"). Antes
+        # se comparaba tal como se pidió y "Artículo 4o.-" no era el encabezado del "4".
+        self.assertTrue(has_exact_article_heading("Artículo 4o.- Texto.", "4"))
         self.assertTrue(
             has_exact_article_heading("Artículo 4o.-A.- Otro.\nArtículo 4o.- Texto.", "4o")
         )
@@ -1064,12 +1078,19 @@ class ConstruccionVvcaTests(unittest.TestCase):
         self.ref = _articulo("16", "cpeum", CPEUM, "Art. 16")
 
     def test_metadata_y_encabezado_verificados(self) -> None:
+        # Verde determinista (opción A, 3-oct-2026): con evidencia completa el 🟢 es
+        # determinista; el puntaje por similitud (92 ≥ 85) se conserva y queda como dato
+        # informativo. Antes: "Artículo confirmado por metadata y encabezado exacto en corpus
+        # oficial (dist=0.080)" y la explicabilidad sin "verde_determinista"/"score_similitud".
         vvca = ON.build_vvca(self.ref, 0.08, True, CPEUM, "19",
                              metadata_verificado=True, article_heading_verified=True)
         self.assertEqual((vvca["score"], vvca["semaforo"]), (92, "🟢"))
         self.assertEqual(
             vvca["V_verificacion"],
-            "Artículo confirmado por metadata y encabezado exacto en corpus oficial (dist=0.080)",
+            "Verificación determinista: artículo localizado por metadata (ley y artículo) con su "
+            "encabezado exacto en la ley citada; existencia y ubicación en la versión indexada, "
+            "no vigencia ni contenido. Distancia informativa: dist=0.080 (≤ umbral 0.25; "
+            "puntaje por similitud 92)",
         )
         self.assertEqual(vvca["V_validacion"], f"Fuente correcta: {CPEUM}")
         self.assertEqual(vvca["A_auditabilidad"], f"Art. 16 · cpeum · pág. 19 · corpus: {CPEUM}")
@@ -1077,6 +1098,7 @@ class ConstruccionVvcaTests(unittest.TestCase):
             "coseno": 0.08, "umbral": 0.25, "aprobado_umbral": True,
             "match_metadata": True, "encabezado_articulo": True, "coincide_fuente": True,
             "fuente_encontrada": CPEUM, "fuente_esperada": CPEUM, "ley_inferida": False,
+            "verde_determinista": True, "score_similitud": 92,
         })
 
     def test_sin_encabezado_se_capa_a_84(self) -> None:
@@ -1675,7 +1697,9 @@ class AuditoriaTests(AuditoriaBase):
         )
 
         self.assertEqual(self.codificador.llamadas, [consulta])
-        filtro = {"$and": [{"source": CPEUM}, {"article": {"$in": ["16"]}}]}
+        # Ordinales (3-oct-2026): los candidatos incluyen las etiquetas con ordinal
+        # equivalente (antes ["16"]).
+        filtro = {"$and": [{"source": CPEUM}, {"article": {"$in": ["16", "16o", "16º"]}}]}
         self.assertIn(("get", {"where": filtro, "limit": None, "include": ["documents"]}),
                       self.coleccion.llamadas)
         self.assertIn(("query", {"n_results": 3, "where": filtro, "include": None}),
@@ -2092,7 +2116,11 @@ class AuditoriaTests(AuditoriaBase):
         self.assertTrue(explicabilidad["filtro_fuente_fallido"])
         self.assertEqual(explicabilidad["fuente_esperada"], CPEUM)
         self.assertEqual(fuente["vvca"]["V_validacion"], f"Fuente correcta: {CPEUM}")
-        # Distancia 0.30 > umbral: metadata + encabezado conservan el piso 🟡 (COTEJAR).
+        # Distancia 0.30 > umbral: 🟡 (70). Verde determinista, ronda 2 (Codex P1): la
+        # consulta exacta se abandonó (falló), así que la evidencia del respaldo ya NO hereda
+        # la metadata (antes: "match_metadata" True y piso 70 por metadata; ahora el mismo 70
+        # sale del límite 60–84 de la distancia alta sin metadata, D10).
+        self.assertFalse(explicabilidad["match_metadata"])
         self.assertEqual((fuente["vvca"]["score"], fuente["vvca"]["semaforo"]), (70, "🟡"))
         self.assertEqual(resultado["vvca_summary"]["veredicto"]["semaforo"], "🟡")
 

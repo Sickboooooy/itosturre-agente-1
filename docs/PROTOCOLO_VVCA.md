@@ -40,6 +40,50 @@ derogado (R4c). Desde D10 también la distancia alta sin metadata: una cita norm
 evidencia nunca queda bajo 60 por la distancia; su único 🔴 es la **inexistencia acreditada**
 (§4, criterio del responsable del 2-oct-2026).
 
+**Verde determinista (criterio del responsable, 3-oct-2026: opción A).** Con **evidencia
+completa** una cita normativa es 🟢 por regla determinista: `build_vvca` fija el puntaje en
+`max(puntaje por similitud, 85)` y la distancia coseno deja de decidir entre 🟢 y 🟡 en esa ruta.
+La consulta que construye `audit()` es corta ("Artículo 109 cnpp") y su distancia al fragmento
+que trae el encabezado exacto no mide la existencia del precepto: antes, con evidencia completa,
+salían 🟡 solo por distancia los 51 artículos de la CPEUM de una muestra de 60 y 50 de 60 del
+CNPP. Evidencia completa = **todas** a la vez:
+
+- `metadata_hit` de `audit()`: candidato por metadata `source+article`, encabezado exacto en el
+  fragmento seleccionado, fuente recuperada igual a la esperada y (ronda 2) etiqueta `article`
+  del fragmento ELEGIDO entre los candidatos; si la consulta exacta falla o vuelve vacía, la
+  evidencia del respaldo semántico ya no hereda la metadata;
+- (ronda 2) encabezado **auténtico**: prefijo con "A" mayúscula ("Artículo", "ARTÍCULO",
+  "Art.") y cierre no seguido de "," ni ";". "artículo 41." que el PDF dejó al inicio de una
+  línea es una remisión (el chunker la toma por encabezado y etiqueta el fragmento con el 41) y
+  "Artículo 2o., fracción I, inciso H." es una cita: solo con ellas, tope 84 y `🟡 COTEJAR …
+  solo se ubicó una remisión`. Entre varios candidatos se prefieren los auténticos, y el cuerpo,
+  la derogación y la unidad citada se cotejan desde esa misma ocurrencia;
+- (ronda 2) **ubicación en el cuerpo** acreditada (`itosturre/audit/ubicacion.py`, con la
+  frontera TRANSITORIOS y sus controles de credibilidad de la prueba de inexistencia,
+  `frontera_creible`): (i) con dos o más encabezados auténticos distintos, solo si la frontera
+  es creíble y exactamente uno queda antes de ella (ese se elige); (ii) con uno solo tras una
+  frontera creíble, no (transitorio o decreto); (iii) con uno solo y frontera no creíble o
+  ausente, sí. El mismo pasaje repetido en fragmentos consecutivos de la misma página cuenta
+  una vez. Si no se acredita: tope 84 y `🟡 UBICACIÓN NO ACREDITADA` con el motivo;
+- ley identificada (`source_file`) y **no** por confirmar (`law_requires_confirmation`);
+- precepto no derogado, sin unidad derogada ni derogación ambigua;
+- sin unidad citada no cotejada (`unidad_no_cotejada`) ni evidencia incompleta;
+- distancia ≤ `COSINE_THRESHOLD` (0.25). **Salvaguarda de anomalía:** con metadata y encabezado
+  pero distancia mayor que el umbral se conserva el comportamiento anterior (piso 70, `🟡
+  COTEJAR`). En el corpus real las distancias con evidencia completa van de 0.116 a 0.193.
+
+El puntaje por similitud queda como dato informativo (`explicabilidad.score_similitud`, junto a
+`explicabilidad.verde_determinista: true`), y `V_verificacion` lo dice: "Verificación
+determinista: artículo localizado por metadata (ley y artículo) con su encabezado exacto en la
+ley citada; existencia y ubicación en la versión indexada, no vigencia ni contenido. Distancia
+informativa: dist=0.170 (≤ umbral 0.25; puntaje por similitud 83)". Todos los topes (ley por
+confirmar, otra fuente, derogación, unidad no cotejada, evidencia incompleta, sin ley) se
+aplican después y siguen dejando 🟡; la traza es `verified` como antes (metadata y puntaje ≥ 85).
+El 🟢 de una norma significa lo que dice su alcance (`ALCANCE_NORMATIVA`): el precepto existe y
+está ubicado en la versión indexada; **no** que esté vigente ni que diga lo que afirma el escrito.
+**Fuera de esa ruta** (búsqueda semántica sin metadata) la distancia sigue decidiendo como antes.
+`vvca_score` y `vvca_semaforo` no cambian (los usa `scripts/evaluate_gold_set.py`).
+
 | Semáforo | Score | Lectura |
 |---|---|---|
 | 🟢 | ≥ 85 | Existencia y ubicación verificadas en el corpus local (cotejar contenido; ver "Alcance del 🟢") |
@@ -378,7 +422,40 @@ Comportamiento al auditar (`audit()`):
 - **Coincidencia de metadata `source+article`** → no basta por sí sola. Entre todos los
   fragmentos candidatos se prefiere el que contiene el encabezado exacto (`Artículo N.-`).
   Una mención interna como "conforme al artículo 42" se conserva como evidencia auditable,
-  pero queda en 🟡 y nunca acredita por sí sola el precepto citado.
+  pero queda en 🟡 y nunca acredita por sí sola el precepto citado. Con metadata, encabezado
+  exacto y el resto de la evidencia completa, la cita es 🟢 determinista (§2).
+- **Ordinales (3-oct-2026)** → el indicador ordinal masculino no cambia el artículo: "1" ≡
+  "1o" ≡ "1º" ≡ "1°" al comparar designaciones (candidatos por metadata, encabezado exacto,
+  cuerpo del precepto, variantes con sufijo; la prueba de inexistencia ya era tolerante). El
+  chunker etiqueta "Artículo 1o." como `1o`, "Artículo 1º" como `1º` y "Artículo 1." o
+  "Artículo 1°" como `1`; `_article_candidates` pide todas esas etiquetas. El número se compara
+  completo ("1" nunca es "10", "11" ni "1o.-A") y los sufijos se siguen exigiendo exactos
+  ("4o.-A" no es "4"; "4-A" sí es "4o.-A"). El femenino ("1a", "1ª") no se usa en la numeración
+  de artículos y solo coincide consigo mismo. Antes "CPEUM Art. 1." o "CFF Art. 9." no tenían
+  candidatos por metadata y caían a la búsqueda semántica, que mostraba la evidencia de otro
+  artículo (CFF 9 → "Artículo 91-C. (Se deroga)"). Sin metadata (ruta semántica), un
+  encabezado que solo coincide por la equivalencia ubica el precepto pero no da 🟢: tope 84 y
+  `🟡 COTEJAR … con otra grafía del ordinal` (`explicabilidad.ordinal_equivalente`), para no
+  ampliar el 🟢 de esa ruta. Nunca un 🔴: "CPEUM Art. 1." frente a encabezados "1o." no
+  acredita inexistencia. Ronda 2: la equivalencia se activa explícitamente
+  (`patron_articulo(..., ordinal_equivalente=True)`); el comportamiento por defecto de
+  `patron_articulo` y `patron_variante_con_sufijo` sigue siendo la comparación literal. Un
+  sufijo partido en la línea siguiente ("Artículo 1o.\nBis.-", "Artículo 1o.\n-A.-") impide el
+  encabezado del número base (solo un sufijo latino o "-Letra" con su cierre; una letra suelta
+  como "Artículo 26.\nA. El Estado…" o "Artículo 37.\nA) Ningún…" sigue siendo el encabezado del
+  26 o del 37). En la extracción, "°" seguido de un sufijo es el ordinal y se conserva con él:
+  "CFF Art. 4°-A." → `4°-A` (antes `4`, que con la equivalencia habría acreditado el art. 4o.) y
+  "artículo 1°. Bis del CFF" → `1°. Bis` con su ley (antes `1` sin ley).
+- **Primera aparición** → si varios fragmentos de la **misma fuente** traen el encabezado
+  exacto, se prefieren los auténticos (ronda 2) y, entre ellos, el de menor `chunk_index`, no el
+  de menor distancia; la frontera del cuerpo (§2) decide si esa ubicación se acredita. Sin
+  `chunk_index` entero o con fuentes distintas, decide el ranking.
+  Corrige ubicaciones en transitorios o decretos: "Código Civil Federal Art. 1." salía 🟢 con
+  "Artículo 1.- Se reforma el artículo 17 del Código Civil para el Distrito Federal…" (pág. 335)
+  y ahora con el art. 1o. del cuerpo (pág. 1); "CFF Art. 21." con el texto del art. 21
+  reproducido en una aclaración de un decreto de reforma, tras los transitorios (pág. 320), y
+  ahora pág. 33; "CPEUM Art. 4o." con la línea "artículo 4o.; y se adicionan…" (pág. 200) y
+  ahora pág. 12.
 - **Ley identificada pero ausente del corpus** → `🟡 NO VERIFICABLE`. *No* se reporta como
   "alucinación": el corpus simplemente no la contiene. (Guard P0 — antes producía un falso 🔴
   que tachaba de falsa una cita válida, p. ej. LGV/PIDCP.)
@@ -580,6 +657,25 @@ Comportamiento al auditar (`audit()`):
 | "art. 911 Bis CPCJ" (911 y 912 en el mismo fragmento): 🟡 NO VERIFICABLE | 🔴 ARTÍCULO INEXISTENTE ACREDITADO ("el art. 911 pasa al art. 912 sin el 911 Bis") |
 | "art. 19 Ter CPEUM", "art. 70 Ter CFF": 🟡 NO VERIFICABLE | Igual (vecinos en fragmentos distintos, o sufijos de letra y latinos) |
 | "La Ley de Amparo … y la CPEUM …. El artículo 217 …": se cotejaba contra la CPEUM | 🟡 LEY NO IDENTIFICADA (contexto previo ambiguo) |
+
+### Qué cambia para el abogado (verde determinista y ordinales, 3-oct-2026)
+
+Medido con el corpus real (main@ba26a93 frente a este cambio; 60 artículos de cada ley, citados
+como "LEY Art. N."):
+
+| Antes | Después |
+|---|---|
+| 🟡 con metadata, encabezado exacto y fuente correcta, solo por distancia: CPEUM 51/60, CNPP 50/60, CFF 39/60, Ley de Amparo 7/60; además CPEUM y CFF 1–9 (citados sin ordinal) 🟡 sin metadata | 🟢 determinista en los 240 (distancia de los nuevos 🟢: 0.129 a 0.193); el puntaje por similitud queda informativo |
+| "CNPP Art. 109." (Gold Set v2, aprobado 🟢): 84 🟡 | 85 🟢 (similitud 84) |
+| "CPEUM Art. 1." o "CFF Art. 9.": 🟡 EVIDENCIA INSUFICIENTE con la evidencia de otro artículo ("Artículo 91-C. (Se deroga)") | 🟢 con el encabezado "Artículo 1o." / "Artículo 9o." (pág. 1 / 5) |
+| "Código Civil Federal Art. 1.": 🟢 con un decreto de reforma (pág. 335) | 🟢 con el art. 1o. del cuerpo (pág. 1) |
+| "CFF Art. 4-A.": 🟡 NO VERIFICABLE | 🟢 con "Artículo 4o.-A.-" (pág. 3) |
+| Derogado, fracción derogada, párrafo citado, ley por confirmar, 29-A frente a 29 | Sin cambio de semáforo (🟡) |
+| "CFF Art. 9999." 🔴 inexistente acreditado · "CFF Art. 264." 🟡 posterior al último | Igual |
+| Remisión al inicio de línea tomada por encabezado: "artículo 134/135 de la LFPC" 🟢 con «artículo 134. Se adiciona…»; "artículo 41 del CCF" 🟢 con «artículo 41. La Procuraduría…» (texto del 40) | 🟡 COTEJAR (solo remisión) en la LFPC; 🟢 con «Artículo 41. Las Formas del Registro Civil…» (pág. 7) en el CCF |
+| Encabezado repetido: "artículo 54 del CCF" 🟢 con un art. 54 transcrito en otro precepto (pág. 197) | 🟡 UBICACIÓN NO ACREDITADA (5 encabezados antes de la frontera) |
+| "artículo 496 del CFPC" 🟢 con el art. 496 de un decreto de reforma (pág. 126; el cuerpo termina en el art. 626, pág. 63) | 🟡 UBICACIÓN NO ACREDITADA (tras la frontera) |
+| "CFF Art. 4°-A." 🟡 con otra evidencia (se extraía "4") | 🟢 con "Artículo 4o.-A.-" (pág. 3), nunca con el art. 4o. |
 
 > El guard 🟡 NO VERIFICABLE para una ley ausente solo se ejerce con `--force`; sin `--force`
 > la auditoría se **detiene** antes con `status: corpus_incomplete` (ver §5).

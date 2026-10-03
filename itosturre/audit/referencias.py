@@ -95,7 +95,12 @@ _ORDINAL = rf"(?:(?-i:[oa]){_FIN_PALABRA}|[ºª])"
 # (solo mayúscula).
 _LETRA = rf"(?:\.?-[A-Za-z]{_FIN_PALABRA}(?!\))|(?-i:[A-Z]){_FIN_PALABRA})"
 _LATINO = rf"(?:\.?\s*-?\s*{_LATINO_ALT}{_FIN_PALABRA})"
-_DESIGNACION = rf"\d+{_ORDINAL}?{_LETRA}?{_LATINO}?"
+# Ordinales (3-oct-2026, ronda 2): "°" seguido de un sufijo ("4°-A", "1°. Bis") es el ordinal
+# del número y se conserva con el sufijo; solo el grado final ("259°") se descarta. Antes
+# "CFF Art. 4°-A." se extraía como "4" (la letra se perdía) y "artículo 1°. Bis del CFF" como
+# "1" sin ley: una referencia truncada que podía acreditarse contra el artículo base.
+_ORDINAL_O_GRADO = rf"(?:{_ORDINAL}|°(?=(?:{_LETRA}|{_LATINO})))"
+_DESIGNACION = rf"\d+{_ORDINAL_O_GRADO}?{_LETRA}?{_LATINO}?"
 # Fracción. R4c (ronda 2): la palabra clave no puede seguir dentro de otra palabra
 # ("frente a" ya no es la fracción "ente") y admite "fracc." ("fracc. III" ya no es "acc.").
 _CLAVE_FRACCION = r"(?:fracci[oó]n(?![^\W\d_])|fracc?(?:\.|(?![^\W\d_]))|fr(?:\.|(?![^\W\d_])))"
@@ -118,7 +123,8 @@ _CALIFICADOR_PREVIO_RE = re.compile(
     r"(?:\d[\w°º.\-]*|(?<![^\W_])[IVXLC]{1,6}|(?<![^\W_])[A-Z]|(?<![^\W_])[a-z]\))[\s,;()]*$"
 )
 _ITEM_RE = re.compile(
-    rf"(?P<num>\d+)(?P<ord>{_ORDINAL})?(?P<letra>{_LETRA})?(?P<latino>{_LATINO})?(?P<grado>°)?"
+    rf"(?P<num>\d+)(?P<ord>{_ORDINAL_O_GRADO})?(?P<letra>{_LETRA})?(?P<latino>{_LATINO})?"
+    rf"(?P<grado>°)?"
     rf"(?:\s*[,;]?\s*{_CLAVE_FRACCION}\s*(?P<fraccion>[\w\.]+))?",
     re.IGNORECASE,
 )
@@ -193,6 +199,37 @@ def articulo_con_sufijo(articulo: str) -> bool:
     return bool(partes and partes.con_sufijo)
 
 
+# Ordinales (3-oct-2026) — El indicador ordinal masculino no cambia el artículo: "1" ≡ "1o" ≡
+# "1º" ≡ "1°" (la CPEUM, el CFF y el CNPP escriben "Artículo 1o.", el Código Civil de Jalisco
+# "Artículo 1º.-" y la Ley del ISSSTE "Artículo 1."; el escrito puede citar cualquiera). Solo
+# el indicador: el número se compara completo ("1" nunca es "10" ni "11") y los sufijos siguen
+# exigiéndose exactos ("1" no es "1o.-A"; "4o.-A" no es "4"). El femenino ("1a", "1ª") no se
+# usa en la numeración de artículos: solo coincide consigo mismo.
+ORDINALES_MASCULINOS = ("", "o", "º", "°")
+ORDINALES_FEMENINOS = ("a", "ª")
+
+
+def ordinales_equivalentes(ordinal: str) -> tuple[str, ...]:
+    """Indicadores ordinales equivalentes al de una designación (incluido él mismo)."""
+    if ordinal in ORDINALES_FEMENINOS:
+        return ORDINALES_FEMENINOS
+    return ORDINALES_MASCULINOS
+
+
+# Cualquier indicador ordinal, para impedir que una expresión "salte" el que no consumió
+# ("1" frente a "1a."; "4" frente a "4o.-A" para esquivar la exclusión del sufijo).
+_CUALQUIER_ORDINAL = r"(?:(?-i:[oa])(?![^\W\d_])|[ºª°])"
+
+
+def _patron_ordinal(ordinal: str) -> str:
+    """Expresión del indicador ordinal por equivalencia: el masculino es opcional (o, º, °
+    o ninguno) y el femenino obligatorio (a, ª). En ambos casos no puede quedar otro
+    indicador sin consumir tras lo reconocido."""
+    if ordinal in ORDINALES_FEMENINOS:
+        return rf"(?:(?-i:a)(?![^\W\d_])|ª)(?!{_CUALQUIER_ORDINAL})"
+    return rf"(?:(?-i:o)(?![^\W\d_])|[º°])?(?!{_CUALQUIER_ORDINAL})"
+
+
 def _sufijo_letra(espacio: str) -> str:
     # Letra pegada al guion, en cualquier caja ("4o.-A.-", "4o.-a.-", "29-B."), que no es el
     # inicio del cuerpo: "4o.- a) …" (espacio), "4o.-a) …" (inciso) o "4o.- Las …" no lo son.
@@ -204,27 +241,38 @@ def _sufijo_latino(espacio: str) -> str:
 
 
 def patron_articulo(
-    articulo: str, *, ordinal_estricto: bool = True, espacio: str = r"[ \t]"
+    articulo: str,
+    *,
+    ordinal_estricto: bool = True,
+    ordinal_equivalente: bool = False,
+    espacio: str = r"[ \t]",
 ) -> Optional[str]:
     """Expresión (para texto SIN acentos, con IGNORECASE) que reconoce exactamente la
     designación pedida: el número, su ordinal y SOLO los sufijos pedidos.
 
     "4o" no reconoce "4o.-A" ni "4o.-a"; "29" no reconoce "29-B" ni "29 Bis"; "247 Ter"
-    exige el "Ter". ``ordinal_estricto=False`` acepta el número con o sin ordinal (uso
-    tolerante de las capturas: "1" reconoce "Artículo 1o."). None si la designación no se
-    puede descomponer.
+    exige el "Ter". Por defecto el ordinal se compara tal como se pidió.
+    ``ordinal_equivalente=True`` (ordinales, 3-oct-2026; se activa explícitamente donde se
+    necesita: encabezado exacto, variantes con sufijo, cuerpo del precepto) compara el ordinal
+    por EQUIVALENCIA (``ordinales_equivalentes``): "1" reconoce "Artículo 1o.", "1º" y "1°",
+    y "1o" reconoce "Artículo 1."; nunca "10", "11" ni "1o.-A".
+    ``ordinal_estricto=False`` acepta además cualquier otro indicador, también el femenino
+    (uso tolerante de las capturas y de la prueba de inexistencia). None si la designación
+    no se puede descomponer.
     """
     partes = partes_articulo(articulo)
     if partes is None:
         return None
     s = espacio
     patron = rf"(?<!\d){partes.numero}(?!\d)"
-    if ordinal_estricto:
+    if ordinal_estricto and not ordinal_equivalente:
         patron += re.escape(partes.ordinal)
+    elif ordinal_estricto:
+        patron += _patron_ordinal(partes.ordinal)
     else:
         # Ordinal opcional; si no se consume, el siguiente carácter no puede ser un ordinal
         # (impide "saltar" la "o" de "4o.-A" para esquivar la exclusión de sufijos).
-        patron += r"(?:(?-i:[oa])(?![^\W\d_])|[ºª°])?(?!(?-i:[oa])(?![^\W\d_])|[ºª°])"
+        patron += rf"{_CUALQUIER_ORDINAL}?(?!{_CUALQUIER_ORDINAL})"
     if partes.letra:
         patron += rf"{s}*\.?{s}*-?{s}*{partes.letra}(?![^\W\d_])"
     else:
@@ -236,15 +284,22 @@ def patron_articulo(
     return patron
 
 
-def patron_variante_con_sufijo(articulo: str, *, espacio: str = r"[ \t]") -> Optional[str]:
+def patron_variante_con_sufijo(
+    articulo: str, *, ordinal_equivalente: bool = False, espacio: str = r"[ \t]"
+) -> Optional[str]:
     """Expresión que reconoce el mismo número y ordinal seguido de CUALQUIER sufijo
-    ("4o" → "4o.-A", "29" → "29 Bis"). Sirve para saber si el índice solo ofreció variantes."""
+    ("4o" → "4o.-A", "29" → "29 Bis"). Sirve para saber si el índice solo ofreció variantes.
+    ``ordinal_equivalente=True`` (ordinales, 3-oct-2026): el ordinal por equivalencia, como en
+    ``patron_articulo`` ("4" → "4o.-A")."""
     partes = partes_articulo(articulo)
     if partes is None:
         return None
     s = espacio
+    ordinal = (
+        _patron_ordinal(partes.ordinal) if ordinal_equivalente else re.escape(partes.ordinal)
+    )
     return (
-        rf"(?<!\d){partes.numero}(?!\d){re.escape(partes.ordinal)}"
+        rf"(?<!\d){partes.numero}(?!\d){ordinal}"
         rf"(?:{_sufijo_letra(s)}|{_sufijo_latino(s)})"
     )
 
@@ -389,7 +444,10 @@ _ABREVIATURAS = frozenset({
     "op", "cit", "vid", "etc", "ed", "vol", "cap", "sec", "tit", "sigs", "ss", "fs", "fol",
     "exp", "reg", "pte", "ref",
 })
-_ORDINAL_PALABRA_RE = re.compile(r"\d+[oa]")
+# Ordinales (3-oct-2026, ronda 2): también "1º." y "1ª." (antes "1º. Bis del CFF" cortaba la
+# oración tras el ordinal y la ley quedaba sin vínculo).
+_ORDINAL_PALABRA_RE = re.compile(r"\d+[oaºª]")
+_SUFIJO_TRAS_PUNTO_RE = re.compile(rf"\s*-?\s*{_LATINO_ALT}{_FIN_PALABRA}", re.IGNORECASE)
 
 
 def _es_fin_de_oracion(texto: str, i: int) -> bool:
@@ -410,7 +468,13 @@ def _es_fin_de_oracion(texto: str, i: int) -> bool:
         k -= 1
     palabra = sin_acentos(texto[k:i]).lower()
     if not palabra:
-        return True
+        # Ronda 2: el punto tras el grado usado como ordinal de una designación con sufijo
+        # ("artículo 1°. Bis del CFF") no cierra la oración; antes la ley a la derecha quedaba
+        # fuera y el artículo sin ley. Sin sufijo ("artículo 19°. Los hechos…") sí la cierra.
+        return not (
+            i >= 2 and texto[i - 1] == "°" and texto[i - 2].isdigit()
+            and _SUFIJO_TRAS_PUNTO_RE.match(texto, i + 1)
+        )
     if palabra in _ABREVIATURAS or (len(palabra) == 1 and palabra.isalpha()):
         return False
     if _ORDINAL_PALABRA_RE.fullmatch(palabra):
