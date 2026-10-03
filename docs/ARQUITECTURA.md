@@ -48,7 +48,7 @@ del producto.
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
-| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014; también citas "SIGLA número" y rangos); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-019, y cotejo de fidelidad determinista (`fidelidad.py`, C10: señales por categoría, nunca CONFORME) con PL-020. CLI: `lint`, `hash`, `cotejar`, `fidelidad`, `evidencia agregar-tesis`, `evidencia agregar-ley` y `evidencia articulo` (texto exacto del artículo que usa el cotejo). Sin red ni LLM, separado del VVCA | Código padre |
+| `itosturre/plan/` · `plan_audit.py` | Auditor determinista de planes sobre ledger `plan-ledger/1.0`: vocabulario de estados, evidencia oficial, aprobación humana ligada al hash del contenido y cobertura de menciones (PL-001…PL-014; también citas "SIGLA número" y rangos); con un paquete de evidencia, cotejo de identidad (`identidad.py`, C9) y reglas PL-015…PL-019, y cotejo de fidelidad determinista (`fidelidad.py`, C10: señales por categoría, nunca CONFORME) con PL-020. CLI: `plantilla` (ledger de partida con ejemplos `[ASIGNAR]`, `plantilla.py`; MENÚ 16), `lint`, `hash`, `cotejar`, `fidelidad`, `evidencia agregar-tesis`, `evidencia agregar-ley` y `evidencia articulo` (texto exacto del artículo que usa el cotejo). Sin red ni LLM, separado del VVCA | Código padre |
 | `itosturre/evidencia/` | Capa de evidencia pura (C7): registro `evidencia/1.0` (URL oficial, fecha de consulta aportada por quien llama, huellas del original y del derivado), fuente única de hosts oficiales, huellas y JSON canónico, parser del SJF anclado en "Registro digital:", limpieza de LeyesBiblio con invariantes, ubicación de artículos (cuerpo / transitorios / indeterminada) y notas de reforma con gramática completa. `validar_registro` es solo estructural y **no habilita VERIFICADO**: hace falta además `comprobar_integridad`, que recalcula las huellas desde el original y el derivado y vuelve a leer la fuente. Solo biblioteca estándar; sin red ni reloj. La única E/S de archivos es `paquete.py`: almacén direccionado por contenido (`registros/<huella>.json`, `objetos/<sha256>`), publicación que falla si el destino existe (enlace duro o `O_EXCL`, nunca comprobar-y-reemplazar), huella verificada en cada lectura y rechazo de enlaces simbólicos y puntos de reanálisis (raíz, `registros/`, `objetos/` y cada archivo, con contención por ruta real); solo guarda registros íntegros con sus artefactos. `plan` puede importarla; ella no importa `plan` ni `audit` | Código padre |
 | `scripts/generar_fixtures_evidencia.py` | Regenera `tests/fixtures/evidencia/` desde originales descargados (requiere PyMuPDF); no corre en CI | Código padre |
 | `services/itosturre-scraper/` | SJF en vivo, TypeScript y Playwright | Submódulo |
@@ -64,7 +64,7 @@ del producto.
 | Fuente jurídica | `corpus/`, `jurisprudencia/` | Local; no versionar documentos pesados |
 | Índice regenerable | `chroma_db/`, `graphify-out/` | Local; reconstruible |
 | Producto de cliente | `auditorias/` | Local, confidencial, nunca versionar |
-| Paquetes de evidencia de un asunto | `auditorias/<asunto>/plan/…` o fuera del repositorio | Local, confidencial, nunca versionar (D7). `plan_audit.py evidencia agregar-*` rechaza escribir dentro del repositorio fuera de una zona que la política de datos prohíbe versionar |
+| Paquetes de evidencia de un asunto | `auditorias/<asunto>/plan/…` o fuera del repositorio | Local, confidencial, nunca versionar (D7). `plan_audit.py evidencia agregar-*` y `plantilla --salida` rechazan escribir dentro del repositorio fuera de una zona que la política de datos prohíbe versionar |
 | Prospectos B2B | `leads_data/` | Local; incluye consentimientos y exclusiones; nunca versionar |
 | Casos sintéticos | `casos_de_prueba/` | Versionados; la regresión usa una lista cerrada |
 | Fixtures de evidencia oficial | `tests/fixtures/evidencia/` | Versionados; texto oficial literal (páginas de LeyesBiblio, renders del SJF) con procedencia en `manifiesto.json`; bytes exactos (`.gitattributes`, sin conversión de fin de línea); cada archivo autorizado en `config/data-policy.json` |
@@ -73,6 +73,9 @@ del producto.
 ## Flujo de evidencia de planes (C7 → C10)
 
 ```text
+plan_audit.py plantilla --plan-id ID --titulo T --fecha AAAA-MM-DD --salida auditorias/<asunto>/plan/ledger.json
+        |  ledger de partida: colecciones vacías + un ejemplo por tipo rotulado [ASIGNAR] (sin datos jurídicos)
+        v
 innerText del SJF / PDF de LeyesBiblio (obtenidos por el operador; sin red)
         |  plan_audit.py evidencia agregar-tesis | agregar-ley  (--fecha-consulta del operador)
         v
@@ -261,6 +264,35 @@ externa que rechazó la ronda 1).
   oraciones no alineadas no se atribuye; el texto entre corchetes que la fuente declara
   inválido se coteja como texto; tesis, DOF y Corte IDH no tienen texto de artículo
   (NO_COTEJABLE).
+
+### Plantilla del ledger y exposición (MENÚ 16)
+
+`plan_audit.py plantilla` (`itosturre/plan/plantilla.py`, pura) responde al paso más costoso del
+piloto PEN-01: construir el ledger a mano. Escribe un `plan-ledger/1.0` válido con `evidencias`,
+`contradicciones` y `decisiones` vacías y una afirmación de ejemplo por tipo (`EJEMPLO-TN`, `-CJ`,
+`-HA`, `-INF`, `-PROP`): texto, referencias e identificación del criterio son marcadores
+`[ASIGNAR]`, el autor es `agente` (la opción más estricta, PL-009) y el estado es `[ASIGNAR]`,
+fuera del vocabulario, así que el lint marca cada ejemplo BLOQUEANTE (PL-001) hasta que se
+sustituya o se retire. Las notas de llenado van en llaves `_instrucciones`, que el esquema
+ignora. Ningún dato jurídico (ni artículos, ni tesis, ni URLs, ni fechas de consulta); la fecha
+del documento la da el operador. Con `--salida` aplica la política de rutas del paquete
+(`motivo_ruta_paquete`, D7), crea las carpetas que falten y escribe con creación exclusiva
+(nunca sobrescribe); sin `--salida` imprime el JSON y la guía va a stderr. Sale 0 o 2.
+
+`lint` informa además, en una línea de la consola (no en `--json` ni en `--md`), cuántos campos
+del ledger conservan un marcador pendiente (`[ASIGNAR]`, `[COMPLETAR]`, `[VERIFICAR…`, `[NO
+VERIFICADA`) y dónde (`afirmaciones[ID].campo`), sin contar las notas `_*`. Un marcador nunca
+cuenta como dato, pero las reglas solo lo señalan en ciertos campos (un marcador en el texto
+de una afirmación no lo señala ninguna): la línea los hace visibles todos. No cambia
+hallazgos ni códigos de salida.
+
+El flujo guiado vive en la skill `menu-itosturre` (`references/menu-16-auditar-plan.md`):
+carpeta del asunto, evidencia oficial, ledger, `cotejar` → `fidelidad` → `lint`, lectura de cada
+resultado, decisiones humanas y aprobación, con los límites declarados (DOF y Corte IDH sin
+cotejo, fidelidad determinista y parcial, el kit nunca aprueba). La Regla absoluta 10 de
+`CLAUDE.md`/`AGENTS.md` fija que APROBADO solo lo firma una persona identificada y que, dentro
+del ledger, el VVCA, el RAG y la memoria localizan sin acreditar; la Regla 3 del protocolo
+anti-alucinación sigue rigiendo la verificación de citas en escritos.
 
 ## Núcleo VVCA: costuras y pruebas sin corpus (R4a)
 
@@ -595,6 +627,7 @@ ante cualquier ambigüedad.
 | Gold Set de fidelidad | `python scripts/evaluate_fidelidad_gold_set.py [--paquete DIR]` | Cada push/PR; esquema `fidelidad-gold-set/2.0`: casos sintéticos rotulados contra texto de ley real copiado de los fixtures o del paquete del piloto PEN-01, y pares adversariales contra fuentes `sintetico_adversarial` rotuladas: falla si una categoría o un código de precisión alta no tiene recall 100 %, si un control fiel da señales, si una señal alta aparece donde no se espera (falso bloqueante) o si un texto no es literal (`sha256_texto`; subcadena exacta del fixture en CI; con `--paquete`, del artículo que reconstruye el paquete local). Los casos `LIM-*` (límites documentados) y los 22 candidatos del piloto (`pendiente_responsable`) se miden aparte y no son puerta |
 | Cotejo de fidelidad | `python -m unittest -v tests.test_plan_fidelidad` | Cada push/PR (dentro de la suite); motor con páginas literales de los fixtures (cada oración frente a su página no da señales), política de precisión, pares adversariales de la revisión externa y del coordinador, fuente truncada, alineación ambigua, cotejo del ledger con paquetes temporales (pares CONFORME, referencias, NO_COTEJABLE, ley ambigua, caché compartida; ley sintética rotulada para las señales de precisión alta), PL-020 con decisiones ligadas a la huella de cada señal, reporte, CLI (salida ≠ 0 si nada fue cotejable) y Gold Set |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-019, que el Gold Set no admite porque no tiene paquete, y las correcciones del piloto PEN-01 (clases `Piloto*`, CRLF de `agregar-tesis` y `evidencia articulo`). Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
+| Plantilla de ledger | `python -m unittest -v tests.test_plan_plantilla` | Cada push/PR (dentro de la suite); esquema válido, un ejemplo por tipo, ningún dato jurídico (ni cifras, ni URLs, ni menciones), lint que marca cada ejemplo (PL-001) y queda limpio sin ellos, marcadores pendientes, CLI (nunca sobrescribe, política de rutas D7, sin `--salida` imprime el JSON, entrada inválida → 2) |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 

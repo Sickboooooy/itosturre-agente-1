@@ -213,6 +213,9 @@ MENÚ PRINCIPAL.** No esperes a que el usuario te diga qué necesita — pregún
   ──── 💰 Fiscal (SAT · TFJA · amparo) ────
   1️⃣5️⃣  Defensa fiscal (vías + plazos + vicios + agravios contra actos del SAT)
 
+  ──── 🧭 Planeación legal ────
+  1️⃣6️⃣  Auditar plan jurídico (ledger + evidencia oficial + identidad + fidelidad)
+
   [ Escribe el número o describe tu necesidad ]
 ```
 
@@ -249,7 +252,7 @@ El menú principal de arriba está siempre disponible. **El detalle** de cada op
 (submenús, preguntas guiadas, comandos y formatos de salida) vive en la skill
 `menu-itosturre`, que se carga bajo demanda.
 
-**Cuando el usuario elija un número (1-15) o describa una de esas necesidades →
+**Cuando el usuario elija un número (1-16) o describa una de esas necesidades →
 invoca la skill `menu-itosturre` y lee únicamente el archivo de esa opción.**
 No es una inferencia opcional: es el procedimiento.
 
@@ -499,6 +502,13 @@ El texto exacto lo emiten las skills que generan el escrito
    local (embeddings + ChromaDB, sin llamada a Anthropic ni otro LLM externo) — verificado
    en el código. Si en el futuro se agrega una llamada a un LLM externo dentro del flujo de
    auditoría, esta regla se vuelve la primera en revisar antes de aceptar el cambio.
+10. **En la auditoría de planes (MENÚ 16), APROBADO solo lo firma una persona identificada**
+    (nunca el agente, un modelo ni el sistema) y queda ligado al `contenido_sha256` de lo
+    aprobado. Una afirmación del ledger solo sostiene VERIFICADO con evidencia oficial con
+    procedencia (URL oficial + huella + fecha de consulta) cotejada CONFORME en identidad.
+    Dentro del ledger, el VVCA, el RAG y la memoria localizan, no acreditan (a lo sumo
+    CANDIDATO); la fidelidad solo señala, nunca aprueba. No modifica la Regla 3 del protocolo
+    anti-alucinación: las citas de escritos y respuestas se siguen verificando con el VVCA (MENÚ 1).
 
 ---
 

@@ -14083,7 +14083,283 @@
     },
     {
       "id": "limpio_responsables_validos",
-      "descripcion": "Responsables válidos del operador e 'Claude Martínez' (persona): cero hallazgos.",
+      "descripcion": "Responsables humanos ficticios y 'Claude Martínez' (persona): cero hallazgos.",
+      "ledger": {
+        "schema_version": "plan-ledger/1.0",
+        "plan": {
+          "id": "PLAN-SINT-001",
+          "titulo": "Plan sintético de apelación contra auto (caso ficticio)",
+          "fecha_documento": "2026-09-30"
+        },
+        "afirmaciones": [
+          {
+            "id": "A1",
+            "texto": "El art. 471 CNPP fija el plazo de apelación: 3 días contra autos, 5 días contra la sentencia definitiva del juez de control y 10 días contra la sentencia del tribunal de enjuiciamiento.",
+            "tipo": "texto_normativo",
+            "autor": "agente",
+            "referencias": [
+              "art. 471 CNPP"
+            ],
+            "verificacion": {
+              "estado": "VERIFICADO",
+              "evidencias": [
+                "E1"
+              ],
+              "motivo": ""
+            },
+            "aprobacion": null
+          },
+          {
+            "id": "A2",
+            "texto": "La jurisprudencia P./J. 20/2014 (10a.), registro digital 2006224, del Pleno de la SCJN (Décima Época) define el parámetro de control de regularidad constitucional.",
+            "tipo": "criterio_judicial",
+            "autor": "agente",
+            "referencias": [
+              "P./J. 20/2014 (10a.)",
+              "registro 2006224"
+            ],
+            "verificacion": {
+              "estado": "VERIFICADO",
+              "evidencias": [
+                "E2"
+              ],
+              "motivo": ""
+            },
+            "aprobacion": null,
+            "identificacion_criterio": {
+              "rubro": "DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS TRATADOS INTERNACIONALES. CONSTITUYEN EL PARÁMETRO DE CONTROL DE REGULARIDAD CONSTITUCIONAL, PERO CUANDO EN LA CONSTITUCIÓN HAYA UNA RESTRICCIÓN EXPRESA AL EJERCICIO DE AQUÉLLOS, SE DEBE ESTAR A LO QUE ESTABLECE EL TEXTO CONSTITUCIONAL.",
+              "clave": "P./J. 20/2014 (10a.)",
+              "organo": "Pleno de la Suprema Corte de Justicia de la Nación",
+              "epoca": "Décima Época",
+              "registro": "2006224",
+              "integracion": "Contradicción de tesis 293/2011",
+              "publicacion": "Gaceta del Semanario Judicial de la Federación, Libro 5, abril de 2014",
+              "obligatoriedad": "Lunes 28 de abril de 2014",
+              "fuerza_vinculante": "[J] Obligatoria (art. 217 de la Ley de Amparo)",
+              "alcance": "Nacional"
+            }
+          },
+          {
+            "id": "A3",
+            "texto": "El decreto publicado en el DOF el 31 de diciembre de 2024 (código 5746525) reformó el art. 19 CPEUM en materia de prisión preventiva oficiosa.",
+            "tipo": "texto_normativo",
+            "autor": "agente",
+            "referencias": [
+              "art. 19 CPEUM"
+            ],
+            "verificacion": {
+              "estado": "VERIFICADO",
+              "evidencias": [
+                "E3"
+              ],
+              "motivo": ""
+            },
+            "aprobacion": null
+          },
+          {
+            "id": "A4",
+            "texto": "Proponer la interposición de la apelación contra el auto dentro del plazo de 3 días del art. 471 CNPP.",
+            "tipo": "propuesta",
+            "autor": "agente",
+            "referencias": [
+              "art. 471 CNPP"
+            ],
+            "verificacion": {
+              "estado": "REQUIERE DECISIÓN HUMANA",
+              "evidencias": [],
+              "motivo": "Decisión estratégica reservada al abogado."
+            },
+            "aprobacion": {
+              "por": "Claude Martínez",
+              "en": "2026-09-30",
+              "contenido_sha256": "486a6ea66ef6602701304e609547b4e0af946ccf2a0a6f5ecab31318f041575f"
+            }
+          },
+          {
+            "id": "A5",
+            "texto": "El auto impugnado se notificó el 25 de septiembre de 2026 (dato ficticio).",
+            "tipo": "hecho_aportado",
+            "autor": "humano",
+            "referencias": [],
+            "verificacion": {
+              "estado": "NO VERIFICADO",
+              "evidencias": [],
+              "motivo": "Aportado por el usuario; falta la constancia."
+            },
+            "aprobacion": null
+          },
+          {
+            "id": "A6",
+            "texto": "Si la notificación surtió efectos el 26 de septiembre de 2026, el plazo de tres días vencería el 29 de septiembre de 2026 (cálculo ficticio, sin días inhábiles).",
+            "tipo": "inferencia",
+            "autor": "agente",
+            "referencias": [],
+            "verificacion": {
+              "estado": "CANDIDATO",
+              "evidencias": [],
+              "motivo": "Depende de la fecha de notificación en disputa."
+            },
+            "aprobacion": null
+          },
+          {
+            "id": "A7",
+            "texto": "La constancia de notificación indica el 25 de septiembre de 2026 (dato ficticio).",
+            "tipo": "hecho_aportado",
+            "autor": "humano",
+            "referencias": [],
+            "verificacion": {
+              "estado": "CONTRADICCIÓN",
+              "evidencias": [],
+              "motivo": ""
+            },
+            "aprobacion": null
+          },
+          {
+            "id": "A8",
+            "texto": "La razón actuarial indica el 26 de septiembre de 2026 (dato ficticio).",
+            "tipo": "hecho_aportado",
+            "autor": "fuente",
+            "referencias": [],
+            "verificacion": {
+              "estado": "CONTRADICCIÓN",
+              "evidencias": [],
+              "motivo": ""
+            },
+            "aprobacion": null
+          },
+          {
+            "id": "A9",
+            "texto": "No existe un art. 19 Ter en la CPEUM (afirmación sintética de prueba).",
+            "tipo": "texto_normativo",
+            "autor": "agente",
+            "referencias": [
+              "art. 19 Ter CPEUM"
+            ],
+            "verificacion": {
+              "estado": "INEXISTENTE",
+              "evidencias": [
+                "E4",
+                "E5"
+              ],
+              "motivo": ""
+            },
+            "aprobacion": null
+          }
+        ],
+        "evidencias": [
+          {
+            "id": "E1",
+            "naturaleza": "compilado_oficial",
+            "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CNPP.pdf",
+            "ubicacion": "Artículo 471",
+            "extracto": "Extracto sintético de prueba: tres días si se trata de auto y cinco días si se trata de sentencia definitiva.",
+            "fecha_consulta": "2026-09-28",
+            "sha256_documento": null,
+            "consulta": null,
+            "resultados": null
+          },
+          {
+            "id": "E2",
+            "naturaleza": "portal_oficial",
+            "url": "https://sjf2.scjn.gob.mx/detalle/tesis/2006224",
+            "ubicacion": "Registro digital 2006224",
+            "extracto": "Extracto sintético de prueba: DERECHOS HUMANOS CONTENIDOS EN LA CONSTITUCIÓN Y EN LOS TRATADOS INTERNACIONALES.",
+            "fecha_consulta": "2026-09-28",
+            "sha256_documento": null,
+            "consulta": null,
+            "resultados": null
+          },
+          {
+            "id": "E3",
+            "naturaleza": "publicacion_oficial",
+            "url": "https://dof.gob.mx/nota_detalle.php?codigo=5746525&fecha=31/12/2024",
+            "ubicacion": "DOF 31/12/2024, código 5746525",
+            "extracto": "Extracto sintético de prueba: decreto que reforma el artículo 19 constitucional.",
+            "fecha_consulta": "2026-09-28",
+            "sha256_documento": null,
+            "consulta": null,
+            "resultados": null
+          },
+          {
+            "id": "E4",
+            "naturaleza": "compilado_oficial",
+            "url": "https://www.diputados.gob.mx/LeyesBiblio/pdf/CPEUM.pdf",
+            "ubicacion": "Artículos 19 y 20 (secuencia continua)",
+            "extracto": "Extracto sintético de prueba: al artículo 19 le sigue el artículo 20 sin artículos intercalados.",
+            "fecha_consulta": "2026-09-28",
+            "sha256_documento": null,
+            "consulta": null,
+            "resultados": null
+          },
+          {
+            "id": "E5",
+            "naturaleza": "busqueda",
+            "url": null,
+            "ubicacion": "",
+            "extracto": "",
+            "fecha_consulta": "2026-09-28",
+            "sha256_documento": null,
+            "consulta": "\"19 Ter\" CPEUM en el corpus local",
+            "resultados": 0
+          }
+        ],
+        "contradicciones": [
+          {
+            "id": "C1",
+            "afirmaciones": [
+              "A7",
+              "A8"
+            ],
+            "descripcion": "Fechas de notificación discrepantes (datos ficticios).",
+            "estado": "CONTRADICCIÓN",
+            "decision_id": "D2"
+          }
+        ],
+        "decisiones": [
+          {
+            "id": "D1",
+            "pregunta": "¿Se interpone la apelación contra el auto?",
+            "responsable": "Lic. Responsable Ficticia",
+            "estado": "APROBADO",
+            "bloquea": [
+              "A4"
+            ]
+          },
+          {
+            "id": "D2",
+            "pregunta": "¿Qué fecha de notificación consta en autos?",
+            "responsable": "Mtra. Revisora Ficticia",
+            "estado": "REQUIERE DECISIÓN HUMANA",
+            "bloquea": [
+              "C1",
+              "A6"
+            ]
+          }
+        ]
+      },
+      "documento": "# Plan sintético de apelación (caso ficticio)\n\n1. Plazo: el art. 471 CNPP otorga 3 días contra autos.\n2. Parámetro de regularidad: P./J. 20/2014 (10a.), REGISTRO DIGITAL: 2006224.\n3. Prisión preventiva: artículo 19 constitucional, reformado (DOF 31-12-2024).\n4. No existe un art. 19 Ter en la CPEUM.\n",
+      "reglas_esperadas": [],
+      "reglas_prohibidas": [
+        "PL-001",
+        "PL-002",
+        "PL-003",
+        "PL-004",
+        "PL-005",
+        "PL-006",
+        "PL-007",
+        "PL-008",
+        "PL-009",
+        "PL-010",
+        "PL-011",
+        "PL-012",
+        "PL-013",
+        "PL-014"
+      ],
+      "bloqueado_esperado": false
+    },
+    {
+      "id": "pl012_responsable_nombre_del_sistema",
+      "descripcion": "Criterio del responsable (2-oct-2026, regla absoluta 10): 'Itosturre' y 'JustIA' son el agente y su plataforma, no responsables humanos → PL-012.",
       "ledger": {
         "schema_version": "plan-ledger/1.0",
         "plan": {
@@ -14338,7 +14614,9 @@
         ]
       },
       "documento": "# Plan sintético de apelación (caso ficticio)\n\n1. Plazo: el art. 471 CNPP otorga 3 días contra autos.\n2. Parámetro de regularidad: P./J. 20/2014 (10a.), REGISTRO DIGITAL: 2006224.\n3. Prisión preventiva: artículo 19 constitucional, reformado (DOF 31-12-2024).\n4. No existe un art. 19 Ter en la CPEUM.\n",
-      "reglas_esperadas": [],
+      "reglas_esperadas": [
+        "PL-012"
+      ],
       "reglas_prohibidas": [
         "PL-001",
         "PL-002",
@@ -14351,7 +14629,6 @@
         "PL-009",
         "PL-010",
         "PL-011",
-        "PL-012",
         "PL-013",
         "PL-014"
       ],

@@ -10,6 +10,8 @@ evidencia (``--paquete``) coteja además la identidad de cada evidencia citada
 Sin red y sin LLM: no sustituye la verificación VVCA ni la decisión del abogado.
 
 Uso:
+  python plan_audit.py plantilla --plan-id ID --titulo "Título" --fecha AAAA-MM-DD \\
+      [--salida auditorias/<asunto>/plan/ledger.json]
   python plan_audit.py lint --ledger plan.ledger.json
   python plan_audit.py lint --ledger plan.ledger.json --documento plan.md \\
       --json hallazgos.json --md reporte.md [--paquete DIR]
@@ -111,6 +113,19 @@ Protocolo de uso de la fidelidad:
 que debe registrar la persona que la aprueba (``aprobacion.contenido_sha256``) o que
 atiende sus señales de fidelidad (``decisiones[].fidelidad.contenido_sha256``).
 
+``plantilla`` (MENÚ 16; piloto PEN-01: construir el ledger a mano fue el paso más costoso)
+escribe un ledger ``plan-ledger/1.0`` válido con ``evidencias``, ``contradicciones`` y
+``decisiones`` vacías y una afirmación de ejemplo por tipo (``EJEMPLO-*``) rotulada
+``[ASIGNAR]``, con notas de llenado en llaves ``_instrucciones`` (el esquema las ignora). Su
+estado es ``[ASIGNAR]``: ``lint`` la marca BLOQUEANTE (PL-001) hasta sustituirla o retirarla.
+Ningún dato jurídico: ni artículos, ni tesis, ni URLs, ni fechas de consulta. La fecha del
+documento la da el operador. Sin ``--salida`` imprime el JSON; con ``--salida``, aplica la
+misma política de rutas que el paquete (dentro del repositorio solo en una zona ignorada,
+``auditorias/<asunto>/plan/``, D7), crea las carpetas que falten y nunca sobrescribe un
+archivo existente. Salida: 0 escrita o impresa · 2 entrada inválida. ``lint`` informa además
+cuántos campos del ledger conservan un marcador pendiente (``[ASIGNAR]``…) y dónde: un
+marcador nunca cuenta como dato.
+
 En Windows anteponer el intérprete del venv: ``./venv/Scripts/python.exe``.
 """
 from __future__ import annotations
@@ -126,7 +141,11 @@ REPO = Path(__file__).resolve().parent
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
-from itosturre.evidencia.esquema import fecha_consulta_valida, validar_registro  # noqa: E402
+from itosturre.evidencia.esquema import (  # noqa: E402
+    es_marcador_pendiente,
+    fecha_consulta_valida,
+    validar_registro,
+)
 from itosturre.evidencia.huellas import sha256_bytes, sha256_texto  # noqa: E402
 from itosturre.evidencia.leyesbiblio import SEPARADOR_PAGINAS, limpiar_documento  # noqa: E402
 from itosturre.evidencia.leyesbiblio import registro_evidencia as registro_ley  # noqa: E402
@@ -165,6 +184,7 @@ from itosturre.plan.identidad import (  # noqa: E402
     consultar_articulo,
     titulo_corresponde,
 )
+from itosturre.plan.plantilla import IDS_EJEMPLO, ledger_plantilla, problemas_parametros  # noqa: E402
 
 SALIDA_OK = 0
 SALIDA_BLOQUEADO = 1
@@ -175,6 +195,7 @@ ZONAS_PAQUETE_POR_OMISION = ("auditorias/",)
 EXTRACTOR_FITZ = "PyMuPDF fitz.Page.get_text() (modo por omisión)"
 FUERZA_POR_TIPO = {"Jurisprudencia": "[J] Obligatoria", "Aislada": "[TA] Orientadora"}
 ASIGNAR = "[ASIGNAR]"
+MUESTRA_MARCADORES = 5
 
 
 def _extractor_pymupdf() -> Extractor | None:
@@ -268,6 +289,30 @@ def _validar_destinos(args: argparse.Namespace) -> list[str]:
     return errores
 
 
+def marcadores_pendientes(ledger: dict) -> list[str]:
+    """Campos de texto del ledger con un marcador pendiente (``[ASIGNAR]``, ``[COMPLETAR]``…),
+    sin las notas (llaves que empiezan por ``_``). Cada elemento de una lista se nombra por su
+    ``id`` si lo tiene: ``afirmaciones[EJEMPLO-TN].texto``."""
+    rutas: list[str] = []
+
+    def recorrer(valor: object, ruta: str) -> None:
+        if isinstance(valor, dict):
+            for clave, sub in valor.items():
+                if isinstance(clave, str) and clave.startswith("_"):
+                    continue
+                recorrer(sub, f"{ruta}.{clave}" if ruta else str(clave))
+        elif isinstance(valor, list):
+            for indice, sub in enumerate(valor):
+                id_ = sub.get("id") if isinstance(sub, dict) else None
+                etiqueta = id_.strip() if isinstance(id_, str) and id_.strip() else str(indice)
+                recorrer(sub, f"{ruta}[{etiqueta}]")
+        elif es_marcador_pendiente(valor):
+            rutas.append(ruta)
+
+    recorrer(ledger, "")
+    return rutas
+
+
 def cmd_lint(args: argparse.Namespace) -> int:
     errores = _validar_destinos(args)
     if errores:
@@ -333,6 +378,16 @@ def cmd_lint(args: argparse.Namespace) -> int:
         )
     if documento is None:
         print("  (PL-014 de cobertura no evaluada: no se pasó --documento)")
+    pendientes = marcadores_pendientes(ledger)
+    if pendientes:
+        muestra = ", ".join(pendientes[:MUESTRA_MARCADORES])
+        if len(pendientes) > MUESTRA_MARCADORES:
+            muestra += f" (+{len(pendientes) - MUESTRA_MARCADORES} más)"
+        print(
+            f"  Marcadores pendientes ([ASIGNAR]…): {len(pendientes)} campo(s) — {muestra}. Un marcador "
+            "nunca cuenta como dato: sustituirlo con la fuente o con la decisión del responsable, o "
+            "retirar el elemento."
+        )
     if cotejo is not None:
         print(f"  Cotejo de identidad: {_resumen_cotejo(cotejo)}")
     if fidelidad is not None:
@@ -357,6 +412,66 @@ def cmd_hash(args: argparse.Namespace) -> int:
             return _entrada_invalida([f"no existe la afirmación {args.afirmacion}"])
     for afirmacion in afirmaciones:
         print(f"{afirmacion['id']}\t{contenido_sha256(afirmacion)}")
+    return SALIDA_OK
+
+
+# ── Plantilla de ledger (MENÚ 16) ────────────────────────────────────────────
+
+
+def _guia_plantilla() -> str:
+    return "\n".join(
+        [
+            f"Contiene {len(IDS_EJEMPLO)} afirmaciones de ejemplo ({', '.join(IDS_EJEMPLO)}) con estado "
+            "[ASIGNAR]: lint las marca BLOQUEANTE (PL-001) hasta sustituirlas o retirarlas. No contiene "
+            "datos jurídicos: los aporta la evidencia oficial.",
+            "Siguientes pasos (MENÚ 16 de la skill menu-itosturre):",
+            "  1. evidencia agregar-ley | agregar-tesis --paquete <carpeta del asunto>/paquete "
+            "--fecha-consulta AAAA-MM-DD (la fecha la da el operador)",
+            "  2. evidencia articulo --paquete <…>/paquete --sha256 HUELLA --articulo N (extracto literal)",
+            "  3. cotejar · fidelidad · lint --ledger L --paquete <…>/paquete --documento PLAN.md --md REPORTE.md",
+            "  4. hash --ledger L: contenido_sha256 para la aprobación, que solo firma una persona identificada",
+        ]
+    )
+
+
+def cmd_plantilla(args: argparse.Namespace) -> int:
+    """Ledger ``plan-ledger/1.0`` de partida (``itosturre/plan/plantilla.py``)."""
+    problemas = problemas_parametros(args.plan_id, args.titulo, args.fecha)
+    if args.salida is not None and not args.salida.strip():
+        problemas.append("--salida: ruta vacía")
+    if problemas:
+        return _entrada_invalida(problemas)
+    ledger = ledger_plantilla(args.plan_id, args.titulo, args.fecha)
+    contenido = json.dumps(ledger, ensure_ascii=False, indent=2) + "\n"
+    if not args.salida:
+        sys.stdout.write(contenido)
+        print(_guia_plantilla(), file=sys.stderr)
+        return SALIDA_OK
+
+    destino = Path(args.salida)
+    errores: list[str] = []
+    motivo = motivo_ruta_paquete(destino, objeto="el ledger")
+    if motivo:
+        errores.append(motivo)
+    if destino.is_dir():
+        errores.append(f"--salida apunta a un directorio: {destino}")
+    elif destino.exists() or destino.is_symlink():
+        errores.append(f"--salida {destino} ya existe: la plantilla nunca sobrescribe un ledger")
+    if errores:
+        return _entrada_invalida(errores)
+    try:
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        # "x": creación exclusiva; si el archivo apareció entre la comprobación y la escritura,
+        # falla en lugar de sobrescribirlo.
+        with destino.open("x", encoding="utf-8", newline="\n") as archivo:
+            archivo.write(contenido)
+    except FileExistsError:
+        return _entrada_invalida([f"--salida {destino} ya existe: la plantilla nunca sobrescribe un ledger"])
+    except OSError as exc:
+        return _entrada_invalida([f"no se pudo escribir {destino}: {exc}"], "Error de escritura")
+    plan = ledger["plan"]
+    print(f"Plantilla escrita: {destino} (plan {plan['id']} · fecha del documento {plan['fecha_documento']})")
+    print(_guia_plantilla())
     return SALIDA_OK
 
 
@@ -548,8 +663,9 @@ def _zonas_ignoradas() -> tuple[str, ...]:
     return zonas or ZONAS_PAQUETE_POR_OMISION
 
 
-def motivo_ruta_paquete(ruta: str | Path) -> str | None:
-    """Por qué no se debe escribir un paquete en ``ruta`` (``None`` si se puede).
+def motivo_ruta_paquete(ruta: str | Path, objeto: str = "el paquete") -> str | None:
+    """Por qué no se debe escribir un paquete (u ``objeto``: el ledger de ``plantilla``) en
+    ``ruta`` (``None`` si se puede).
 
     Fuera del repositorio: siempre se puede. Dentro: solo en una zona que la política
     de datos prohíbe versionar (``forbidden_tracked_prefixes``: ``auditorias/``…), para
@@ -570,7 +686,7 @@ def motivo_ruta_paquete(ruta: str | Path) -> str | None:
     if relativa != "./" and any(relativa.startswith(prefijo) for prefijo in prefijos):
         return None
     return (
-        f"el paquete {ruta} quedaría dentro del repositorio fuera de una zona ignorada "
+        f"{objeto} {ruta} quedaría dentro del repositorio fuera de una zona ignorada "
         f"({', '.join(zonas)}): usar auditorias/<asunto>/plan/ (D7) o una ruta fuera del repositorio"
     )
 
@@ -948,6 +1064,22 @@ def main(argv: list[str] | None = None) -> int:
         epilog=__doc__,
     )
     sub = parser.add_subparsers(dest="comando", required=True)
+
+    plantilla = sub.add_parser(
+        "plantilla",
+        help="Escribir un ledger plan-ledger/1.0 de partida con ejemplos [ASIGNAR] (sin datos jurídicos)",
+    )
+    plantilla.add_argument("--plan-id", required=True, help="Identificador del plan (p. ej. el del entregable)")
+    plantilla.add_argument("--titulo", required=True, help="Título del plan")
+    plantilla.add_argument(
+        "--fecha", required=True, help="Fecha del documento del plan, AAAA-MM-DD (la da el operador)"
+    )
+    plantilla.add_argument(
+        "--salida",
+        help="Archivo del ledger (p. ej. auditorias/<asunto>/plan/ledger.json); sin él, imprime el JSON. "
+        "Nunca sobrescribe; dentro del repositorio solo en una zona ignorada (D7)",
+    )
+    plantilla.set_defaults(func=cmd_plantilla)
 
     lint = sub.add_parser("lint", help="Aplicar las reglas PL-001 … PL-014 (y PL-015 … PL-020 con --paquete)")
     lint.add_argument("--ledger", required=True, help="Ledger JSON plan-ledger/1.0")

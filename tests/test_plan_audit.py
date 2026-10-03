@@ -245,8 +245,6 @@ class EstadosTests(unittest.TestCase):
             "Mtra. Iára Díaz",
             "Claude Martínez",
             "Talbot",
-            "Itosturre (responsable jurídico)",
-            "JustIA (capa técnica)",
         ):
             with self.subTest(nombre=nombre):
                 self.assertFalse(responsable_no_humano(nombre))
@@ -586,9 +584,14 @@ class ReglasTests(unittest.TestCase):
                 ledger["decisiones"][1]["responsable"] = responsable
                 self.assertIn("PL-012", _reglas(ledger))
         ledger = ledger_limpio()
-        ledger["decisiones"][0]["responsable"] = "Itosturre (responsable jurídico)"
-        ledger["decisiones"][1]["responsable"] = "JustIA (capa técnica)"
-        self.assertNotIn("PL-012", _reglas(ledger))
+        # Criterio del responsable (2-oct-2026, regla absoluta 10): los nombres del sistema
+        # no son responsables humanos, aunque lleven un cargo entre paréntesis.
+        for responsable in ("Itosturre (responsable jurídico)", "JustIA (capa técnica)", "itosturre"):
+            with self.subTest(responsable=responsable):
+                ledger = ledger_limpio()
+                ledger["decisiones"][0]["responsable"] = responsable
+                self.assertIn("PL-012", _reglas(ledger))
+                self.assertTrue(responsable_no_humano(responsable))
 
     def test_pl013_severidad_segun_afecte_a_verificado(self) -> None:
         self.assertNotIn("PL-013", _reglas(ledger_limpio()))
