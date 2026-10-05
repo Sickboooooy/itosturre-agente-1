@@ -5,7 +5,12 @@ import re
 import unicodedata
 from typing import Any, Iterable, Mapping
 
-from .referencias import LATINOS, patron_articulo, patron_variante_con_sufijo
+from .referencias import (
+    patron_articulo,
+    patron_designacion_cualquiera,
+    patron_latinos,
+    patron_variante_con_sufijo,
+)
 
 
 def _without_accents(value: str) -> str:
@@ -14,15 +19,25 @@ def _without_accents(value: str) -> str:
 
 
 # Línea con forma de encabezado: "Artículo 42.", "Artículo 38.-", "Art. 1004-A.-".
-_PREFIJO_ENCABEZADO = r"^[ \t]*art(?:iculo)?\.?[ \t]+"
+# Ronda 2 de la re-ingesta (4-oct-2026) — Encabezado PARTIDO entre líneas: "ARTICULO\n508.-"
+# (CFPC), "Artículo\n367.-" (LFPPI), "Artículo\n341." y "Artículo\n9." (reglamentos de
+# movilidad). Solo si "Artículo"/"ARTÍCULO" queda SOLO al final de su línea y la siguiente
+# empieza con la designación y su cierre (el cierre se exige siempre en esta forma; una
+# remisión en minúscula no es auténtica).
+_SEPARADOR_MISMA_LINEA = r"[ \t]+"
+_SEPARADOR_PARTIDO = r"[ \t]*\n[ \t]*"
+_PREFIJO_ENCABEZADO = (
+    rf"^[ \t]*art(?:iculo)?\.?(?:{_SEPARADOR_MISMA_LINEA}|{_SEPARADOR_PARTIDO})"
+)
 _CIERRE_ENCABEZADO = r"[ \t]*(?:\.\-|[.\-:])"
 # Ordinales (3-oct-2026, ronda 2) — Sufijo partido entre líneas: "Artículo 1o.\nBis.- …" o
 # "Artículo 1o.\n-A.- …" son el encabezado del 1o Bis o del 1o-A, no del 1o. Solo un sufijo
 # latino o "-Letra", con su cierre, al inicio de la línea siguiente; nunca una letra suelta:
 # "Artículo 26.\nA. El Estado…", "Artículo 37.\nA) Ningún…" o "Artículo 185.\nA efecto de…"
 # (apartados, incisos o texto) siguen siendo el encabezado del 26, el 37 o el 185.
+_LATINOS_EN_LINEA = patron_latinos(r"[ \t]")   # fuera de la f-string (Python 3.11)
 _SUFIJO_EN_LINEA_SIGUIENTE = (
-    rf"[ \t]*\n[ \t]*(?:-[ \t]*[A-Za-z]|(?:{'|'.join(LATINOS)}))(?![^\W\d_])"
+    rf"[ \t]*\n[ \t]*(?:-[ \t]*[A-Za-z]|{_LATINOS_EN_LINEA})(?![^\W\d_])"
     rf"{_CIERRE_ENCABEZADO}"
 )
 # Ronda 2 — Encabezado AUTÉNTICO: con "A" mayúscula ("Artículo", "ARTÍCULO", "Art.") y un
@@ -30,6 +45,82 @@ _SUFIJO_EN_LINEA_SIGUIENTE = (
 # una remisión (el chunker la toma por encabezado y etiqueta el fragmento con el 41), y
 # "Artículo 2o., fracción I, inciso H." una cita capitalizada: ninguna acredita el precepto.
 _SIGUE_REMISION = re.compile(r"[ \t]*[,;]")
+
+
+def _es_autentico(normalizado: str, inicio: int, fin: int) -> bool:
+    """¿El encabezado ``normalizado[inicio:fin]`` (texto sin acentos, terminado en su cierre)
+    es AUTÉNTICO? "A" mayúscula en el prefijo y cierre no seguido de "," ni ";".
+
+    Definición ÚNICA (re-ingesta por fuente, 4-oct-2026): la usan ``ocurrencias_encabezado``
+    (el encabezado exacto que acredita un precepto) y ``encabezados_autenticos`` (con el que la
+    ingesta corta y etiqueta los fragmentos), para que lo que la ingesta toma por encabezado y
+    lo que la auditoría acepta como tal no diverjan."""
+    return (
+        normalizado[inicio:fin].lstrip()[:1] == "A"
+        and not _SIGUE_REMISION.match(normalizado, fin)
+    )
+
+
+# Re-ingesta por fuente (4-oct-2026) — Encabezado auténtico de CUALQUIER artículo, para cortar
+# y etiquetar la ingesta: el prefijo y el cierre de ``_encabezado_exacto`` con la designación
+# genérica de ``patron_designacion_cualquiera`` (misma gramática que ``patron_articulo``), o
+# bien la designación sola al final de su línea (grupo ``cierre`` vacío): los tratados (PIDCP,
+# CADH, CDN) escriben "Artículo 51" / "ARTÍCULO 51" solo en su línea, sin cierre.
+# Ronda 2: también el encabezado partido entre líneas (grupo ``partido``), que EXIGE el cierre
+# (condición en la propia expresión, para que nunca se quede con la forma "fin de línea").
+_ENCABEZADO_CUALQUIERA = re.compile(
+    rf"^[ \t]*art(?:iculo)?\.?(?:{_SEPARADOR_MISMA_LINEA}|(?P<partido>{_SEPARADOR_PARTIDO}))"
+    rf"(?P<designacion>{patron_designacion_cualquiera()})"
+    rf"(?(partido)(?P<cierre_partido>{_CIERRE_ENCABEZADO})"
+    rf"|(?:(?P<cierre>{_CIERRE_ENCABEZADO})|[ \t]*$))",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Primera línea con contenido tras un encabezado al final de su línea: si empieza con
+# minúscula, "," o ";", la línea "Artículo 51" es el corte de una oración ("conforme al
+# Artículo 51\nde esta Ley…"), no un encabezado.
+_CONTINUA_ORACION = re.compile(r"\s*[,;a-z]")
+
+FORMA_CIERRE = "cierre"
+FORMA_FIN_DE_LINEA = "fin_de_linea"
+
+
+def encabezados_autenticos(texto: str, *, fin_de_linea: bool = False) -> list[dict[str, Any]]:
+    """Encabezados AUTÉNTICOS de cualquier artículo en ``texto``, en su orden: ``inicio`` y
+    ``fin`` (posiciones del texto SIN acentos; el inicio es el de su línea), ``designacion``
+    (sin acentos, espacios normalizados: "4o.-A", "247 Bis", "1º") y ``forma``.
+
+    Con cierre (``FORMA_CIERRE``) rige ``_es_autentico``, la misma definición que
+    ``ocurrencias_encabezado``: "ARTICULO 496.-", "Artículo 1o.-", "Artículo 75.Quedan…" y
+    "Artículo 26." (con "A. El Estado…" en la línea siguiente) lo son; "artículo 41." (remisión
+    en minúscula), "Artículo 2o., fracción I" (cita) y "Artículo 51 de esta Ley…" (sin cierre)
+    no. ``fin_de_linea=True`` (solo la ingesta) admite además la designación sola al final de
+    su línea con "A" mayúscula (``FORMA_FIN_DE_LINEA``: "Artículo 51", "ARTÍCULO 1"), salvo
+    que la siguiente línea con contenido continúe una oración (minúscula, "," o ";"). La
+    auditoría no acepta esa forma como encabezado exacto (exige el cierre). Ronda 2: el
+    encabezado partido entre líneas ("ARTICULO\n508.-") cuenta, con cierre, para ambas."""
+    normalizado = _without_accents(texto)
+    hallados: list[dict[str, Any]] = []
+    for m in _ENCABEZADO_CUALQUIERA.finditer(normalizado):
+        if m.group("cierre") is not None or m.group("cierre_partido") is not None:
+            if not _es_autentico(normalizado, m.start(), m.end()):
+                continue
+            forma = FORMA_CIERRE
+        else:
+            if (
+                not fin_de_linea
+                or m.group("partido") is not None
+                or normalizado[m.start():m.end()].lstrip()[:1] != "A"
+                or _CONTINUA_ORACION.match(normalizado, m.end())
+            ):
+                continue
+            forma = FORMA_FIN_DE_LINEA
+        hallados.append({
+            "inicio": m.start(),
+            "fin": m.end(),
+            "designacion": " ".join(m.group("designacion").split()),
+            "forma": forma,
+        })
+    return hallados
 
 
 def _patron_literal(article: str) -> str | None:
@@ -84,7 +175,9 @@ def _encabezado_exacto(article: str, *, ordinal_literal: bool = False) -> re.Pat
 def ocurrencias_encabezado(text: str, article: str) -> list[dict[str, Any]]:
     """Cada encabezado exacto del artículo en ``text`` (sin acentos): ``inicio``, ``fin`` y si
     es AUTÉNTICO (ronda 2): "A" mayúscula en el prefijo y cierre no seguido de "," ni ";".
-    Las posiciones son del texto sin acentos (las mismas que usa ``reconstruir_cuerpo``)."""
+    Las posiciones son del texto sin acentos (las mismas que usa ``reconstruir_cuerpo``).
+    La autenticidad la decide ``_es_autentico``, la misma definición con que la ingesta corta
+    y etiqueta (``encabezados_autenticos``)."""
     heading = _encabezado_exacto(article)
     if heading is None:
         return []
@@ -93,10 +186,7 @@ def ocurrencias_encabezado(text: str, article: str) -> list[dict[str, Any]]:
         {
             "inicio": m.start(),
             "fin": m.end(),
-            "autentico": (
-                normalizado[m.start():m.end()].lstrip()[:1] == "A"
-                and not _SIGUE_REMISION.match(normalizado, m.end())
-            ),
+            "autentico": _es_autentico(normalizado, m.start(), m.end()),
         }
         for m in heading.finditer(normalizado)
     ]
@@ -118,16 +208,43 @@ def encabezado_autentico(text: str, article: str) -> bool:
 # ("artículo 42, fracción XIII", "Artículo 42 de esta Ley") no corta: va en minúscula o
 # sin cierre. R4-D10: el grupo ``designacion`` (número, ordinal y sufijos) no cambia qué se
 # reconoce; lo usa ``itosturre.audit.inexistencia`` para ordenar los encabezados del cuerpo.
-_SUFIJO_GENERICO = (
-    r"(?:[ \t]*\.?[ \t]*-?[ \t]*(?:(?-i:[A-Z])|bis|ter|quater|quinquies|sexies|septies"
-    r"|octies|nonies|decies)(?![^\W\d_]))"
-)
+# Ronda 2 de la re-ingesta (4-oct-2026): la designación es la de la gramática única
+# (``patron_designacion_cualquiera``: subnúmero "58-1", "65 Bis 1", sufijos latinos más allá de
+# "decies") y el prefijo admite el encabezado partido entre líneas ("ARTICULO\n508.-").
 _ENCABEZADO_SIGUIENTE = re.compile(
-    rf"^[ \t]*(?-i:A)rt(?:iculo)?\.?[ \t]+"
-    rf"(?P<designacion>\d+(?:[oaºª°](?![^\W\d_]))?{_SUFIJO_GENERICO}*)"
+    rf"^[ \t]*(?-i:A)rt(?:iculo)?\.?(?:{_SEPARADOR_MISMA_LINEA}|{_SEPARADOR_PARTIDO})"
+    rf"(?P<designacion>{patron_designacion_cualquiera()})"
     r"[ \t]*(?:\.\-|\.(?=\s)|\.$|-(?=\s)|:)",
     re.IGNORECASE | re.MULTILINE,
 )
+
+# Frontera del cuerpo: la línea "TRANSITORIOS" / "ARTÍCULOS TRANSITORIOS" (con o sin ":" o
+# "."; también "… DE DECRETOS DE REFORMA"). Mismo criterio que
+# ``itosturre.evidencia.leyesbiblio.es_frontera_transitorios`` (D2: ``audit`` no importa la
+# capa de evidencia; una prueba compara ambas). Ronda 2 de la re-ingesta: vive aquí (antes en
+# ``inexistencia``, que la reexporta) para que el cuerpo del precepto se detenga en ella.
+_FRONTERA_RE = re.compile(r"^(?:articulos? )?transitorios?(?: de decretos de reforma)?$")
+
+
+def es_frontera_transitorios(linea: str) -> bool:
+    """True si la línea es el título "TRANSITORIOS" (o "ARTÍCULOS TRANSITORIOS")."""
+    normalizada = " ".join(_without_accents(linea or "").casefold().split()).rstrip(":. ")
+    return bool(_FRONTERA_RE.match(normalizada))
+
+
+def _corte_del_cuerpo(texto: str) -> int | None:
+    """Dónde termina el cuerpo de un precepto en ``texto`` (lo que sigue a su encabezado): el
+    encabezado de otro artículo o, ronda 2 de la re-ingesta (4-oct-2026), la línea
+    TRANSITORIOS, la que llegue antes. Así una fracción de un transitorio ("ARTÍCULO
+    PRIMERO.-\nI. …") nunca se toma como fracción del último artículo del cuerpo."""
+    siguiente = _ENCABEZADO_SIGUIENTE.search(texto)
+    tope = siguiente.start() if siguiente else len(texto)
+    posicion = 0
+    for linea in texto[:tope].split("\n"):
+        if posicion and es_frontera_transitorios(linea):
+            return posicion
+        posicion += len(linea) + 1
+    return siguiente.start() if siguiente else None
 # Prefijo que la ingesta inyecta en los subfragmentos de un precepto largo ("[LEY 42]").
 _PREFIJO_SUBFRAGMENTO = re.compile(r"\A\s*\[[^\]\n]*\][ \t]*\n?")
 # Ruido de página que el PDF intercala entre el encabezado y su texto: cabeceras de la
@@ -245,8 +362,8 @@ def reconstruir_cuerpo(
         return None
     normalized = _without_accents(document)
     resto = normalized[ocurrencias[0]["fin"]:]
-    siguiente = _ENCABEZADO_SIGUIENTE.search(resto)
-    cuerpo, cerrado = (resto[:siguiente.start()], True) if siguiente else (resto, False)
+    siguiente = _corte_del_cuerpo(resto)
+    cuerpo, cerrado = (resto[:siguiente], True) if siguiente is not None else (resto, False)
     usados = 0
     indice = _indice(metadata)
     if not cerrado and indice is not None:
@@ -262,9 +379,9 @@ def reconstruir_cuerpo(
         while actual in por_indice and usados < MAX_CONTINUACIONES:
             texto = _PREFIJO_SUBFRAGMENTO.sub("", _without_accents(por_indice[actual]), count=1)
             usados += 1
-            corte = _ENCABEZADO_SIGUIENTE.search(texto)
-            if corte:
-                cuerpo += "\n" + texto[:corte.start()]
+            corte = _corte_del_cuerpo("\n" + texto)
+            if corte is not None:
+                cuerpo += ("\n" + texto)[:corte]
                 cerrado = True
                 break
             cuerpo += "\n" + texto

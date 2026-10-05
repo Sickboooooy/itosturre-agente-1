@@ -44,7 +44,7 @@ del producto.
 | `router_competencia.py` | Enrutamiento determinista de competencia orgánica | Código padre |
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
 | `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
-| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto; `inexistencia.py` (D10): prueba positiva de inexistencia de un artículo en el cuerpo de la ley indexada (se abstiene ante cualquier ambigüedad) | Código padre |
+| `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto y definición única del encabezado auténtico; `inexistencia.py` (D10): prueba positiva de inexistencia de un artículo en el cuerpo de la ley indexada (se abstiene ante cualquier ambigüedad); `fragmentacion.py` (4-oct-2026): corte y etiqueta de los fragmentos de la ingesta con esa misma definición, y métricas de cobertura para `ingest --simular` | Código padre |
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
 | `memoria_cli.py` | Interfaz de la memoria contextual | Código padre |
@@ -601,6 +601,93 @@ ante cualquier ambigüedad.
   cambios), `formato_telegram`, `run_regression.py` y `evaluate_gold_set.py` (sin cambios) y
   la skill `menu-itosturre` (MENÚ 1, actualizada).
 
+## Corte y etiqueta de la ingesta; re-ingesta por fuente (4-oct-2026)
+
+Orden expresa del responsable jurídico (4-oct-2026). El corte de "ley" exigía "rt" en
+minúscula (`(?=\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+)`): los encabezados en MAYÚSCULAS no cortaban
+ni etiquetaban (CFPC, LFPC, LFPCA, CDN y Constitución de Jalisco quedaban con 0–1.5 % de sus
+encabezados al inicio de un fragmento etiquetado) y las remisiones en minúscula al inicio de
+línea ("artículo 41.") cortaban y etiquetaban fragmentos con un número ajeno (459 fragmentos
+en 42 fuentes, medido con `--simular` y la gramática de la ronda 2; los 2 254 fragmentos etiquetados de la RMF, que se
+ordena por reglas y no por artículos, llevaban etiquetas de remisiones).
+
+- **Definición única** (`itosturre/audit/evidence.py`): `_es_autentico` ("A" mayúscula en el
+  prefijo y cierre no seguido de "," ni ";") la usan `ocurrencias_encabezado` (auditoría) y
+  `encabezados_autenticos` (ingesta). Este último reconoce el encabezado de CUALQUIER artículo
+  con el prefijo y el cierre de `_encabezado_exacto` y la designación genérica
+  `referencias.patron_designacion_cualquiera` (gramática de `patron_articulo`); con
+  `fin_de_linea=True` (solo la ingesta) admite además la designación sola al final de su línea
+  (tratados: "Artículo 51", "ARTÍCULO 1"), salvo que la línea siguiente continúe una oración.
+  La auditoría sigue exigiendo el cierre para el encabezado exacto: un tratado sin cierre queda
+  bien fragmentado y etiquetado, pero su cita no alcanza el 🟢 (decisión pendiente del
+  responsable: aceptar esa forma en la auditoría cambiaría veredictos de fuentes que no se
+  re-ingestan —PIDCP y CADH ya están etiquetados— y sumaría encabezados auténticos, p. ej. los
+  arts. 1–10 de la "Declaratoria" que el Código Civil de Jalisco trae tras sus TRANSITORIOS,
+  que solo la frontera creíble separaría del cuerpo). Coherencia comprobada en las 49 fuentes
+  (cifras de la ronda 2, abajo).
+- **`itosturre/audit/fragmentacion.py`** (pura, stdlib): `detectar_tipo` (cuenta los
+  encabezados auténticos, también en MAYÚSCULAS), `cortes`/`etiqueta` (contratos y
+  resoluciones sin cambios), `fragmentar(páginas, max_caracteres, subdividir)` y `medir`
+  (fragmentos, etiquetados, encabezados del cuerpo y del documento, cobertura y etiquetas sin
+  encabezado al inicio). Etiqueta: la regla anterior `\d+[\w\-]*` aplicada a la línea del
+  encabezado sin acentos ('1o', '496', '1º', '1' para "1°", '4o' para "4o.-A", '29-A',
+  '58-1', '247' para "247 Bis"); solo se quita un guion final ('10-' → '10'). Página: la de la
+  línea del encabezado (también si está partido entre líneas). Desde la ronda 2 también cortan
+  "ARTICULO 65 Bis 1." o "63 QUINTUS.-" (etiqueta '65', '63') y la línea TRANSITORIOS.
+- **`OpenNotebook.py`:** `ingest` usa `fragmentar`; sin flags, una fuente ya indexada con otra
+  fragmentación se omite (`pendientes_sin_mezcla`; antes se completaba por ID y mezclaba).
+  `ingest --fuente ARCHIVO.pdf [--fuente …] [--simular] [--json]` → `reingestar_fuentes`:
+  valida (al menos una fuente; nombre exacto de un PDF de la carpeta, no excluido, sin
+  repetir), fragmenta y codifica ANTES de escribir (`encode_passages`, el mismo cálculo que la
+  función de la colección), respalda en memoria los fragmentos de la fuente, `delete(where=
+  {"source": …})`, comprueba que no queda ninguno ni hay IDs ocupados, agrega y verifica IDs,
+  textos y metadatos; ante cualquier fallo restaura el respaldo (`ReingestaFallida`, salida 1).
+  `--simular` abre la colección sin crearla y no escribe. `--fuente` no se combina con
+  `--clear`/`--reingest` (que siguen borrando la colección entera). Costuras para pruebas:
+  `collection`, `codificar`, `extraer`, `subdividir`.
+- **Pruebas:** `tests/test_ingesta_fragmentacion.py` (sin dependencias; textos sintéticos) y
+  `ColeccionEscribible` en `tests/vvca_falsos.py` (`add`/`delete` más estrictos que ChromaDB y
+  fallo de escritura inyectable). Procedimiento operativo en `docs/ENTORNO.md`.
+
+**Ronda 2 (correcciones del coordinador y de la revisión externa, 4-oct-2026).** Una sola
+gramática de designaciones (`referencias.py`) para la extracción, el encabezado exacto, las
+variantes con sufijo, la prueba de inexistencia y la ingesta:
+
+- **Designaciones nuevas:** subnúmero pegado "N-M" con M < N ("58-1" de la LFPCA; con M ≥ N es
+  un rango: "14-16" → 14, 15, 16); número tras el sufijo latino ("65 Bis 1", "211 bis 7",
+  "343 Ter 2"); sufijos latinos más allá de "decies" (`LATINOS`, con grafías: "Undecies" …
+  "Vicies", "Sexies Decies"/"Sexdecies") y "quintus" (mismo lugar que "quinquies" en el orden,
+  pero se coteja tal cual). `PartesArticulo` añade `subnumero` y `numero_latino`;
+  `clave_orden` (D10) los ordena ("58" < "58-1" < "59"; "65 Bis" < "65 Bis 1" < "65 Ter") y el
+  subnúmero es una familia de sufijo más. `canon_caja` da la misma caja a etiquetas y
+  candidatos ("29-a" → "29-A"). Antes "58-1" se extraía como 58 y 1, y "65 Bis 1" como "65 Bis":
+  en el corpus real eso daba 🟢 contra OTRO artículo (38 casos medidos, todos corregidos).
+- **Falla cerrada:** si el texto continúa la designación extraída sin capturarla entera ("65
+  Bis 123", "5 bis 10 días", "247 Bis Ter", "247 Undevicies", "65 Bis 1-3"), la referencia es
+  🟡 COBERTURA INCOMPLETA con la razón (nunca se coteja la designación truncada).
+- **Encabezado partido entre líneas** ("ARTICULO\n508.-"; 4 en el corpus: CFPC, LFPPI y dos
+  reglamentos de movilidad): en la definición única (`evidence._PREFIJO_ENCABEZADO`,
+  `_ENCABEZADO_CUALQUIERA`, `_ENCABEZADO_SIGUIENTE`) y en la existencia de D10, solo con
+  "Artículo" solo al final de su línea y la designación con su cierre en la siguiente. Cambia
+  la auditoría también de fuentes no re-ingestadas (LFPPI 367 y RegMovilidad 9 pasan a 🟢).
+- **TRANSITORIOS:** el cuerpo del precepto (`reconstruir_cuerpo`) se detiene en esa línea
+  (`es_frontera_transitorios`, ahora en `evidence` y reexportada por `inexistencia`) y la
+  ingesta corta en ella.
+- **Seguridad de `--fuente`:** fase 1 sin escrituras para todas las fuentes
+  (`paginas_incompletas`, `verificar_identidad`, colisiones de IDs; `ReingestaRechazada`); fase
+  2 con respaldo DURABLE por fuente (`itosturre-respaldo-fuente/1`: ids, documentos, metadatos
+  y vectores float32 en base64 con huella SHA-256, fuera del repositorio y del índice) y
+  `ingest --restaurar` (`restaurar_respaldo`, tolerancia de vector 1e-6: ChromaDB vuelve a
+  normalizar al guardar). La ingesta sin flags con fuentes omitidas sale con código 3
+  (`SALIDA_MIGRACION_PENDIENTE`) y `bootstrap_corpus.sh` lo respeta.
+- **Comprobado en las 49 fuentes:** las 18 611 líneas con cierre que corta la ingesta (4
+  partidas) son exactamente las que la auditoría acepta como encabezado auténtico de alguna
+  lectura de su designación. Fuera de esta gramática quedan `itosturre/plan/` (sus propias
+  listas de sufijos latinos) y el pop-up de `capturar_rag.py`.
+- **Pruebas:** `tests/test_vvca_designaciones.py` (gramática, encabezado partido,
+  TRANSITORIOS, D10 y casos del coordinador de punta a punta) y las de seguridad en
+  `tests/test_ingesta_fragmentacion.py`.
+
 ## Fuentes canónicas
 
 1. `CLAUDE.md` contiene la política operativa compartida. `AGENTS.md` es su adaptación
@@ -628,6 +715,8 @@ ante cualquier ambigüedad.
 | Cotejo de fidelidad | `python -m unittest -v tests.test_plan_fidelidad` | Cada push/PR (dentro de la suite); motor con páginas literales de los fixtures (cada oración frente a su página no da señales), política de precisión, pares adversariales de la revisión externa y del coordinador, fuente truncada, alineación ambigua, cotejo del ledger con paquetes temporales (pares CONFORME, referencias, NO_COTEJABLE, ley ambigua, caché compartida; ley sintética rotulada para las señales de precisión alta), PL-020 con decisiones ligadas a la huella de cada señal, reporte, CLI (salida ≠ 0 si nada fue cotejable) y Gold Set |
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-019, que el Gold Set no admite porque no tiene paquete, y las correcciones del piloto PEN-01 (clases `Piloto*`, CRLF de `agregar-tesis` y `evidencia articulo`). Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Plantilla de ledger | `python -m unittest -v tests.test_plan_plantilla` | Cada push/PR (dentro de la suite); esquema válido, un ejemplo por tipo, ningún dato jurídico (ni cifras, ni URLs, ni menciones), lint que marca cada ejemplo (PL-001) y queda limpio sin ellos, marcadores pendientes, CLI (nunca sobrescribe, política de rutas D7, sin `--salida` imprime el JSON, entrada inválida → 2) |
+| Gramática de designaciones (ronda 2) | `python -m unittest -v tests.test_vvca_designaciones` | Cada push/PR (dentro de la suite); "58-1" frente a "14-16", "65 Bis 1", latinos extendidos, falla cerrada, encabezado partido, cuerpo hasta TRANSITORIOS, orden de D10 y auditoría de punta a punta con la colección falsa |
+| Corte de la ingesta y re-ingesta por fuente | `python -m unittest -v tests.test_ingesta_fragmentacion` | Cada push/PR (dentro de la suite); encabezados que cortan y que no (MAYÚSCULAS, tratados, remisiones, citas, apartados), etiquetas compatibles con las anteriores y con `_article_candidates`, misma definición que la auditoría, `fragmentar`/`medir`, y `reingestar_fuentes` con `ColeccionEscribible`: se niega sin fuente, borra solo la pedida, IDs y metadatos coherentes, nunca mezcla, `--simular` sin escrituras, restauración ante fallo, CLI |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
 

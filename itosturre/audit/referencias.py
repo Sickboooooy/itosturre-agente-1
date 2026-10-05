@@ -6,7 +6,12 @@ las usa con su catálogo de leyes (``LAW_SOURCE_MAP`` y ``LAW_ALIASES``).
 Designación del artículo
   Se conservan el ordinal y los sufijos tal como se escribieron: ``247 Ter``, ``2o. Bis``,
   ``4o.-A``, ``29-A``, ``32-B Quáter``. El signo de grado (``259°``) no forma parte de la
-  designación, como antes.
+  designación, como antes. Ronda 2 de la re-ingesta (4-oct-2026), gramática ÚNICA de
+  extracción, encabezado exacto, variantes, inexistencia e ingesta: subnúmero pegado "N-M" con
+  M < N (``58-1``; con M ≥ N es un rango), número tras el sufijo latino (``65 Bis 1``),
+  sufijos latinos más allá de "decies" y "quintus" (``LATINOS``, ``patron_latinos``,
+  ``canon_latino``), y falla cerrada: una designación que el texto continúa sin extraerse
+  entera queda como cobertura incompleta.
 
 Enumeraciones y rangos
   ``arts. 14, 16 y 19`` produce una referencia por artículo; ``467 a 471`` y ``155–157`` se
@@ -60,7 +65,62 @@ VENTANA_PREVIA = 600      # contexto previo y antecedentes (la ventana "sticky" 
 CLAVES_CONTEXTUALES = frozenset({"constitución", "constitucional", "carta magna"})
 CLAVE_CONSTITUCIONAL = "constitucional"
 
-LATINOS = ("bis", "ter", "quater", "quinquies", "sexies", "septies", "octies", "nonies", "decies")
+# Sufijos latinos de la numeración, en su forma CANÓNICA (minúsculas, sin acentos ni blancos)
+# y en el orden de la numeración. Ronda 2 de la re-ingesta (4-oct-2026): más allá de "decies"
+# (la Ley de Hacienda de Jalisco tiene "67 Undecies … Quaterdecies") y la grafía "quintus"
+# (CPF "199 Quintus", LFDO "12 Quintus", LFPC "63 QUINTUS"), que ocupa el lugar de "quinquies"
+# en el orden pero no se confunde con él al cotejar (la designación se compara tal cual).
+LATINOS = (
+    "bis", "ter", "quater", "quinquies", "quintus", "sexies", "septies", "octies", "nonies",
+    "decies", "undecies", "duodecies", "terdecies", "quaterdecies", "quindecies",
+    "sexiesdecies", "septiesdecies", "octiesdecies", "noviesdecies", "vicies",
+)
+# Grafías de cada forma canónica (``{s}`` = el blanco admitido entre palabras): "Sexies Decies",
+# "Sexdecies", "Novies Decies"… Se prueban de la más larga a la más corta.
+_GRAFIAS_LATINAS = {
+    "quater": r"qu[aá]ter",
+    "quaterdecies": r"qu[aá]ter{s}*decies",
+    "sexiesdecies": r"sex(?:ies)?{s}*decies",
+    "septiesdecies": r"septies{s}*decies",
+    "octiesdecies": r"octies{s}*decies",
+    "noviesdecies": r"no(?:v|n)ies{s}*decies",
+}
+# Rango en el orden de la numeración (bis = 1); "quintus" comparte el de "quinquies".
+_RANGO_LATINO = {latino: indice + 1 for indice, latino in enumerate(
+    ("bis", "ter", "quater", "quinquies", "sexies", "septies", "octies", "nonies", "decies",
+     "undecies", "duodecies", "terdecies", "quaterdecies", "quindecies", "sexiesdecies",
+     "septiesdecies", "octiesdecies", "noviesdecies", "vicies")
+)}
+_RANGO_LATINO["quintus"] = _RANGO_LATINO["quinquies"]
+
+
+def patron_latinos(espacio: str = r"\s") -> str:
+    """Alternativa (sin grupo de captura) de TODOS los sufijos latinos en cualquiera de sus
+    grafías, de la más larga a la más corta ("terdecies" antes que "ter", "sexies decies" antes
+    que "sexies"). Para texto sin acentos o con ellos, con IGNORECASE. Gramática única:
+    extracción, encabezado exacto, variantes con sufijo, prueba de inexistencia y ingesta."""
+    grafias = [_GRAFIAS_LATINAS.get(latino, latino).replace("{s}", espacio) for latino in LATINOS]
+    return "(?:" + "|".join(sorted(grafias, key=len, reverse=True)) + ")"
+
+
+def patron_latino(latino: str, espacio: str = r"\s") -> str:
+    """Grafías de UN sufijo latino canónico ("sexiesdecies" → "sex(?:ies)?\\s*decies")."""
+    return "(?:" + _GRAFIAS_LATINAS.get(latino, re.escape(latino)).replace("{s}", espacio) + ")"
+
+
+def canon_latino(texto: str) -> str:
+    """Forma canónica de un sufijo latino escrito ("Sexies Decies" → "sexiesdecies",
+    "Quáter" → "quater", "Sexdecies" → "sexiesdecies"); "" si no es uno."""
+    plano = re.sub(r"\s+", "", sin_acentos(texto or "").lower())
+    for latino in LATINOS:
+        if re.fullmatch(patron_latino(latino, r"\s"), plano, re.IGNORECASE):
+            return latino
+    return ""
+
+
+def rango_latino(latino: str) -> int:
+    """Lugar del sufijo latino canónico en la numeración (0 si no hay)."""
+    return _RANGO_LATINO.get(latino, 0)
 
 # Métodos de resolución de la ley (campo ``law_method`` de cada referencia).
 METODO_DERECHA = "adyacente_derecha"
@@ -89,7 +149,7 @@ def sin_acentos(texto: str) -> str:
 # ─────────────────────────────────────────
 # Todas las expresiones se compilan con IGNORECASE; ``(?-i:…)`` exige minúscula u otra caja.
 _FIN_PALABRA = r"(?![^\W\d_])"   # no lo sigue una letra (sí un dígito, signo o espacio)
-_LATINO_ALT = r"(?:bis|ter|qu[aá]ter|quinquies|sexies|septies|octies|nonies|decies)"
+_LATINO_ALT = patron_latinos(r"\s")
 _ORDINAL = rf"(?:(?-i:[oa]){_FIN_PALABRA}|[ºª])"
 # Letra: "-A" / ".-A" (con guion; cualquier caja; no un inciso "-a)") o "A" pegada al número
 # (solo mayúscula).
@@ -122,12 +182,31 @@ _CABEZA_RE = re.compile(
 _CALIFICADOR_PREVIO_RE = re.compile(
     r"(?:\d[\w°º.\-]*|(?<![^\W_])[IVXLC]{1,6}|(?<![^\W_])[A-Z]|(?<![^\W_])[a-z]\))[\s,;()]*$"
 )
-_ITEM_RE = re.compile(
-    rf"(?P<num>\d+)(?P<ord>{_ORDINAL_O_GRADO})?(?P<letra>{_LETRA})?(?P<latino>{_LATINO})?"
-    rf"(?P<grado>°)?"
-    rf"(?:\s*[,;]?\s*{_CLAVE_FRACCION}\s*(?P<fraccion>[\w\.]+))?",
-    re.IGNORECASE,
-)
+# Ronda 2 de la re-ingesta (4-oct-2026) — Dos formas más de designación:
+# - SUBNÚMERO pegado con guion: "58-1" (LFPCA "ARTÍCULO 58-1.-"). "N-M" pegado es designación
+#   si M < N; si M ≥ N sigue siendo un rango ("14-16" → 14, 15, 16). La comparación numérica la
+#   hace ``_item`` (la expresión no compara números).
+# - NÚMERO tras el sufijo latino: "65 Bis 1", "211 bis 7", "343 Ter 2" (LFPC, CPF, CCJ…).
+_SUBNUMERO = r"[-–—](?P<sub>\d{1,3})(?!\d)"
+_NUMERO_LATINO = r"[ \t]*-?[ \t]*(?P<latnum>\d{1,2})(?![\d/])"
+
+
+def _item_re(*, subnumero: bool, numero_latino: bool) -> re.Pattern:
+    sub = rf"(?:{_SUBNUMERO}|" if subnumero else "(?:"
+    latnum = rf"(?:{_NUMERO_LATINO})?" if numero_latino else ""
+    return re.compile(
+        rf"(?P<num>\d+){sub}(?P<ord>{_ORDINAL_O_GRADO})?(?P<letra>{_LETRA})?)"
+        rf"(?:(?P<latino>{_LATINO}){latnum})?"
+        rf"(?P<grado>°)?"
+        rf"(?:\s*[,;]?\s*{_CLAVE_FRACCION}\s*(?P<fraccion>[\w\.]+))?",
+        re.IGNORECASE,
+    )
+
+
+_ITEM_RE = _item_re(subnumero=True, numero_latino=True)
+_ITEM_SIN_SUB_RE = _item_re(subnumero=False, numero_latino=True)
+_ITEM_SIN_LATNUM_RE = _item_re(subnumero=True, numero_latino=False)
+_ITEM_SIMPLE_RE = _item_re(subnumero=False, numero_latino=False)
 # Continuación de una enumeración: "14, 16 y 19" · rango: "467 a 471", "155–157", "247-250".
 _LISTA_RE = re.compile(r"(?:\s*,\s*(?:(?:y|e)\s+)?|\s+(?:y|e)\s+)(?=\d)", re.IGNORECASE)
 _RANGO_RE = re.compile(r"\s*(?:[-–—]|\s(?:a|al)\s)\s*(?=\d)", re.IGNORECASE)
@@ -155,10 +234,10 @@ _ORDINAL_ADJETIVO_RE = re.compile(
 )
 
 _PARTES_RE = re.compile(
-    r"^\s*(?P<num>\d+)(?P<ord>(?-i:[oa])(?![^\W\d_])|[ºª°])?"
-    r"(?:\s*\.?\s*-?\s*(?P<letra>[A-Za-z])(?![^\W\d_]))?"
-    r"(?:\s*\.?\s*-?\s*(?P<latino>bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies)"
-    r"(?![^\W\d_]))?"
+    r"^\s*(?P<num>\d+)(?:\s*[-–—]\s*(?P<sub>\d{1,3})|(?P<ord>(?-i:[oa])(?![^\W\d_])|[ºª°])?"
+    r"(?:\s*\.?\s*-?\s*(?P<letra>[A-Za-z])(?![^\W\d_]))?)"
+    rf"(?:\s*\.?\s*-?\s*(?P<latino>{_LATINO_ALT})(?![^\W\d_])"
+    r"(?:\s*-?\s*(?P<latnum>\d{1,2}))?)?"
     r"\s*\.?\s*$",
     re.IGNORECASE,
 )
@@ -168,7 +247,10 @@ class PartesArticulo(NamedTuple):
     numero: str
     ordinal: str          # "o", "a", "º", "ª", "°" o ""
     letra: str            # "A" (en mayúscula) o ""
-    latino: str           # "bis", "ter", "quater"… (minúsculas, sin acento) o ""
+    latino: str           # "bis", "ter", "quater"… (forma canónica de ``LATINOS``) o ""
+    # Ronda 2 de la re-ingesta (4-oct-2026), campos añadidos con valor por omisión:
+    subnumero: str = ""       # "1" en "58-1" (guion y número menor que el artículo)
+    numero_latino: str = ""   # "1" en "65 Bis 1"
 
     @property
     def base(self) -> str:
@@ -177,26 +259,44 @@ class PartesArticulo(NamedTuple):
 
     @property
     def con_sufijo(self) -> bool:
-        return bool(self.letra or self.latino)
+        return bool(self.letra or self.latino or self.subnumero)
 
 
 def partes_articulo(articulo: str) -> Optional[PartesArticulo]:
-    """Descompone una designación ("4o.-A", "247 Ter", "32-B Quáter"); None si no se puede."""
+    """Descompone una designación ("4o.-A", "247 Ter", "32-B Quáter", "58-1", "65 Bis 1",
+    "67 Terdecies"); None si no se puede."""
     m = _PARTES_RE.match(sin_acentos(articulo or ""))
     if not m:
         return None
+    if m.group("sub") and int(m.group("sub")) >= int(m.group("num")):
+        return None   # "14-16" es un rango, no una designación
     return PartesArticulo(
         numero=m.group("num"),
         ordinal=m.group("ord") or "",
         letra=(m.group("letra") or "").upper(),
-        latino=(m.group("latino") or "").lower(),
+        latino=canon_latino(m.group("latino") or ""),
+        subnumero=m.group("sub") or "",
+        numero_latino=m.group("latnum") or "",
     )
 
 
 def articulo_con_sufijo(articulo: str) -> bool:
-    """True si la designación trae letra ("29-A") o sufijo latino ("247 Ter")."""
+    """True si la designación trae letra ("29-A"), sufijo latino ("247 Ter") o subnúmero
+    ("58-1")."""
     partes = partes_articulo(articulo)
     return bool(partes and partes.con_sufijo)
+
+
+def canon_caja(designacion: str) -> str:
+    """Misma caja para etiquetas y candidatos (ronda 2, 4-oct-2026): el ordinal pegado al
+    número se conserva ("1o", "4o", "1º"); lo demás va en mayúsculas ("29-a" → "29-A",
+    "247bis" → "247BIS")."""
+    # El indicador ordinal va pegado al número y no lo sigue una minúscula ("1o", "4o-A",
+    # "1004oA"); "247bis" no tiene ordinal.
+    m = re.match(r"(\d+(?:[oaºª](?![^\W\dA-Z_])|°)?)(.*)", designacion or "", re.DOTALL)
+    if not m:
+        return (designacion or "").upper()
+    return m.group(1) + m.group(2).upper()
 
 
 # Ordinales (3-oct-2026) — El indicador ordinal masculino no cambia el artículo: "1" ≡ "1o" ≡
@@ -237,7 +337,14 @@ def _sufijo_letra(espacio: str) -> str:
 
 
 def _sufijo_latino(espacio: str) -> str:
-    return rf"{espacio}*\.?{espacio}*-?{espacio}*(?:{'|'.join(LATINOS)})(?![^\W\d_])"
+    return rf"{espacio}*\.?{espacio}*-?{espacio}*{patron_latinos(espacio)}(?![^\W\d_])"
+
+
+# Ronda 2 de la re-ingesta (4-oct-2026) — Subnúmero pegado ("58-1") y número tras el sufijo
+# latino ("65 Bis 1"). El blanco del número latino es solo de la misma línea: "Artículo 65
+# Bis\n1. Texto" es el 65 Bis con su fracción o párrafo 1, no el 65 Bis 1.
+_SUFIJO_SUBNUMERO = r"[-–—]\d"
+_SUFIJO_NUMERO_LATINO = r"[ \t]*-?[ \t]*\d"
 
 
 def patron_articulo(
@@ -259,6 +366,11 @@ def patron_articulo(
     ``ordinal_estricto=False`` acepta además cualquier otro indicador, también el femenino
     (uso tolerante de las capturas y de la prueba de inexistencia). None si la designación
     no se puede descomponer.
+
+    Ronda 2 de la re-ingesta (4-oct-2026): "58" no reconoce "58-1" y "58-1" exige el "-1";
+    "65 Bis" no reconoce "65 Bis 1" y "65 Bis 1" exige el "1" (nunca "65 Bis 10"); los
+    sufijos latinos se comparan por su forma canónica en cualquiera de sus grafías ("67
+    Terdecies", "Sexies Decies").
     """
     partes = partes_articulo(articulo)
     if partes is None:
@@ -273,24 +385,53 @@ def patron_articulo(
         # Ordinal opcional; si no se consume, el siguiente carácter no puede ser un ordinal
         # (impide "saltar" la "o" de "4o.-A" para esquivar la exclusión de sufijos).
         patron += rf"{_CUALQUIER_ORDINAL}?(?!{_CUALQUIER_ORDINAL})"
-    if partes.letra:
+    if partes.subnumero:
+        patron += rf"[-–—]{partes.subnumero}(?!\d)"
+    elif partes.letra:
         patron += rf"{s}*\.?{s}*-?{s}*{partes.letra}(?![^\W\d_])"
     else:
-        patron += rf"(?!{_sufijo_letra(s)})"
+        patron += rf"(?!{_sufijo_letra(s)})(?!{_SUFIJO_SUBNUMERO})"
     if partes.latino:
-        patron += rf"{s}*\.?{s}*-?{s}*{partes.latino}(?![^\W\d_])"
+        patron += rf"{s}*\.?{s}*-?{s}*{patron_latino(partes.latino, s)}(?![^\W\d_])"
+        if partes.numero_latino:
+            patron += rf"[ \t]*-?[ \t]*{partes.numero_latino}(?!\d)"
+        else:
+            patron += rf"(?!{_SUFIJO_NUMERO_LATINO})"
     else:
         patron += rf"(?!{_sufijo_latino(s)})"
     return patron
+
+
+def patron_designacion_cualquiera(espacio: str = r"[ \t]") -> str:
+    """Expresión (texto SIN acentos, con IGNORECASE) de la designación de CUALQUIER artículo
+    con la gramática de ``patron_articulo``: número completo y, o bien un subnúmero pegado
+    ("58-1"), o bien a lo sumo un indicador ordinal (que no puede quedar sin consumir) y una
+    letra; luego a lo sumo un sufijo latino con su número ("65 Bis 1"). Lo que no consume no
+    puede seguirlo sin consumir (la misma exclusión que ``patron_articulo`` aplica a un número
+    pedido sin sufijo): "4o.-A, fracción II" no se lee como "4o" con "A, fracción…" detrás.
+
+    Re-ingesta por fuente (4-oct-2026): la usan el reconocimiento GENÉRICO del encabezado
+    auténtico (``itosturre.audit.evidence.encabezados_autenticos``, con el que la ingesta corta
+    y etiqueta) y el encabezado de cualquier artículo que corta el cuerpo del precepto
+    (``evidence._ENCABEZADO_SIGUIENTE``, también en la prueba de inexistencia)."""
+    s = espacio
+    return (
+        rf"(?<!\d)\d+(?!\d)"
+        rf"(?:[-–—]\d{{1,3}}(?!\d)"
+        rf"|{_CUALQUIER_ORDINAL}?(?!{_CUALQUIER_ORDINAL})"
+        rf"(?:{s}*\.?{s}*-?{s}*[A-Za-z](?![^\W\d_])|(?!{_sufijo_letra(s)})(?!{_SUFIJO_SUBNUMERO})))"
+        rf"(?:{_sufijo_latino(s)}(?:[ \t]*-?[ \t]*\d{{1,2}}(?!\d)|(?!{_SUFIJO_NUMERO_LATINO}))"
+        rf"|(?!{_sufijo_latino(s)}))"
+    )
 
 
 def patron_variante_con_sufijo(
     articulo: str, *, ordinal_equivalente: bool = False, espacio: str = r"[ \t]"
 ) -> Optional[str]:
     """Expresión que reconoce el mismo número y ordinal seguido de CUALQUIER sufijo
-    ("4o" → "4o.-A", "29" → "29 Bis"). Sirve para saber si el índice solo ofreció variantes.
-    ``ordinal_equivalente=True`` (ordinales, 3-oct-2026): el ordinal por equivalencia, como en
-    ``patron_articulo`` ("4" → "4o.-A")."""
+    ("4o" → "4o.-A", "29" → "29 Bis", "58" → "58-1"; ronda 2: "65 Bis" → "65 Bis 1"). Sirve
+    para saber si el índice solo ofreció variantes. ``ordinal_equivalente=True`` (ordinales,
+    3-oct-2026): el ordinal por equivalencia, como en ``patron_articulo`` ("4" → "4o.-A")."""
     partes = partes_articulo(articulo)
     if partes is None:
         return None
@@ -298,10 +439,14 @@ def patron_variante_con_sufijo(
     ordinal = (
         _patron_ordinal(partes.ordinal) if ordinal_equivalente else re.escape(partes.ordinal)
     )
-    return (
-        rf"(?<!\d){partes.numero}(?!\d){ordinal}"
-        rf"(?:{_sufijo_letra(s)}|{_sufijo_latino(s)})"
-    )
+    variantes = rf"{_sufijo_letra(s)}|{_sufijo_latino(s)}|{_SUFIJO_SUBNUMERO}"
+    if partes.latino and not partes.numero_latino and not (partes.letra or partes.subnumero):
+        # "65 Bis" → su variante "65 Bis 1".
+        variantes += (
+            rf"|{s}*\.?{s}*-?{s}*{patron_latino(partes.latino, s)}(?![^\W\d_])"
+            rf"{_SUFIJO_NUMERO_LATINO}"
+        )
+    return rf"(?<!\d){partes.numero}(?!\d){ordinal}(?:{variantes})"
 
 
 # ─────────────────────────────────────────
@@ -548,7 +693,7 @@ _CALIFICADORES = frozenset({
     "cuarto", "cuarta", "quinto", "quinta", "sexto", "sexta", "septimo", "septima",
     "octavo", "octava", "noveno", "novena", "decimo", "decima", "ultimo", "ultima",
     "penultimo", "penultima",
-    *LATINOS,
+    *LATINOS, "novies", "sex",
 })
 _DETERMINANTES = frozenset({
     "la", "el", "los", "las", "esta", "este", "estos", "estas", "dicha", "dicho", "dichas",
@@ -987,6 +1132,8 @@ class _Item:
     articulo: str
     fraccion: str
     fin_raw: int     # fin del tramo citado para ``raw`` (un rango comparte el del extremo final)
+    # Ronda 2 (falla cerrada): lo que continúa la designación sin haberse extraído, o None.
+    incompleta: Optional[str] = None
 
 
 @dataclass
@@ -1007,16 +1154,84 @@ class _Unidad:
     huerfanos: list[tuple[str, int, int, Resolucion]] = field(default_factory=list)
 
 
+def _grupo(m: re.Match, nombre: str) -> Optional[str]:
+    """Grupo ``nombre`` de ``m`` o None si la expresión no lo tiene (variantes de ``_item``)."""
+    return m.group(nombre) if nombre in m.re.groupindex else None
+
+
 def _designacion(m: re.Match) -> str:
-    """Designación tal como se escribió (blancos internos normalizados), sin el grado."""
+    """Designación tal como se escribió (blancos internos normalizados), sin el grado. Ronda 2:
+    con su subnúmero ("58-1") y el número tras el sufijo latino ("65 Bis 1")."""
     articulo = m.group("num") + (m.group("ord") or "") + (m.group("letra") or "")
+    if _grupo(m, "sub"):
+        articulo += "-" + _grupo(m, "sub")
     if m.group("latino"):
         articulo += re.sub(r"\s+", " ", m.group("latino"))
+        if _grupo(m, "latnum"):
+            articulo += " " + _grupo(m, "latnum")
     return articulo
 
 
 def _es_simple(m: re.Match) -> bool:
-    return not (m.group("letra") or m.group("latino") or m.group("fraccion"))
+    return not (m.group("letra") or m.group("latino") or m.group("fraccion") or _grupo(m, "sub"))
+
+
+def _item(texto: str, posicion: int) -> Optional[re.Match]:
+    """Artículo que empieza en ``posicion`` (ronda 2 de la re-ingesta, 4-oct-2026).
+
+    "N-M" pegado es una designación solo si M < N ("58-1"); con M ≥ N se relee sin subnúmero
+    para que el guion sea un rango ("14-16"). El número tras el sufijo latino ("65 Bis 1") no
+    se toma si lo sigue una unidad o un mes ("5 bis 10 días"): se relee sin él (y
+    ``_continuacion_no_extraida`` lo marca)."""
+    m = _ITEM_RE.match(texto, posicion)
+    if m is None:
+        return None
+    sub_valido = not _grupo(m, "sub") or int(_grupo(m, "sub")) < int(m.group("num"))
+    latnum_valido = not _grupo(m, "latnum") or not _UNIDAD_RE.match(texto, m.end("latnum"))
+    if sub_valido and latnum_valido:
+        return m
+    if sub_valido:
+        return _ITEM_SIN_LATNUM_RE.match(texto, posicion)
+    otra = _ITEM_SIN_SUB_RE.match(texto, posicion)
+    if otra is not None and _grupo(otra, "latnum") and _UNIDAD_RE.match(texto, otra.end("latnum")):
+        otra = _ITEM_SIMPLE_RE.match(texto, posicion)
+    return otra
+
+
+# Ronda 2 (falla cerrada) — Lo que sigue a la designación extraída y la CONTINÚA sin haberse
+# extraído: un número tras el sufijo latino que no se tomó ("65 Bis 123", "5 bis 10 días"), un
+# segundo subnúmero ("58-1-2"), un rango tras el número latino ("65 Bis 1-3") o una palabra con
+# forma de sufijo latino que la gramática no conoce ("247 Undevicies"). Esa cita nunca se
+# acredita contra una designación truncada: queda como cobertura incompleta (🟡).
+_CONTINUA_TRAS_LATINO = re.compile(r"[ \t]*-?[ \t]*\d")
+_CONTINUA_TRAS_NUMERO = re.compile(r"[-–—]\d|[ \t]+al?[ \t]+\d", re.IGNORECASE)
+_PALABRA_SIGUIENTE = re.compile(r"[ \t]*\.?[ \t]*-?[ \t]*([^\W\d_]+(?:[ \t]+decies)?)", re.IGNORECASE)
+
+
+def _continuacion_no_extraida(texto: str, m: re.Match) -> Optional[str]:
+    """Fragmento que continúa la designación de ``m`` sin haberse extraído, o None."""
+    fin = max(m.end(g) for g in ("num", "sub", "ord", "letra", "latino", "latnum")
+              if _grupo(m, g) is not None)
+
+    def fragmento(hasta: int) -> str:
+        return " ".join(texto[m.start("num"):hasta].split("\n")[0].split())
+
+    if m.group("latino") and not _grupo(m, "latnum"):
+        sigue = _CONTINUA_TRAS_LATINO.match(texto, fin)
+        if sigue:
+            return fragmento(sigue.end() + 3)
+    if (_grupo(m, "sub") or _grupo(m, "latnum")):
+        sigue = _CONTINUA_TRAS_NUMERO.match(texto, fin)
+        if sigue:
+            return fragmento(sigue.end())
+    palabra = _PALABRA_SIGUIENTE.match(texto, fin)
+    if palabra:
+        escrita = sin_acentos(palabra.group(1)).lower()
+        # Un sufijo latino conocido que la gramática no consumió (un segundo sufijo: "247 Bis
+        # Ter") o una palabra con forma de sufijo latino que no conoce ("Undevicies").
+        if canon_latino(escrita) or re.search(r"(?:ies|us)$", escrita):
+            return fragmento(palabra.end())
+    return None
 
 
 def _continuacion_valida(texto: str, m: Optional[re.Match]) -> bool:
@@ -1033,7 +1248,7 @@ def _leer_segmento(
     texto: str, desde: int, *, continuacion: bool
 ) -> Optional[tuple[list[_Item], int, list[tuple[int, int, int]]]]:
     """Artículos de un segmento que empieza en ``desde``: (artículos, fin, rangos recortados)."""
-    primero = _ITEM_RE.match(texto, desde)
+    primero = _item(texto, desde)
     if not primero or (continuacion and not _continuacion_valida(texto, primero)):
         return None
     crudos: list[tuple[re.Match, Optional[re.Match]]] = [(primero, None)]
@@ -1047,7 +1262,7 @@ def _leer_segmento(
             desde_lista += 1
         rango = _RANGO_RE.match(texto, desde_lista)
         if rango and _es_simple(anterior) and crudos[-1][1] is None:
-            final = _ITEM_RE.match(texto, rango.end())
+            final = _item(texto, rango.end())
             # Con ordinal o grado ("1º-25º", "1°-25°") es un rango igual que sin ellos.
             if _continuacion_valida(texto, final) and _es_simple(final):
                 crudos[-1] = (crudos[-1][0], final)
@@ -1055,7 +1270,7 @@ def _leer_segmento(
                 continue
         lista = _LISTA_RE.match(texto, desde_lista)
         if lista:
-            siguiente = _ITEM_RE.match(texto, lista.end())
+            siguiente = _item(texto, lista.end())
             if _continuacion_valida(texto, siguiente):
                 crudos.append((siguiente, None))
                 posicion = siguiente.end()
@@ -1067,7 +1282,8 @@ def _leer_segmento(
     for inicio_item, final_item in crudos:
         if final_item is None:
             fraccion = (inicio_item.group("fraccion") or "").strip()
-            items.append(_Item(_designacion(inicio_item), fraccion, inicio_item.end()))
+            items.append(_Item(_designacion(inicio_item), fraccion, inicio_item.end(),
+                               _continuacion_no_extraida(texto, inicio_item)))
             continue
         a, b = int(inicio_item.group("num")), int(final_item.group("num"))
         if a < b and b - a + 1 <= MAX_RANGO:
@@ -1086,7 +1302,8 @@ def _leer_segmento(
             if a < b:   # con o sin ordinales, lo no auditado queda como cobertura incompleta
                 excedidos.append((a, b, b - a + 1))
         for numero in numeros:
-            items.append(_Item(numero, "", final_item.end()))
+            items.append(_Item(numero, "", final_item.end(),
+                               _continuacion_no_extraida(texto, final_item)))
     return items, posicion, excedidos
 
 
@@ -1157,7 +1374,7 @@ def _unidades(texto: str, cortes: _Cortes, menciones: _Menciones) -> list[_Unida
         for numero in _NUMERO_RE.finditer(texto, fin_anterior, tope_frase):
             if numero.start() < fin_anterior or menciones.cubre(numero.start()):
                 continue
-            item = _ITEM_RE.match(texto, numero.start())
+            item = _item(texto, numero.start())
             if not _continuacion_valida(texto, item):
                 continue
             enlace = _enlace_derecho(texto, item.end(), tope_frase, menciones)
@@ -1534,8 +1751,16 @@ def extraer_articulos(texto: str, catalogo: CatalogoLeyes) -> list[dict]:
         group_raw = texto[u.cabeza:fin_grupo[u.grupo]].strip()
         for i, item in enumerate(u.items):
             r = u.por_item[i] if u.por_item else u.resolucion
-            refs.append(_referencia(texto, u, item.articulo, item.fraccion, item.fin_raw, r,
-                                    group_raw, unidad=_unidad_del_item(texto, u, i, item)))
+            refs.append(_referencia(
+                texto, u, item.articulo, item.fraccion, item.fin_raw, r, group_raw,
+                unidad=_unidad_del_item(texto, u, i, item),
+                # Ronda 2 (falla cerrada): designación que el texto continúa sin extraerse.
+                cobertura=(
+                    f"la designación continúa en el texto ('{item.incompleta}') y no se extrajo "
+                    f"completa: no se audita como el artículo {item.articulo}"
+                    if item.incompleta else None
+                ),
+            ))
         for a, b, total in u.excedidos:
             refs.append(_referencia(
                 texto, u, f"{a + 1} a {b - 1}", "", u.fin, u.por_item[0] if u.por_item

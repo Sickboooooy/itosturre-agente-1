@@ -59,8 +59,21 @@ import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Union
 
-from .evidence import _ENCABEZADO_SIGUIENTE, _PREFIJO_SUBFRAGMENTO, _indice, _without_accents
-from .referencias import CLAVES_CONTEXTUALES, LATINOS, partes_articulo, patron_articulo
+from .evidence import (
+    _ENCABEZADO_SIGUIENTE,
+    _FRONTERA_RE,  # noqa: F401 — reexportado (antes vivía aquí)
+    _PREFIJO_SUBFRAGMENTO,
+    _indice,
+    _without_accents,
+    es_frontera_transitorios,
+)
+from .referencias import (
+    CLAVES_CONTEXTUALES,
+    partes_articulo,
+    patron_articulo,
+    patron_latinos,
+    rango_latino,
+)
 
 PRUEBA_VECINOS = "vecinos_en_el_mismo_fragmento"
 PRUEBA_NUMERO_MAYOR = "numero_muy_superior_al_ultimo"
@@ -78,11 +91,9 @@ CARACTERES_POR_PAGINA = 800
 SOLAPAMIENTO_INGESTA = 200
 SIN_FECHA = "versión indexada sin fecha"
 
-# Frontera del cuerpo: la línea "TRANSITORIOS" / "ARTÍCULOS TRANSITORIOS" (con o sin ":" o
-# "."; también "… DE DECRETOS DE REFORMA"). Mismo criterio que
-# ``itosturre.evidencia.leyesbiblio.es_frontera_transitorios`` (D2: ``audit`` no importa la
-# capa de evidencia; una prueba compara ambas).
-_FRONTERA_RE = re.compile(r"^(?:articulos? )?transitorios?(?: de decretos de reforma)?$")
+# Frontera del cuerpo: la línea "TRANSITORIOS" / "ARTÍCULOS TRANSITORIOS". Desde la ronda 2
+# de la re-ingesta (4-oct-2026) ``_FRONTERA_RE`` y ``es_frontera_transitorios`` viven en
+# ``evidence`` (el cuerpo del precepto se detiene en ella) y se reexportan aquí.
 
 # Palabra partida con guion al final de la línea ("ARTÍ-\nCULO"): se une antes de buscar.
 _GUION_DE_LINEA = re.compile(r"(?<=[^\W\d_])-[ \t]*\n[ \t]*(?=[^\W\d_])")
@@ -96,7 +107,8 @@ _ENCABEZADO_EN_PALABRA = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-_LATINOS_ALT = "bis|ter|quater|quinquies|sexies|septies|octies|nonies|decies"
+# Ronda 2 de la re-ingesta: la misma alternativa de sufijos latinos que la extracción.
+_LATINOS_ALT = patron_latinos(r"[^\S\n]")[3:-1]
 _SEP = r"[^\S\n]*\.?[^\S\n]*-?[^\S\n]*"
 # Línea CANDIDATA a encabezado que el lector exacto no interpreta: "Artículo"/"ARTÍCULO"/
 # "Art." (mayúscula inicial) seguido de un número, aunque falte el cierre ("Artículo
@@ -150,25 +162,24 @@ CANDIDATA = "candidata"      # línea con forma de encabezado que no se interpre
 
 # Familias de sufijo de un mismo número: sin sufijo ("19"), solo latino ("19 Bis") o con
 # letra ("19-A", "19-A Bis"). El orden entre "N Bis" y "N-A" no es uniforme entre leyes
-# (el CFF pone el 70-A antes del 70 Bis): si conviven, no se razona por posición.
-_SIN_SUFIJO, _LATINO, _LETRA = 0, 1, 2
+# (el CFF pone el 70-A antes del 70 Bis): si conviven, no se razona por posición. Ronda 2 de la
+# re-ingesta (4-oct-2026): el subnúmero ("58-1") es una familia más.
+_SIN_SUFIJO, _LATINO, _LETRA, _SUBNUMERO = 0, 1, 2, 3
 
 
-def es_frontera_transitorios(linea: str) -> bool:
-    """True si la línea es el título "TRANSITORIOS" (o "ARTÍCULOS TRANSITORIOS")."""
-    normalizada = " ".join(_without_accents(linea or "").casefold().split()).rstrip(":. ")
-    return bool(_FRONTERA_RE.match(normalizada))
-
-
-def clave_orden(articulo: str) -> Optional[tuple[int, int, int]]:
-    """Clave del orden de numeración: (número, letra, latino). "19" < "19 Bis" < "19 Ter";
-    "32-B" < "32-B Bis" < "32-C". El ordinal ("4o") no cuenta. None si no se descompone."""
+def clave_orden(articulo: str) -> Optional[tuple[int, int, int, int, int]]:
+    """Clave del orden de numeración: (número, letra, latino, subnúmero, número latino).
+    "19" < "19 Bis" < "19 Ter"; "32-B" < "32-B Bis" < "32-C"; ronda 2: "58" < "58-1" < "58-2" y
+    "65 Bis" < "65 Bis 1" < "65 Ter"; "quintus" ocupa el lugar de "quinquies". El ordinal ("4o")
+    no cuenta. None si no se descompone."""
     partes = partes_articulo(articulo)
     if partes is None:
         return None
     letra = ord(partes.letra) - ord("A") + 1 if partes.letra else 0
-    latino = LATINOS.index(partes.latino) + 1 if partes.latino in LATINOS else 0
-    return (int(partes.numero), letra, latino)
+    return (
+        int(partes.numero), letra, rango_latino(partes.latino),
+        int(partes.subnumero or 0), int(partes.numero_latino or 0),
+    )
 
 
 def margen_prueba_numero(ultimo: int) -> int:
@@ -176,9 +187,11 @@ def margen_prueba_numero(ultimo: int) -> int:
     return max(MARGEN_MINIMO, math.ceil(MARGEN_PROPORCIONAL * ultimo))
 
 
-def _familia(clave: tuple[int, int, int]) -> int:
+def _familia(clave: tuple[int, ...]) -> int:
     if clave[1]:
         return _LETRA
+    if clave[3]:
+        return _SUBNUMERO
     return _LATINO if clave[2] else _SIN_SUFIJO
 
 
@@ -550,13 +563,15 @@ def evaluar_inexistencia(
 
     # Existencia: el encabezado citado (cualquier ordinal; también "(Se deroga)") en cualquier
     # parte de la fuente, o una mención del artículo en cualquier parte de su texto.
+    # Ronda 2 de la re-ingesta: también partido entre líneas ("ARTICULO\n508.-").
     encabezado_citado = re.compile(
-        rf"^[^\S\n]*art(?:iculo)?\.?[^\S\n]+{patron_tolerante}[^\S\n]*(?:\.\-|[.\-:])",
+        rf"^[^\S\n]*art(?:iculo)?\.?(?:[^\S\n]+|[^\S\n]*\n[^\S\n]*){patron_tolerante}"
+        rf"[^\S\n]*(?:\.\-|[.\-:])",
         re.IGNORECASE | re.MULTILINE,
     )
     if any(encabezado_citado.search(f.texto) for f in ley.fragmentos):
         return _sin_prueba(f"el encabezado del artículo {articulo} aparece en la fuente")
-    con_sufijo = bool(citada[1] or citada[2])
+    con_sufijo = bool(citada[1] or citada[2] or citada[3])
     tolerante = re.compile(
         patron_articulo(articulo, ordinal_estricto=False, espacio=r"\s"), re.IGNORECASE
     )

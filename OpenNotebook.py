@@ -2,6 +2,23 @@
 OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
+Cambios re-ingesta por fuente (orden del responsable jurídico, 4-oct-2026):
+  ✅ Corte y etiqueta de "ley" como funciones puras (itosturre/audit/fragmentacion.py) con la
+     misma definición de encabezado AUTÉNTICO que la auditoría (evidence._es_autentico): cortan
+     "ARTÍCULO 1o.-"/"ARTICULO 496.-" (antes no: exigían "rt" en minúscula) y la designación
+     sola al final de su línea de los tratados; ya no cortan remisiones en minúscula al inicio
+     de línea ("artículo 41.") ni citas ("Artículo 2o., fracción I"). Etiquetas compatibles.
+  ✅ ``ingest --fuente ARCHIVO.pdf [--fuente …] [--simular]``: borra SOLO los fragmentos de esa
+     fuente (nunca la colección), con vectores calculados antes, respaldo y restauración ante
+     fallo; ``--simular`` informa fragmentos, etiquetas y cobertura antes/después sin escribir.
+  ✅ La ingesta sin flags ya no mezcla fragmentos viejos y nuevos de una fuente indexada con
+     otra fragmentación: la omite, pide ``--fuente`` y sale con código 3 (MIGRACIÓN
+     PENDIENTE). ``--reingest``/``--clear`` no cambian (borran la colección ENTERA).
+  ✅ Ronda 2: gramática única ("58-1", "65 Bis 1", latinos extendidos, falla cerrada),
+     encabezado partido entre líneas, cuerpo hasta TRANSITORIOS; ``--fuente`` con fase 1 sin
+     escrituras (identidad, extracción completa, colisiones), respaldo DURABLE por fuente e
+     ``ingest --restaurar``.
+
 Cambios D10 (artículo no localizado; itosturre/audit/inexistencia.py):
   ✅ Criterio del responsable jurídico (2-oct-2026, opción C): un artículo que no se localiza
      en una ley indexada solo es 🔴 con prueba positiva de inexistencia sobre el cuerpo de la
@@ -87,22 +104,36 @@ Cambios v3.0:
 
 Comandos:
   python OpenNotebook.py ingest --directory /ruta/a/pdfs/
+  python OpenNotebook.py ingest --directory /ruta/a/pdfs/ --fuente "ARCHIVO.pdf" [--simular]
   python OpenNotebook.py audit --text "texto del borrador"
   python OpenNotebook.py audit --file /ruta/borrador.md --verbose
   python OpenNotebook.py query "prisión preventiva CNPP" [--n 5]
 """
 
 import argparse
+import base64
+import datetime
+import hashlib
 import importlib
 import json
 import re
 import sys
 import logging
+import time
+from array import array
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable, Optional, Tuple, Dict, List
+from typing import Callable, Optional, Sequence, Tuple, Dict, List
 
 from itosturre.audit.context import vvca_contextualizacion
+from itosturre.audit.fragmentacion import (
+    Fragmentacion,
+    fragmentar,
+    medir,
+    paginas_incompletas,
+    verificar_identidad,
+)
 from itosturre.audit.evidence import (
     DEROGACION_AMBIGUA,
     DEROGADO,
@@ -115,6 +146,7 @@ from itosturre.audit.referencias import (
     MOTIVO_CONFIRMAR,
     CatalogoLeyes,
     articulo_con_sufijo,
+    canon_caja,
     construir_catalogo,
     designaciones_articulo,
     extraer_articulos,
@@ -648,7 +680,16 @@ def encode_query(text: str) -> List[float]:
     return vec[0].tolist()
 
 
-def get_collection(embedder):
+def encode_passages(model, textos: List[str]) -> List[List[float]]:
+    """Codifica fragmentos con prefijo e5 'passage: ' (el mismo cálculo que hace ChromaDB al
+    indexar con la función de la colección). La re-ingesta por fuente lo usa para calcular
+    los vectores ANTES de tocar el índice."""
+    return model.encode(["passage: " + t for t in textos], normalize_embeddings=True).tolist()
+
+
+def get_collection(embedder, *, crear: bool = True):
+    """Colección del corpus. ``crear=False`` (re-ingesta ``--simular``): solo la abre y falla
+    si no existe, en vez de crearla."""
     client = _cargar_dependencias().chromadb.PersistentClient(path=CHROMA_PATH)
 
     class STEmbeddingFunction:
@@ -658,15 +699,17 @@ def get_collection(embedder):
             return "itosturre-st-embedder"
         def __call__(self, input):
             # Usado por ChromaDB al indexar documentos — prefijo e5 'passage: '
-            return self.model.encode(["passage: " + t for t in input], normalize_embeddings=True).tolist()
+            return encode_passages(self.model, input)
         def embed_documents(self, input):
-            return self.model.encode(["passage: " + t for t in input], normalize_embeddings=True).tolist()
+            return encode_passages(self.model, input)
         def embed_query(self, input):
             if isinstance(input, str):
                 input = [input]
             return self.model.encode(["query: " + t for t in input], normalize_embeddings=True).tolist()
 
     ef = STEmbeddingFunction(embedder)
+    if not crear:
+        return client.get_collection(name=COLLECTION_NAME, embedding_function=ef)
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
         embedding_function=ef,
@@ -699,15 +742,103 @@ def extract_text_from_pdf(pdf_path: Path) -> list:
     return pages
 
 
-def ingest(directory: str, clear: bool = False, reingest: bool = False):
+def _directorio_de_ingesta(directory: str) -> Path:
+    """Carpeta de PDFs resuelta, solo si está bajo ``INGEST_ALLOWED_BASE`` (path traversal).
+    ValueError si no lo está."""
     pdf_dir = Path(directory).resolve()
     allowed_base = Path(INGEST_ALLOWED_BASE).resolve()
-
     try:
         pdf_dir.relative_to(allowed_base)
     except ValueError:
-        logger.error(f"❌ Path traversal bloqueado: '{pdf_dir}' no está bajo '{allowed_base}'")
-        logger.error(f"   Ajusta INGEST_ALLOWED_BASE en .env si necesitas ingestar desde otra ruta.")
+        raise ValueError(
+            f"Path traversal bloqueado: '{pdf_dir}' no está bajo '{allowed_base}'. Ajusta "
+            f"INGEST_ALLOWED_BASE en .env si necesitas ingestar desde otra ruta."
+        ) from None
+    return pdf_dir
+
+
+def _divisor_respaldo():
+    """Divisor de respaldo de los textos que pasan de ``MAX_CHUNK_SIZE`` (el de siempre)."""
+    return _cargar_dependencias().RecursiveCharacterTextSplitter(
+        chunk_size=1500,
+        chunk_overlap=200,
+        separators=["\n\n", "\n", " "]
+    )
+
+
+def fragmentos_de_pdf(
+    pdf_path: Path,
+    *,
+    extraer: Optional[Callable[[Path], list]] = None,
+    subdividir: Optional[Callable[[str], List[str]]] = None,
+) -> Fragmentacion:
+    """Fragmentos de un PDF con el corte y la etiqueta de ``itosturre.audit.fragmentacion``
+    (re-ingesta por fuente, 4-oct-2026: encabezados auténticos, también en MAYÚSCULAS; sin
+    cortes en remisiones). ``extraer`` (páginas) y ``subdividir`` son costuras para pruebas."""
+    paginas = (extraer or extract_text_from_pdf)(pdf_path)
+    if subdividir is None:
+        subdividir = _divisor_respaldo().split_text
+    return fragmentar(paginas, max_caracteres=MAX_CHUNK_SIZE, subdividir=subdividir)
+
+
+def filas_de_fragmentos(
+    pdf_path: Path, fragmentacion: Fragmentacion
+) -> Tuple[List[str], List[str], List[Dict]]:
+    """IDs, textos y metadatos de los fragmentos de un PDF, con el esquema de siempre: ID
+    ``{stem}_chunk_{i}`` y metadatos ``source``, ``law``, ``article``, ``page``,
+    ``chunk_index`` y ``doc_type`` (todos texto), con ``chunk_index`` contiguo desde 0."""
+    ids, textos, metadatas = [], [], []
+    for indice, fragmento in enumerate(fragmentacion.fragmentos):
+        ids.append(f"{pdf_path.stem}_chunk_{indice}")
+        textos.append(fragmento.texto)
+        metadatas.append({
+            "source": pdf_path.name,
+            "law": pdf_path.stem,
+            "article": fragmento.etiqueta,
+            "page": str(fragmento.pagina),
+            "chunk_index": str(indice),
+            "doc_type": fragmentacion.tipo,
+        })
+    return ids, textos, metadatas
+
+
+_CAMPOS_FRAGMENTO = ("source", "law", "article", "page", "chunk_index", "doc_type")
+
+
+def _filas_comparables(ids, textos, metadatas) -> Dict[str, Tuple[str, Dict]]:
+    return {
+        id_: (texto, {k: (meta or {}).get(k) for k in _CAMPOS_FRAGMENTO})
+        for id_, texto, meta in zip(ids, textos, metadatas)
+    }
+
+
+def pendientes_sin_mezcla(collection, fuente: str, ids, textos, metadatas) -> Optional[List[int]]:
+    """Posiciones de los fragmentos nuevos que faltan en el índice, o None si la fuente ya está
+    indexada con OTRA fragmentación.
+
+    Re-ingesta por fuente (4-oct-2026) — Nunca mezclar fragmentos viejos y nuevos. Antes la
+    ingesta sin flags omitía por ID los fragmentos ya existentes: si la fragmentación había
+    cambiado (otro cortador, otro PDF), el índice quedaba con el texto viejo en los IDs
+    existentes y el nuevo en los demás. Ahora una fuente ya indexada solo se completa si todo
+    lo existente coincide con lo nuevo (texto y metadatos: una ingesta interrumpida); si
+    difiere en algo, None (la ingesta la omite y pide --fuente)."""
+    existentes = collection.get(where={"source": fuente}, include=["documents", "metadatas"])
+    previos = _filas_comparables(
+        existentes.get("ids") or [],
+        existentes.get("documents") or [],
+        existentes.get("metadatas") or [],
+    )
+    nuevos = _filas_comparables(ids, textos, metadatas)
+    if any(nuevos.get(id_) != fila for id_, fila in previos.items()):
+        return None
+    return [k for k, id_ in enumerate(ids) if id_ not in previos]
+
+
+def ingest(directory: str, clear: bool = False, reingest: bool = False):
+    try:
+        pdf_dir = _directorio_de_ingesta(directory)
+    except ValueError as exc:
+        logger.error(f"❌ {exc}")
         sys.exit(1)
 
     pdfs = [p for p in pdf_dir.iterdir() if is_legal_pdf(p)]
@@ -724,8 +855,8 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
     dependencias = _cargar_dependencias()
     client = dependencias.chromadb.PersistentClient(path=CHROMA_PATH)
 
-    # clear y reingest borran la colección antes de ingestar
-    # (antes: se borraba dos veces si se pasaban ambas flags)
+    # clear y reingest borran la colección ENTERA antes de ingestar (todas las fuentes).
+    # Para re-ingestar una sola fuente: ``ingest --fuente`` (reingestar_fuentes).
     if clear or reingest:
         try:
             client.delete_collection(COLLECTION_NAME)
@@ -734,51 +865,10 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
             logger.warning(f"⚠️  No se pudo borrar colección: {e}")
 
     collection = get_collection(embedder)
-
-    fallback_splitter = dependencias.RecursiveCharacterTextSplitter(
-        chunk_size=1500,
-        chunk_overlap=200,
-        separators=["\n\n", "\n", " "]
-    )
-
-    # Patrones de split por tipo de documento
-    _SPLIT_PATTERNS = {
-        "ley":       re.compile(r'(?=\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+)', re.MULTILINE),
-        "contrato":  re.compile(r'(?=\n[Cc]l[áa]usula\s+(?:[A-ZÁÉÍÓÚa-záéíóú]+|\d+))', re.MULTILINE),
-        "resolucion": re.compile(
-            r'(?=\n(?:CONSIDERANDO|RESULTANDO|VISTOS|[A-ZÁÉÍÓÚ]{4,}[:\s]|'
-            r'[Pp]rimero[:\s]|[Ss]egundo[:\s]|[Tt]ercero[:\s]|[Cc]uarto[:\s]))',
-            re.MULTILINE
-        ),
-    }
-
-    def detect_doc_type(text: str) -> str:
-        sample = text[:3000]
-        art_count = len(re.findall(r'\n[Aa]rt[íi]?(?:culo)?s?\.?\s+\d+', sample))
-        clause_count = len(re.findall(r'\n[Cc]l[áa]usula\s+\w+', sample))
-        section_count = len(re.findall(
-            r'\n(?:CONSIDERANDO|RESULTANDO|VISTOS)\b', sample
-        ))
-        if clause_count >= 2 and clause_count >= art_count:
-            return "contrato"
-        if section_count >= 2 and section_count >= art_count:
-            return "resolucion"
-        return "ley"
-
-    def extract_section_label(piece: str, doc_type: str) -> str:
-        """Extrae el encabezado de sección (Artículo N, Cláusula X, etc.)."""
-        if doc_type == "ley":
-            m = re.match(r'\s*[Aa]rt[íi]?(?:culo)?s?\.?\s+(\d+[\w\-]*)', piece)
-            return m.group(1) if m else ""
-        if doc_type == "contrato":
-            m = re.match(r'\s*[Cc]l[áa]usula\s+(\w+)', piece)
-            return m.group(1) if m else ""
-        if doc_type == "resolucion":
-            m = re.match(r'\s*([A-ZÁÉÍÓÚ][A-ZÁÉÍÓÚa-záéíóú\s]{2,30})[:\s]', piece)
-            return m.group(1).strip() if m else ""
-        return ""
+    subdividir = _divisor_respaldo().split_text
 
     total_chunks = 0
+    con_otra_fragmentacion: List[str] = []
     for pdf_path in pdfs:
         logger.info(f"  🔍 Procesando: {pdf_path.name}")
         try:
@@ -787,103 +877,32 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
                 logger.warning(f"     ⚠️  Texto muy corto, omitiendo.")
                 continue
 
-            # Chunking cross-page: concatenar todo antes de partir.
-            # Evita cortar artículos/cláusulas que cruzan saltos de página.
-            page_offsets: List[Tuple[int, int]] = []
-            char_pos = 0
-            full_parts: List[str] = []
-            for p in pages:
-                page_offsets.append((char_pos, p["page"]))
-                full_parts.append(p["text"])
-                char_pos += len(p["text"]) + 2  # +2 por separador \n\n
+            fragmentacion = fragmentos_de_pdf(
+                pdf_path, extraer=lambda _ruta: pages, subdividir=subdividir
+            )
+            ids, texts, metadatas = filas_de_fragmentos(pdf_path, fragmentacion)
+            logger.info(f"     📄 {len(ids)} chunks generados")
 
-            full_text = "\n\n".join(full_parts)
-            doc_type = detect_doc_type(full_text)
-
-            def get_page_for_pos(pos: int) -> int:
-                page = page_offsets[0][1] if page_offsets else 1
-                for off, pnum in page_offsets:
-                    if pos >= off:
-                        page = pnum
-                    else:
-                        break
-                return page
-
-            # Elegir patrón según tipo; si no produce suficientes splits, caer a "ley"
-            split_re = _SPLIT_PATTERNS.get(doc_type, _SPLIT_PATTERNS["ley"])
-            boundaries = [m.start() for m in split_re.finditer(full_text)]
-
-            # Fallback: si el patrón primario no encontró splits, intentar con "ley"
-            if len(boundaries) < 2 and doc_type != "ley":
-                split_re = _SPLIT_PATTERNS["ley"]
-                boundaries = [m.start() for m in split_re.finditer(full_text)]
-                if len(boundaries) >= 2:
-                    doc_type = "ley"
-
-            if not boundaries or boundaries[0] > 0:
-                boundaries = [0] + boundaries
-            boundaries.append(len(full_text))
-
-            chunks_with_meta: List[Tuple[str, str, int]] = []
-            for i in range(len(boundaries) - 1):
-                piece = full_text[boundaries[i]:boundaries[i + 1]].strip()
-                if not piece:
-                    continue
-
-                page_num = get_page_for_pos(boundaries[i])
-                section_label = extract_section_label(piece, doc_type)
-
-                if len(piece) <= MAX_CHUNK_SIZE:
-                    chunks_with_meta.append((piece, section_label, page_num))
-                else:
-                    # Sub-dividir chunks largos e inyectar el encabezado como prefijo
-                    # para que cada sub-chunk sea recuperable por artículo/cláusula.
-                    prefix = f"[{doc_type.upper()} {section_label}]\n" if section_label else ""
-                    sub_chunks = fallback_splitter.split_text(piece)
-                    for sc in sub_chunks:
-                        sc_text = (prefix + sc.strip()) if prefix else sc.strip()
-                        chunks_with_meta.append((sc_text, section_label, page_num))
-
-            logger.info(f"     📄 {len(chunks_with_meta)} chunks generados")
+            pendientes = pendientes_sin_mezcla(collection, pdf_path.name, ids, texts, metadatas)
+            if pendientes is None:
+                logger.warning(
+                    f"     ⚠️  {pdf_path.name} ya está indexada con otra fragmentación: no se "
+                    f"mezcla. Re-ingesta esa fuente con --fuente \"{pdf_path.name}\"."
+                )
+                con_otra_fragmentacion.append(pdf_path.name)
+                continue
 
             # Insertar en lotes
             batch_size = 50
-            for i in range(0, len(chunks_with_meta), batch_size):
-                batch = chunks_with_meta[i:i + batch_size]
-                texts = [c[0] for c in batch]
-                section_labels = [c[1] for c in batch]
-                page_nums = [c[2] for c in batch]
-                ids = [f"{pdf_path.stem}_chunk_{i + j}" for j in range(len(batch))]
-                metadatas = [
-                    {
-                        "source": pdf_path.name,
-                        "law": pdf_path.stem,
-                        "article": section_labels[j],
-                        "page": str(page_nums[j]),
-                        "chunk_index": str(i + j),
-                        "doc_type": doc_type,
-                    }
-                    for j in range(len(batch))
-                ]
+            for i in range(0, len(pendientes), batch_size):
+                lote = pendientes[i:i + batch_size]
+                collection.add(
+                    ids=[ids[k] for k in lote],
+                    documents=[texts[k] for k in lote],
+                    metadatas=[metadatas[k] for k in lote],
+                )
 
-                # Evitar duplicados
-                existing = collection.get(ids=ids)
-                existing_ids = set(existing["ids"])
-                new_batch = [
-                    (id_, doc, meta)
-                    for id_, doc, meta in zip(ids, texts, metadatas)
-                    if id_ not in existing_ids
-                ]
-
-                if new_batch:
-                    n_ids, n_docs, n_metas = zip(*new_batch)
-                    collection.add(
-                        ids=list(n_ids),
-                        documents=list(n_docs),
-                        metadatas=list(n_metas)
-                    )
-
-            total_chunks += len(chunks_with_meta)
+            total_chunks += len(ids)
             logger.info(f"     ✅ Indexado correctamente")
 
         except Exception as e:
@@ -894,6 +913,511 @@ def ingest(directory: str, clear: bool = False, reingest: bool = False):
     logger.info(f"   Chunks totales  : {total_chunks}")
     logger.info(f"   Base vectorial  : {CHROMA_PATH}")
     logger.info(f"   Colección       : {COLLECTION_NAME}")
+    if con_otra_fragmentacion:
+        # Ronda 2 (adjudicado): MIGRACIÓN PENDIENTE — la ingesta no terminó su trabajo; sale
+        # con código distinto de 0 y dice exactamente cómo completarla.
+        fuentes = " ".join(f'--fuente "{nombre}"' for nombre in con_otra_fragmentacion)
+        logger.warning(
+            f"\n⚠️  MIGRACIÓN PENDIENTE: {len(con_otra_fragmentacion)} fuente(s) ya indexadas con "
+            f"otra fragmentación se omitieron (no se mezclan fragmentos viejos y nuevos): "
+            f"{', '.join(con_otra_fragmentacion)}\n"
+            f"   Simula y luego re-ingesta solo esas fuentes:\n"
+            f"   python OpenNotebook.py ingest --directory \"{directory}\" {fuentes} --simular\n"
+            f"   python OpenNotebook.py ingest --directory \"{directory}\" {fuentes}"
+        )
+        sys.exit(SALIDA_MIGRACION_PENDIENTE)
+
+
+# ─────────────────────────────────────────
+# RE-INGESTA POR FUENTE (4-oct-2026)
+# ─────────────────────────────────────────
+# Orden expresa del responsable jurídico (4-oct-2026). ``--reingest``/``--clear`` borran la
+# colección ENTERA (49 leyes, ~28 000 fragmentos) y re-ingestar un PDF sin borrar antes sus
+# fragmentos mezclaba viejos y nuevos. ``reingestar_fuentes`` sustituye SOLO los fragmentos de
+# las fuentes nombradas, en dos fases:
+#   Fase 1, sin escribir nada, para TODAS las fuentes: nombre exacto de un PDF de la carpeta,
+#     no excluido; extracción completa antes de la frontera TRANSITORIOS
+#     (``paginas_incompletas``); identidad con lo indexado de esa fuente
+#     (``verificar_identidad``: título y designaciones, sin depender del catálogo); ningún ID
+#     nuevo ocupado por otra fuente. Si alguna falla, se niega sin tocar el índice.
+#   Fase 2, por fuente: vectores calculados ANTES de tocar el índice; respaldo DURABLE en disco
+#     (fuera del repositorio y del índice: ids, documentos, metadatos y vectores, con su huella)
+#     y en memoria; borrado SOLO de ``source == fuente``; alta y verificación; ante cualquier
+#     fallo, restauración. ``restaurar_respaldo`` (``ingest --restaurar``) repone un respaldo.
+# Con ``simular=True`` no escribe: informa fragmentos, etiquetas y cobertura antes (índice) y
+# después (cortador actual), y lo que la fase 1 rechazaría.
+
+LOTE_REINGESTA = 50
+MAX_ETIQUETAS_INFORME = 40
+FORMATO_RESPALDO = "itosturre-respaldo-fuente/1"
+# Carpeta de los respaldos durables: ``--respaldos``, la variable de entorno o, por omisión,
+# ~/.itosturre/respaldos_reingesta (fuera del repositorio).
+VARIABLE_RESPALDOS = "ITOSTURRE_RESPALDOS_REINGESTA"
+# Ingesta sin flags que omitió fuentes con otra fragmentación (migración pendiente).
+SALIDA_MIGRACION_PENDIENTE = 3
+# Al restaurar, ChromaDB (espacio coseno) vuelve a normalizar cada vector: medido en el corpus,
+# difiere del respaldo en a lo sumo 1.5e-8 por componente (coseno 1.0). Más que esto es otro
+# vector.
+TOLERANCIA_VECTOR = 1e-6
+
+
+class ReingestaFallida(RuntimeError):
+    """La re-ingesta de una fuente falló; el mensaje dice si se restauró el respaldo."""
+
+
+class ReingestaRechazada(ValueError):
+    """La fase 1 (sin escribir) rechazó la re-ingesta: el índice no se tocó."""
+
+
+def _validar_fuentes(pdf_dir: Path, fuentes: Sequence[str]) -> List[Path]:
+    """Rutas de las fuentes pedidas. Cada una es el nombre EXACTO (también en mayúsculas y
+    acentos: es el ``source`` del índice) de un PDF de ``pdf_dir`` no excluido por
+    ``EXCLUDE_PATTERNS``. ValueError si no hay ninguna, se repite o no cumple."""
+    if not fuentes:
+        raise ValueError(
+            "La re-ingesta por fuente exige al menos una --fuente (nombre exacto del PDF). "
+            "Para re-ingestar todo el corpus está --reingest, que borra la colección entera."
+        )
+    repetidas = sorted(f for f, n in Counter(fuentes).items() if n > 1)
+    if repetidas:
+        raise ValueError(f"Fuente repetida: {', '.join(repetidas)}")
+    en_carpeta = {p.name: p for p in pdf_dir.iterdir() if p.is_file()}
+    rutas = []
+    for fuente in fuentes:
+        if not fuente or Path(fuente).name != fuente or fuente in (".", ".."):
+            raise ValueError(f"--fuente debe ser solo el nombre del archivo: {fuente!r}")
+        ruta = en_carpeta.get(fuente)
+        if ruta is None:
+            raise ValueError(
+                f"No existe '{fuente}' en la carpeta indicada (se exige el nombre exacto, "
+                f"con mayúsculas y acentos, porque es el 'source' del índice)."
+            )
+        if not is_legal_pdf(ruta):
+            raise ValueError(f"'{fuente}' no es un PDF legal (extensión o EXCLUDE_PATTERNS).")
+        rutas.append(ruta)
+    return rutas
+
+
+def _en_orden(respuesta: Dict) -> List[Tuple[str, str, Dict]]:
+    """(id, texto, metadatos) de un ``collection.get`` en orden de ``chunk_index``."""
+    filas = list(zip(
+        respuesta.get("ids") or [],
+        respuesta.get("documents") or [],
+        respuesta.get("metadatas") or [],
+    ))
+
+    def clave(fila):
+        try:
+            return (0, int(str((fila[2] or {}).get("chunk_index"))))
+        except (TypeError, ValueError):
+            return (1, 0)
+
+    return sorted(filas, key=clave)
+
+
+def _diferencia_etiquetas(antes: Counter, despues: Counter) -> Dict:
+    ganadas, perdidas = despues - antes, antes - despues
+    return {
+        "etiquetas_ganadas": sum(ganadas.values()),
+        "etiquetas_perdidas": sum(perdidas.values()),
+        "muestra_ganadas": sorted(ganadas.elements())[:MAX_ETIQUETAS_INFORME],
+        "muestra_perdidas": sorted(perdidas.elements())[:MAX_ETIQUETAS_INFORME],
+    }
+
+
+def _agregar_por_lotes(collection, ids, textos, metadatas, vectores) -> None:
+    for i in range(0, len(ids), LOTE_REINGESTA):
+        collection.add(
+            ids=list(ids[i:i + LOTE_REINGESTA]),
+            documents=list(textos[i:i + LOTE_REINGESTA]),
+            metadatas=list(metadatas[i:i + LOTE_REINGESTA]),
+            embeddings=[list(map(float, v)) for v in vectores[i:i + LOTE_REINGESTA]],
+        )
+
+
+# ── Respaldo durable de una fuente ───────────────────────────────────────────────────────
+
+def _directorio_respaldos(respaldos_dir: Optional[str] = None) -> Path:
+    """Carpeta de respaldos: ``respaldos_dir``, ``$ITOSTURRE_RESPALDOS_REINGESTA`` o
+    ~/.itosturre/respaldos_reingesta. ValueError si queda dentro del repositorio o del índice
+    (un respaldo ahí se borraría o versionaría con ellos)."""
+    elegido = respaldos_dir or os.getenv(VARIABLE_RESPALDOS) or str(
+        Path.home() / ".itosturre" / "respaldos_reingesta"
+    )
+    destino = Path(elegido).expanduser().resolve()
+    for prohibida, nombre in ((_BASE_DIR.resolve(), "el repositorio"),
+                              (Path(CHROMA_PATH).resolve(), "el índice (CHROMA_PATH)")):
+        if destino == prohibida or prohibida in destino.parents:
+            raise ValueError(f"Los respaldos no pueden quedar dentro de {nombre}: {destino}")
+    return destino
+
+
+def _vectores_a_texto(vectores, dimension: int) -> str:
+    """Vectores → float32 little-endian en base64 (sin pérdida: ChromaDB guarda float32)."""
+    datos = array("f")
+    for vector in vectores:
+        if len(vector) != dimension:
+            raise ReingestaFallida("vectores de dimensión distinta en el respaldo")
+        datos.extend(float(x) for x in vector)
+    if sys.byteorder != "little":
+        datos.byteswap()
+    return base64.b64encode(datos.tobytes()).decode("ascii")
+
+
+def _texto_a_vectores(texto: str, dimension: int, cantidad: int) -> List[List[float]]:
+    datos = array("f")
+    datos.frombytes(base64.b64decode(texto.encode("ascii")))
+    if sys.byteorder != "little":
+        datos.byteswap()
+    if len(datos) != dimension * cantidad:
+        raise ValueError("el respaldo no tiene tantos valores como vectores × dimensión")
+    return [list(datos[i * dimension:(i + 1) * dimension]) for i in range(cantidad)]
+
+
+def _huella_respaldo(cuerpo: Dict) -> str:
+    sin_huella = {k: v for k, v in cuerpo.items() if k != "sha256"}
+    canonico = json.dumps(sin_huella, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def _escribir_respaldo(destino_dir: Path, fuente: str, respaldo: Dict) -> Path:
+    """Escribe el respaldo de ``fuente`` (lo que devolvió ``collection.get`` con documentos,
+    metadatos y vectores), lo relee y comprueba su huella. Devuelve la ruta."""
+    ids = list(respaldo.get("ids") or [])
+    vectores = respaldo.get("embeddings")
+    vectores = [] if vectores is None else list(vectores)
+    dimension = len(vectores[0]) if ids else 0
+    cuerpo = {
+        "formato": FORMATO_RESPALDO,
+        "fuente": fuente,
+        "coleccion": COLLECTION_NAME,
+        "creado": datetime.datetime.now().isoformat(timespec="seconds"),
+        "fragmentos": len(ids),
+        "dimension": dimension,
+        "ids": ids,
+        "documents": list(respaldo.get("documents") or []),
+        "metadatas": [dict(m or {}) for m in (respaldo.get("metadatas") or [])],
+        "vectores_f32le_b64": _vectores_a_texto(vectores, dimension) if ids else "",
+    }
+    if not (len(cuerpo["documents"]) == len(cuerpo["metadatas"]) == len(vectores) == len(ids)):
+        raise ReingestaFallida("respaldo incompleto: ids, documentos, metadatos o vectores")
+    cuerpo["sha256"] = _huella_respaldo(cuerpo)
+    destino_dir.mkdir(parents=True, exist_ok=True)
+    marca = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    base = re.sub(r"[^\w.\- ]+", "_", Path(fuente).stem)
+    ruta = destino_dir / f"{base}__{marca}.json"
+    contador = 1
+    while ruta.exists():
+        contador += 1
+        ruta = destino_dir / f"{base}__{marca}-{contador}.json"
+    temporal = ruta.with_suffix(".json.tmp")
+    temporal.write_text(json.dumps(cuerpo, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporal, ruta)
+    leido = leer_respaldo(ruta)   # relectura: la huella y las cantidades cuadran
+    if leido["fragmentos"] != len(ids):
+        raise ReingestaFallida(f"el respaldo escrito en {ruta} no se relee completo")
+    return ruta
+
+
+def leer_respaldo(ruta) -> Dict:
+    """Lee y valida un respaldo de fuente (formato, huella, cantidades). ValueError si no."""
+    cuerpo = json.loads(Path(ruta).read_text(encoding="utf-8"))
+    if cuerpo.get("formato") != FORMATO_RESPALDO:
+        raise ValueError(f"{ruta}: no es un respaldo de fuente ({cuerpo.get('formato')!r})")
+    if cuerpo.get("sha256") != _huella_respaldo(cuerpo):
+        raise ValueError(f"{ruta}: la huella no coincide (respaldo alterado o incompleto)")
+    n = cuerpo["fragmentos"]
+    if not (len(cuerpo["ids"]) == len(cuerpo["documents"]) == len(cuerpo["metadatas"]) == n):
+        raise ValueError(f"{ruta}: cantidades inconsistentes")
+    if any((m or {}).get("source") != cuerpo["fuente"] for m in cuerpo["metadatas"]):
+        raise ValueError(f"{ruta}: hay fragmentos de otra fuente")
+    cuerpo["vectores"] = (
+        _texto_a_vectores(cuerpo["vectores_f32le_b64"], cuerpo["dimension"], n) if n else []
+    )
+    return cuerpo
+
+
+def _ids_ajenos(collection, fuente: str, ids) -> List[str]:
+    """IDs de ``ids`` que el índice ya tiene con OTRA fuente (colisión)."""
+    if not ids:
+        return []
+    existentes = collection.get(ids=list(ids), include=["metadatas"])
+    return [
+        id_ for id_, meta in zip(existentes.get("ids") or [], existentes.get("metadatas") or [])
+        if (meta or {}).get("source") != fuente
+    ]
+
+
+def _restaurar(collection, fuente: str, respaldo: Dict) -> int:
+    """Deja la fuente como estaba: borra lo escrito y vuelve a agregar el respaldo."""
+    collection.delete(where={"source": fuente})
+    ids = list(respaldo.get("ids") or [])
+    if ids:
+        _agregar_por_lotes(
+            collection, ids, list(respaldo["documents"]), list(respaldo["metadatas"]),
+            respaldo["embeddings"],
+        )
+    return len(ids)
+
+
+def _sustituir_fuente(
+    collection, fuente: str, ids, textos, metadatas, vectores, *, respaldos: Path
+) -> Path:
+    """Fase 2 de una fuente: comprueba colisiones de IDs ANTES de borrar, escribe el respaldo
+    durable (y lo conserva en memoria), borra SOLO la fuente, agrega y verifica; ante cualquier
+    fallo restaura el respaldo y lanza ReingestaFallida. Devuelve la ruta del respaldo."""
+    ajenos = _ids_ajenos(collection, fuente, ids)
+    if ajenos:
+        raise ReingestaRechazada(
+            f"{fuente}: {len(ajenos)} IDs nuevos ya existen en el índice con otra fuente "
+            f"(p. ej. {ajenos[0]}); no se tocó el índice."
+        )
+    respaldo = collection.get(
+        where={"source": fuente}, include=["documents", "metadatas", "embeddings"]
+    )
+    ruta_respaldo = _escribir_respaldo(respaldos, fuente, respaldo)
+    logger.info(f"     💾 Respaldo de la fuente: {ruta_respaldo}")
+    try:
+        collection.delete(where={"source": fuente})
+        if collection.get(where={"source": fuente}, include=[]).get("ids"):
+            raise ReingestaFallida("quedaron fragmentos de la fuente tras el borrado")
+        ocupados = collection.get(ids=list(ids), include=["metadatas"]).get("ids") or []
+        if ocupados:
+            raise ReingestaFallida(
+                f"{len(ocupados)} IDs nuevos ya existen en el índice con otra fuente "
+                f"(p. ej. {ocupados[0]})"
+            )
+        _agregar_por_lotes(collection, ids, textos, metadatas, vectores)
+        escritos = collection.get(where={"source": fuente}, include=["documents", "metadatas"])
+        if _filas_comparables(
+            escritos.get("ids") or [], escritos.get("documents") or [],
+            escritos.get("metadatas") or [],
+        ) != _filas_comparables(ids, textos, metadatas):
+            raise ReingestaFallida(
+                f"verificación fallida: el índice tiene {len(escritos.get('ids') or [])} "
+                f"fragmentos de la fuente y se esperaban {len(ids)} idénticos a los generados"
+            )
+    except BaseException as exc:
+        try:
+            restaurados = _restaurar(collection, fuente, respaldo)
+        except Exception as error_restauracion:
+            raise ReingestaFallida(
+                f"{fuente}: la re-ingesta falló ({exc}) y la RESTAURACIÓN en memoria también "
+                f"({error_restauracion}). Repón la fuente con: python OpenNotebook.py ingest "
+                f"--restaurar \"{ruta_respaldo}\""
+            ) from exc
+        if not isinstance(exc, Exception):
+            raise  # interrupción (Ctrl+C) u otra BaseException: ya restaurado, se propaga
+        if isinstance(exc, ReingestaFallida):
+            mensaje = str(exc)
+        else:
+            mensaje = f"{type(exc).__name__}: {exc}"
+        raise ReingestaFallida(
+            f"{fuente}: la re-ingesta falló ({mensaje}); se restauraron los {restaurados} "
+            f"fragmentos previos (respaldo durable: {ruta_respaldo})."
+        ) from exc
+    return ruta_respaldo
+
+
+def reingestar_fuentes(
+    directory: str,
+    fuentes: Sequence[str],
+    *,
+    simular: bool = False,
+    collection=None,
+    codificar: Optional[Callable[[List[str]], List[List[float]]]] = None,
+    extraer: Optional[Callable[[Path], list]] = None,
+    subdividir: Optional[Callable[[str], List[str]]] = None,
+    respaldos_dir: Optional[str] = None,
+) -> List[Dict]:
+    """Re-ingesta (o, con ``simular``, simulación) de las ``fuentes`` nombradas de
+    ``directory``: borra SOLO sus fragmentos y los sustituye por los del cortador actual, con
+    los mismos metadatos. Devuelve un informe por fuente (fragmentos, etiquetas y cobertura
+    antes/después, identidad, extracción, respaldo y segundos).
+
+    ValueError si las fuentes no son válidas; ``ReingestaRechazada`` (subclase de ValueError)
+    si la fase 1 rechaza alguna (extracción incompleta, otro documento, IDs ajenos): en ambos
+    casos nada se toca. ``ReingestaFallida`` si una sustitución falla (esa fuente queda
+    restaurada y las siguientes no se procesan). Con ``simular`` los rechazos se informan
+    (``rechazo``) sin lanzar.
+
+    Costuras (para pruebas sin dependencias): ``collection`` (``get``, ``delete``, ``add``),
+    ``codificar`` (textos → vectores "passage: "), ``extraer`` (ruta → páginas),
+    ``subdividir`` (divisor de respaldo) y ``respaldos_dir``."""
+    pdf_dir = _directorio_de_ingesta(directory)
+    rutas = _validar_fuentes(pdf_dir, fuentes)
+    respaldos = None if simular else _directorio_respaldos(respaldos_dir)
+
+    if collection is None:
+        if simular:
+            if not (Path(CHROMA_PATH) / "chroma.sqlite3").exists():
+                raise ValueError(f"No hay índice en CHROMA_PATH ({CHROMA_PATH}): nada que simular.")
+            _cargar_dependencias()
+            collection = get_collection(None, crear=False)
+        else:
+            embedder = get_embedder()
+            collection = get_collection(embedder)
+            if codificar is None:
+                codificar = lambda textos: encode_passages(embedder, textos)  # noqa: E731
+    if codificar is None and not simular:
+        codificar = lambda textos: encode_passages(get_embedder(), textos)  # noqa: E731
+    if subdividir is None:
+        subdividir = _divisor_respaldo().split_text
+
+    # ── Fase 1: nada se escribe ───────────────────────────────────────────────────────
+    preparadas = []
+    for ruta in rutas:
+        inicio = time.perf_counter()
+        paginas = (extraer or extract_text_from_pdf)(ruta)
+        fragmentacion = fragmentar(paginas, max_caracteres=MAX_CHUNK_SIZE, subdividir=subdividir)
+        ids, textos, metadatas = filas_de_fragmentos(ruta, fragmentacion)
+        previos = _en_orden(collection.get(
+            where={"source": ruta.name}, include=["documents", "metadatas"]
+        ))
+        identidad = verificar_identidad([doc for _, doc, _ in previos], fragmentacion.texto)
+        extraccion = paginas_incompletas(paginas)
+        ajenos = _ids_ajenos(collection, ruta.name, ids)
+        rechazo = []
+        if not ids:
+            rechazo.append("el PDF no dio texto")
+        if extraccion:
+            rechazo.append("extracción incompleta: " + "; ".join(extraccion))
+        if not identidad["coincide"]:
+            rechazo.append("otro documento: " + identidad["motivo"])
+        if ajenos:
+            rechazo.append(f"{len(ajenos)} IDs nuevos ocupados por otra fuente (p. ej. {ajenos[0]})")
+        informe = {
+            "fuente": ruta.name,
+            "tipo": fragmentacion.tipo,
+            "simulacion": simular,
+            "antes": medir(
+                fragmentacion.texto, [(doc, (meta or {}).get("article", "")) for _, doc, meta in previos]
+            ),
+            "despues": medir(
+                fragmentacion.texto, [(f.texto, f.etiqueta) for f in fragmentacion.fragmentos]
+            ),
+            **_diferencia_etiquetas(
+                Counter((meta or {}).get("article", "") for _, _, meta in previos
+                        if (meta or {}).get("article")),
+                Counter(f.etiqueta for f in fragmentacion.fragmentos if f.etiqueta),
+            ),
+            "identidad": identidad,
+            "extraccion_incompleta": extraccion,
+            "rechazo": rechazo,
+        }
+        # Segundos de la fase 1 de ESTA fuente (la fase 2 suma los suyos).
+        preparadas.append((ruta, ids, textos, metadatas, previos, informe,
+                           time.perf_counter() - inicio))
+    rechazadas = [(p[0].name, p[5]["rechazo"]) for p in preparadas if p[5]["rechazo"]]
+    if rechazadas and not simular:
+        raise ReingestaRechazada(
+            "Re-ingesta rechazada; el índice no se tocó. "
+            + " | ".join(f"{fuente}: {'; '.join(motivos)}" for fuente, motivos in rechazadas)
+        )
+
+    # ── Fase 2: por fuente ────────────────────────────────────────────────────────────
+    informes: List[Dict] = []
+    for ruta, ids, textos, metadatas, previos, informe, fase1 in preparadas:
+        inicio = time.perf_counter() - fase1
+        logger.info(f"  🔍 {'Simulado' if simular else 'Re-ingestando'}: {ruta.name}")
+        if not simular:
+            vectores: List[List[float]] = []
+            for i in range(0, len(textos), LOTE_REINGESTA):
+                vectores.extend(codificar(textos[i:i + LOTE_REINGESTA]))
+            if len(vectores) != len(ids):
+                raise ReingestaFallida(
+                    f"{ruta.name}: se codificaron {len(vectores)} de {len(ids)} fragmentos; "
+                    f"no se tocó el índice."
+                )
+            informe["respaldo"] = str(_sustituir_fuente(
+                collection, ruta.name, ids, textos, metadatas, vectores, respaldos=respaldos
+            ))
+            logger.info(
+                f"     ✅ {len(previos)} fragmentos sustituidos por {len(ids)} "
+                f"({time.perf_counter() - inicio:.1f} s)"
+            )
+        informe["segundos"] = round(time.perf_counter() - inicio, 2)
+        informes.append(informe)
+    return informes
+
+
+def restaurar_respaldo(
+    archivo: str, *, collection=None, respaldos_dir: Optional[str] = None
+) -> Dict:
+    """Repone en el índice la fuente de un respaldo durable (``ingest --restaurar``): valida
+    el respaldo (formato, huella, cantidades), respalda a su vez el estado actual de la fuente,
+    la sustituye por la del respaldo y verifica ids, textos, metadatos y vectores (float32).
+    ``ReingestaFallida`` si la verificación falla (con restauración del estado previo)."""
+    cuerpo = leer_respaldo(archivo)
+    fuente = cuerpo["fuente"]
+    respaldos = _directorio_respaldos(respaldos_dir)
+    if collection is None:
+        _cargar_dependencias()
+        collection = get_collection(None)   # los vectores vienen del respaldo
+    previo = _sustituir_fuente(
+        collection, fuente, cuerpo["ids"], cuerpo["documents"], cuerpo["metadatas"],
+        cuerpo["vectores"], respaldos=respaldos,
+    )
+    if cuerpo["fragmentos"]:
+        escritos = collection.get(where={"source": fuente}, include=["embeddings"])
+        por_id = dict(zip(escritos.get("ids") or [], escritos.get("embeddings")
+                          if escritos.get("embeddings") is not None else []))
+        for id_, vector in zip(cuerpo["ids"], cuerpo["vectores"]):
+            guardado = array("f", map(float, por_id.get(id_, [])))
+            if len(guardado) != len(vector) or any(
+                abs(a - b) > TOLERANCIA_VECTOR for a, b in zip(guardado, vector)
+            ):
+                raise ReingestaFallida(
+                    f"{fuente}: el vector de {id_} no coincide con el respaldo tras restaurar; "
+                    f"el estado anterior quedó en {previo}"
+                )
+    logger.info(f"     ✅ {fuente}: {cuerpo['fragmentos']} fragmentos restaurados desde {archivo}")
+    return {"fuente": fuente, "fragmentos": cuerpo["fragmentos"], "respaldo_previo": str(previo)}
+
+
+def formato_informe_reingesta(informes: List[Dict]) -> str:
+    """Informe legible de ``reingestar_fuentes`` (consola)."""
+    lineas = []
+    for inf in informes:
+        a, d = inf["antes"], inf["despues"]
+
+        def cob(m, clave):
+            return "—" if m[clave] is None else f"{m[clave]:.1f} %"
+
+        identidad = inf.get("identidad") or {}
+        lineas += [
+            f"📄 {inf['fuente']} (tipo {inf['tipo']}; {inf['segundos']} s)",
+            f"   fragmentos       : {a['fragmentos']} → {d['fragmentos']}",
+            f"   etiquetados      : {a['etiquetados']} → {d['etiquetados']}"
+            f"  (sin etiqueta: {a['sin_etiqueta']} → {d['sin_etiqueta']})",
+            f"   encabezados      : {d['encabezados']} auténticos ({d['encabezados_cuerpo']} en el "
+            f"cuerpo; {d['encabezados_fin_de_linea']} al final de su línea)",
+            f"   con su fragmento : cuerpo {a['cubiertos_cuerpo']} → {d['cubiertos_cuerpo']} "
+            f"(cobertura {cob(a, 'cobertura')} → {cob(d, 'cobertura')}); documento "
+            f"{cob(a, 'cobertura_documento')} → {cob(d, 'cobertura_documento')}",
+            f"   etiqueta sin encabezado al inicio (remisiones): "
+            f"{a['etiqueta_sin_encabezado']} → {d['etiqueta_sin_encabezado']}",
+            f"   etiquetas ganadas: {inf['etiquetas_ganadas']}"
+            + (f" ({', '.join(inf['muestra_ganadas'][:20])}…)" if inf["muestra_ganadas"] else ""),
+            f"   etiquetas perdidas: {inf['etiquetas_perdidas']}"
+            + (f" ({', '.join(inf['muestra_perdidas'][:20])}…)" if inf["muestra_perdidas"] else ""),
+            f"   identidad        : {'✅' if identidad.get('coincide') else '❌'} "
+            f"({identidad.get('criterio')}; solapamiento {identidad.get('solapamiento')})",
+        ]
+        if a["no_ubicados"]:
+            lineas.append(
+                f"   ⚠️  {a['no_ubicados']} fragmentos del índice no se ubican en el texto del "
+                f"PDF (el PDF o su extracción cambió desde la ingesta)"
+            )
+        for motivo in inf.get("rechazo") or []:
+            lineas.append(f"   ⛔ {motivo}")
+        if inf.get("respaldo"):
+            lineas.append(f"   💾 respaldo: {inf['respaldo']}")
+        lineas.append(
+            "   (simulación: el índice no se modificó)" if inf["simulacion"]
+            else "   ✅ fuente re-ingestada (solo sus fragmentos)"
+        )
+    return "\n".join(lineas)
 
 
 # ─────────────────────────────────────────
@@ -1160,6 +1684,13 @@ def _article_candidates(article: str) -> List[str]:
             cands.add(base)
             if partes.letra:
                 cands.update({f"{base}-{partes.letra}", f"{base}{partes.letra}"})
+        if partes.subnumero:
+            # Ronda 2 de la re-ingesta: "58-1" → etiqueta '58-1' (la del encabezado "58-1.-").
+            cands.add(f"{partes.numero}-{partes.subnumero}")
+    # Ronda 2 (4-oct-2026): la ingesta guarda las etiquetas con ``canon_caja`` ("29-a" →
+    # "29-A", "247bis" → "247BIS"); el índice anterior, tal como venían. Se buscan ambas (solo
+    # para candidatos con forma de etiqueta: sin blancos ni puntos).
+    cands.update({canon_caja(c) for c in cands if re.fullmatch(r"\d+[\w\-]*", c)})
     return sorted(cands)
 
 
@@ -3265,8 +3796,10 @@ def main():
         epilog="""
 Ejemplos:
   python OpenNotebook.py ingest --directory /ruta/pdfs/
-  python OpenNotebook.py ingest --directory /ruta/pdfs/ --clear
-  python OpenNotebook.py ingest --directory /ruta/pdfs/ --reingest
+  python OpenNotebook.py ingest --directory /ruta/pdfs/ --clear      (borra TODA la colección)
+  python OpenNotebook.py ingest --directory /ruta/pdfs/ --reingest   (borra TODA la colección)
+  python OpenNotebook.py ingest --directory /ruta/pdfs/ --fuente "LEY DE AMPARO.pdf" --simular
+  python OpenNotebook.py ingest --directory /ruta/pdfs/ --fuente "LEY DE AMPARO.pdf"
   python OpenNotebook.py audit --text "Art. 247 CPF establece..."
   python OpenNotebook.py audit --file borrador.md --verbose
         """
@@ -3276,16 +3809,40 @@ Ejemplos:
     # Comando: ingest
     ingest_parser = subparsers.add_parser("ingest", help="Indexar PDFs en ChromaDB")
     ingest_parser.add_argument(
-        "--directory", required=True,
-        help="Carpeta con PDFs legales"
+        "--directory",
+        help="Carpeta con PDFs legales (obligatoria salvo con --restaurar)"
     )
     ingest_parser.add_argument(
         "--clear", action="store_true",
-        help="Borrar colección antes de ingestión"
+        help="Borrar la colección ENTERA (todas las fuentes) antes de ingestar"
     )
     ingest_parser.add_argument(
         "--reingest", action="store_true",
-        help="Reindexar todo aunque ya exista"
+        help="Reindexar todo: borra la colección ENTERA (todas las fuentes) antes de ingestar"
+    )
+    ingest_parser.add_argument(
+        "--fuente", action="append", metavar="ARCHIVO.pdf",
+        help="Re-ingestar SOLO esta fuente: nombre exacto del PDF en --directory (repetible). "
+             "Borra solo sus fragmentos (source == ARCHIVO.pdf), nunca la colección"
+    )
+    ingest_parser.add_argument(
+        "--simular", action="store_true",
+        help="Con --fuente: informa fragmentos, etiquetas y cobertura antes/después sin escribir"
+    )
+    ingest_parser.add_argument(
+        "--json", action="store_true",
+        help="Con --fuente: emitir también el informe en JSON"
+    )
+    ingest_parser.add_argument(
+        "--respaldos", metavar="CARPETA",
+        help="Con --fuente/--restaurar: carpeta de los respaldos durables de cada fuente (fuera "
+             "del repositorio y del índice; por omisión $ITOSTURRE_RESPALDOS_REINGESTA o "
+             "~/.itosturre/respaldos_reingesta)"
+    )
+    ingest_parser.add_argument(
+        "--restaurar", metavar="RESPALDO.json",
+        help="Reponer en el índice la fuente de un respaldo durable (lo valida, respalda el "
+             "estado actual de la fuente y verifica textos, metadatos y vectores)"
     )
     ingest_parser.add_argument(
         "--verbose", action="store_true",
@@ -3417,7 +3974,46 @@ Ejemplos:
 
     elif args.command == "ingest":
         setup_logging(args.verbose)
-        ingest(args.directory, clear=args.clear, reingest=args.reingest)
+        if not args.restaurar and not args.directory:
+            parser.error("ingest exige --directory (salvo con --restaurar)")
+        if args.restaurar:
+            if args.fuente or args.simular or args.clear or args.reingest:
+                parser.error("--restaurar no se combina con --fuente, --simular, --clear ni --reingest")
+            try:
+                resultado = restaurar_respaldo(args.restaurar, respaldos_dir=args.respaldos)
+            except ValueError as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                sys.exit(2)
+            except ReingestaFallida as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(f"✅ {resultado['fuente']}: {resultado['fragmentos']} fragmentos restaurados; "
+                  f"estado anterior respaldado en {resultado['respaldo_previo']}")
+        elif args.fuente or args.simular or args.json:
+            # Re-ingesta por fuente (4-oct-2026): nunca junto con los borrados de la colección.
+            if args.clear or args.reingest:
+                parser.error(
+                    "--fuente/--simular no se combinan con --clear ni --reingest "
+                    "(estos borran la colección entera)"
+                )
+            if not args.fuente:
+                parser.error(
+                    "--simular y --json exigen al menos una --fuente (nombre exacto del PDF)"
+                )
+            try:
+                informes = reingestar_fuentes(args.directory, args.fuente, simular=args.simular,
+                                              respaldos_dir=args.respaldos)
+            except ValueError as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                sys.exit(2)
+            except ReingestaFallida as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                sys.exit(1)
+            print(formato_informe_reingesta(informes))
+            if args.json:
+                print(json.dumps(informes, ensure_ascii=False, indent=2))
+        else:
+            ingest(args.directory, clear=args.clear, reingest=args.reingest)
 
     elif args.command == "audit":
         setup_logging(args.verbose)
