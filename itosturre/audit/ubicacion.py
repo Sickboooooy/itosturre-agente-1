@@ -24,14 +24,55 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Sequence
 
 from .evidence import _indice, _without_accents, ocurrencias_encabezado
-from .inexistencia import es_frontera_transitorios
+from .inexistencia import (
+    LeyPreparada,
+    clave_orden,
+    es_frontera_transitorios,
+    secuencia_de_encabezados,
+)
 
 SIN_AUTENTICO = "sin_encabezado_autentico"
 UNICO = "unico"
 EN_CUERPO = "unico_antes_de_la_frontera"
 AMBIGUO = "ambiguo"
 TRAS_FRONTERA = "tras_la_frontera"
-NO_ACREDITADA = frozenset({AMBIGUO, TRAS_FRONTERA})
+# Tratados (ronda 2, 4-oct-2026): el único encabezado no encaja en la secuencia de la fuente.
+FUERA_DE_SECUENCIA = "fuera_de_la_secuencia"
+NO_ACREDITADA = frozenset({AMBIGUO, TRAS_FRONTERA, FUERA_DE_SECUENCIA})
+
+
+def encaje_en_la_secuencia(
+    ley: Optional[LeyPreparada], chunk_index: Optional[int], articulo: str
+) -> str:
+    """Tratados sin frontera TRANSITORIOS (ronda 2, adjudicado): "" si el encabezado del
+    ``articulo`` del fragmento ``chunk_index`` encaja en la secuencia de encabezados numerados
+    de la fuente (``inexistencia.secuencia_de_encabezados``): el anterior es el inmediatamente
+    menor que existe en la fuente (N−1) y el siguiente el inmediatamente mayor (N+1), cuando
+    existen. Si no, el motivo (también si la ley no se pudo leer o el encabezado no aparece una
+    sola vez en ese fragmento): la ubicación no se acredita."""
+    citada = clave_orden(articulo)
+    if ley is None or ley.motivo or citada is None or chunk_index is None:
+        return "no se pudo comprobar la secuencia de encabezados de la fuente"
+    secuencia = secuencia_de_encabezados(ley)
+    propios = [k for k, (chunk, clave) in enumerate(secuencia)
+               if chunk == chunk_index and clave == citada]
+    if len(propios) != 1:
+        return "el encabezado no aparece una sola vez en la secuencia de encabezados de la fuente"
+    posicion = propios[0]
+    claves = {clave for _, clave in secuencia}
+    menor = max((c for c in claves if c < citada), default=None)
+    mayor = min((c for c in claves if c > citada), default=None)
+    anterior = secuencia[posicion - 1][1] if posicion > 0 else None
+    siguiente = secuencia[posicion + 1][1] if posicion + 1 < len(secuencia) else None
+    if (menor is not None and anterior != menor) or (mayor is not None and siguiente != mayor):
+        def numero(clave):
+            return "—" if clave is None else str(clave[0])
+        return (
+            f"el encabezado no encaja en la secuencia de la fuente (antes: art. "
+            f"{numero(anterior)}, después: art. {numero(siguiente)}; se esperaba "
+            f"{numero(menor)} y {numero(mayor)})"
+        )
+    return ""
 
 _VENTANA_PASAJE = 160   # caracteres tras el encabezado con que se compara un pasaje repetido
 
@@ -63,19 +104,29 @@ def ubicar_en_cuerpo(
     articulo: str,
     fuente: Optional[str],
     frontera: Mapping[str, Any],
+    *,
+    fin_de_linea: bool = False,
+    ley: Optional[LeyPreparada] = None,
 ) -> dict[str, Any]:
     """Aplica las reglas (i)–(iii) a los resultados de la consulta (``documentos`` y
     ``metadatas``, en el orden de ChromaDB). Devuelve ``estado``, ``indice`` (el resultado
     que acredita la ubicación, o None), ``motivo`` (para el abogado si no se acredita),
     ``encabezados`` (auténticos distintos), ``paginas``, ``frontera_creible`` y
-    ``motivo_frontera``."""
+    ``motivo_frontera``.
+
+    Tratados (4-oct-2026): con ``fin_de_linea`` (la fuente es un tratado internacional
+    registrado) también cuentan los encabezados auténticos sin cierre. Los tratados del corpus
+    no tienen frontera TRANSITORIOS: dos o más encabezados distintos son ubicación ambigua
+    (regla i) y, desde la ronda 2, uno solo se admite (regla iii) únicamente si encaja en la
+    secuencia de encabezados de la fuente (``ley``: la ``LeyPreparada`` del tratado;
+    ``encaje_en_la_secuencia``); si no, o sin ``ley``, ``FUERA_DE_SECUENCIA`` (tope 84)."""
     ocurrencias = []
     for indice, documento in enumerate(documentos):
         metadata = (metadatas[indice] if indice < len(metadatas) else None) or {}
         if metadata.get("source") != fuente:
             continue
         normalizado = _without_accents(documento)
-        for ocurrencia in ocurrencias_encabezado(documento, articulo):
+        for ocurrencia in ocurrencias_encabezado(documento, articulo, fin_de_linea=fin_de_linea):
             if not ocurrencia["autentico"]:
                 continue
             ocurrencias.append({
@@ -155,5 +206,15 @@ def ubicar_en_cuerpo(
             ),
         )
         return salida
+    if fin_de_linea and not usable:
+        # Tratados (ronda 2, adjudicado): sin frontera creíble, el único encabezado solo se
+        # admite si encaja en la secuencia de encabezados de la fuente (N−1 antes, N+1 después).
+        motivo = encaje_en_la_secuencia(ley, unica["chunk_index"], articulo)
+        if motivo:
+            salida.update(
+                estado=FUERA_DE_SECUENCIA,
+                motivo=f"el único encabezado del {articulo_txt} (pág. {unica['pagina']}): {motivo}",
+            )
+            return salida
     salida.update(estado=UNICO, indice=unica["indice"])
     return salida

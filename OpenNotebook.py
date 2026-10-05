@@ -595,6 +595,30 @@ LAW_SOURCE_MAP = {
     "derechos del contribuyente": "LEY FEDERAL DE DERECHOS DEL CONTRIBUYENTE 2026.pdf",
 }
 
+# Tratados internacionales del corpus (criterio del responsable jurídico, 4-oct-2026, opción A).
+# ÚNICA fuente de verdad de la regla: el encabezado "Artículo N" / "ARTÍCULO N" / "Artículo Nº"
+# SOLO al final de su línea, sin punto ni guion, es un encabezado auténtico únicamente en estas
+# fuentes (sus PDF no cierran los encabezados); las leyes nacionales siguen exigiendo el cierre.
+# Se identifican por el catálogo, nunca por el nombre del archivo (no se usa
+# ``itosturre.audit.referencias.tipo_fuente``). Cada valor es el ``source`` exacto con que está
+# indexado, el mismo de ``LAW_SOURCE_MAP`` (una prueba lo exige).
+#
+# Para añadir un tratado: (1) indexar su PDF; (2) añadir a ``LAW_SOURCE_MAP`` sus denominaciones
+# y abreviaturas con el nombre exacto del archivo; (3) añadir aquí ese nombre; (4) medir en el
+# índice que sus encabezados sin cierre van seguidos de una línea que no continúa la oración y
+# auditar antes→después todos sus artículos (tabla de docs/PROTOCOLO_VVCA.md §4, "Tratados
+# internacionales"). Un PDF de tratado que no esté aquí se audita como ley (exige el cierre).
+TRATADOS_INTERNACIONALES = frozenset({
+    "Convencion Americana sobre Derechos Humanos.pdf",
+    "Convención sobre los Derechos del Niño.pdf",
+    "Pacto Internacional de Derechos Civiles y Políticos.pdf",
+})
+
+
+def es_tratado_internacional(fuente: Optional[str]) -> bool:
+    """¿``fuente`` (el ``source`` indexado) está registrada como tratado internacional?"""
+    return fuente in TRATADOS_INTERNACIONALES
+
 
 # ─────────────────────────────────────────
 # NORMALIZACIÓN DE TEXTO LEGAL
@@ -774,11 +798,14 @@ def fragmentos_de_pdf(
 ) -> Fragmentacion:
     """Fragmentos de un PDF con el corte y la etiqueta de ``itosturre.audit.fragmentacion``
     (re-ingesta por fuente, 4-oct-2026: encabezados auténticos, también en MAYÚSCULAS; sin
-    cortes en remisiones). ``extraer`` (páginas) y ``subdividir`` son costuras para pruebas."""
+    cortes en remisiones). ``extraer`` (páginas) y ``subdividir`` son costuras para pruebas.
+    Tratados (4-oct-2026, opción A): solo un PDF registrado en ``TRATADOS_INTERNACIONALES``
+    corta en "Artículo N" sin cierre; en las leyes nacionales el cierre es obligatorio."""
     paginas = (extraer or extract_text_from_pdf)(pdf_path)
     if subdividir is None:
         subdividir = _divisor_respaldo().split_text
-    return fragmentar(paginas, max_caracteres=MAX_CHUNK_SIZE, subdividir=subdividir)
+    return fragmentar(paginas, max_caracteres=MAX_CHUNK_SIZE, subdividir=subdividir,
+                      fin_de_linea=es_tratado_internacional(pdf_path.name))
 
 
 def filas_de_fragmentos(
@@ -1269,12 +1296,17 @@ def reingestar_fuentes(
     for ruta in rutas:
         inicio = time.perf_counter()
         paginas = (extraer or extract_text_from_pdf)(ruta)
-        fragmentacion = fragmentar(paginas, max_caracteres=MAX_CHUNK_SIZE, subdividir=subdividir)
+        # Tratados (4-oct-2026, opción A): "Artículo N" sin cierre solo corta en un tratado
+        # registrado en el catálogo; en las leyes nacionales el cierre es obligatorio.
+        tratado = es_tratado_internacional(ruta.name)
+        fragmentacion = fragmentar(paginas, max_caracteres=MAX_CHUNK_SIZE, subdividir=subdividir,
+                                   fin_de_linea=tratado)
         ids, textos, metadatas = filas_de_fragmentos(ruta, fragmentacion)
         previos = _en_orden(collection.get(
             where={"source": ruta.name}, include=["documents", "metadatas"]
         ))
-        identidad = verificar_identidad([doc for _, doc, _ in previos], fragmentacion.texto)
+        identidad = verificar_identidad([doc for _, doc, _ in previos], fragmentacion.texto,
+                                        fin_de_linea=tratado)
         extraccion = paginas_incompletas(paginas)
         ajenos = _ids_ajenos(collection, ruta.name, ids)
         rechazo = []
@@ -1291,10 +1323,12 @@ def reingestar_fuentes(
             "tipo": fragmentacion.tipo,
             "simulacion": simular,
             "antes": medir(
-                fragmentacion.texto, [(doc, (meta or {}).get("article", "")) for _, doc, meta in previos]
+                fragmentacion.texto, [(doc, (meta or {}).get("article", "")) for _, doc, meta in previos],
+                fin_de_linea=tratado,
             ),
             "despues": medir(
-                fragmentacion.texto, [(f.texto, f.etiqueta) for f in fragmentacion.fragmentos]
+                fragmentacion.texto, [(f.texto, f.etiqueta) for f in fragmentacion.fragmentos],
+                fin_de_linea=tratado,
             ),
             **_diferencia_etiquetas(
                 Counter((meta or {}).get("article", "") for _, _, meta in previos
@@ -1796,6 +1830,7 @@ def build_vvca(
     ordinal_equivalente: bool = False,
     encabezado_autentico: bool = True,
     ubicacion_no_acreditada: Optional[str] = None,
+    encabezado_fin_de_linea: bool = False,
 ) -> Dict:
     """Score, semáforo y explicación VVCA de una cita normativa con evidencia.
 
@@ -1828,6 +1863,12 @@ def build_vvca(
     minúscula o "Artículo 2o., fracción I") y ``ubicacion_no_acreditada`` (motivo: encabezado
     repetido que la frontera TRANSITORIOS no desambigua, o el único tras ella) impiden el 🟢
     en cualquier ruta (tope 84).
+
+    Tratados (criterio del responsable, 4-oct-2026, opción A): ``encabezado_fin_de_linea``
+    indica que el encabezado elegido es el de un tratado internacional registrado, sin cierre
+    ("Artículo 8º" solo en su línea). Con metadata no cambia nada (dato informativo,
+    ``explicabilidad["encabezado_fin_de_linea"]``); sin metadata limita a 84, como la
+    equivalencia ordinal: el 🟢 de la ruta semántica no se amplía a esa forma.
     """
     # Desde R4c ``source_match`` compara de verdad la fuente recuperada con la esperada
     # (R4-D09): la penalización −15 de ``vvca_score`` deja de ser inalcanzable.
@@ -1883,6 +1924,10 @@ def build_vvca(
     # coincide por la equivalencia del ordinal ubica el precepto, pero no da 🟢.
     ordinal_sin_metadata = ordinal_equivalente and not metadata_verificado
     if ordinal_sin_metadata:
+        score = min(score, 84)
+    # Tratados (4-oct-2026): igual con el encabezado sin cierre de un tratado sin metadata.
+    fin_de_linea_sin_metadata = encabezado_fin_de_linea and not metadata_verificado
+    if fin_de_linea_sin_metadata:
         score = min(score, 84)
     # Ronda 2: solo una remisión al inicio de línea ("artículo 41.", "Artículo 2o., fracción
     # I") o una ubicación no acreditada en el cuerpo (encabezado repetido sin frontera que lo
@@ -1979,6 +2024,11 @@ def build_vvca(
             f"{v_verificacion}; encabezado ubicado solo por equivalencia del ordinal, en un "
             f"fragmento sin metadata del artículo: no acredita el precepto"
         )
+    if fin_de_linea_sin_metadata:
+        v_verificacion = (
+            f"{v_verificacion}; encabezado de tratado sin cierre en un fragmento sin metadata "
+            f"del artículo: no acredita el precepto"
+        )
     c_contextualizacion = vvca_contextualizacion(source_file)
     a_auditabilidad = f"{art_label} · {law} · pág. {page} · corpus: {source_file}"
 
@@ -2012,6 +2062,10 @@ def build_vvca(
         # Ordinales (3-oct-2026, campo añadido): el encabezado coincide con otra grafía del
         # ordinal ("Artículo 1o." para el "1"); informativo con metadata, tope sin ella.
         explicabilidad["ordinal_equivalente"] = True
+    if encabezado_fin_de_linea:
+        # Tratados (4-oct-2026, campo añadido): el encabezado elegido es el de un tratado
+        # registrado, sin cierre; informativo con metadata, tope sin ella.
+        explicabilidad["encabezado_fin_de_linea"] = True
     if solo_remision:
         # Ronda 2 (campo añadido): el "encabezado" es una remisión al inicio de línea.
         explicabilidad["encabezado_autentico"] = False
@@ -2454,8 +2508,11 @@ def _ley_preparada(
                 originales[int(str((metadata or {}).get("chunk_index")))] = documento
             except (TypeError, ValueError):
                 continue
+        # Tratados (4-oct-2026): en un tratado registrado los encabezados sin cierre cuentan.
         leyes[fuente] = (
-            (preparar_ley(pares, _denominaciones(fuente)), originales) if pares else None
+            (preparar_ley(pares, _denominaciones(fuente),
+                          fin_de_linea=es_tratado_internacional(fuente)), originales)
+            if pares else None
         )
     return leyes[fuente]
 
@@ -2851,7 +2908,12 @@ def audit(
                     )
                     filtro_fuente_fallido = True
 
-            selected = select_article_evidence(results, ref["article"])
+            # Tratados (criterio del responsable, 4-oct-2026, opción A): si la ley citada es un
+            # tratado internacional registrado en el catálogo, su encabezado "Artículo N" sin
+            # cierre (solo al final de su línea) es auténtico en la selección de evidencia, la
+            # ubicación, el cuerpo y el cotejo de la unidad, y la existencia de D10.
+            tratado = es_tratado_internacional(expected_source)
+            selected = select_article_evidence(results, ref["article"], fin_de_linea=tratado)
             ubicacion = None
             if selected:
                 # Ronda 2 (pertenencia al cuerpo): con metadata y encabezado auténtico, la
@@ -2869,11 +2931,15 @@ def audit(
                         ref["article"],
                         expected_source,
                         frontera_creible(preparada[0] if preparada else None),
+                        fin_de_linea=tratado,
+                        # Tratados (ronda 2): la secuencia de encabezados de la fuente.
+                        ley=preparada[0] if preparada else None,
                     )
                     otro = ubicacion["indice"]
                     if otro is not None and otro != selected["rank"] - 1:
                         selected = select_article_evidence(
-                            results, ref["article"], preferido=ubicacion["indice"]
+                            results, ref["article"], preferido=ubicacion["indice"],
+                            fin_de_linea=tratado,
                         )
                 best_doc = selected["document"]
                 best_meta = selected["metadata"]
@@ -2887,6 +2953,9 @@ def audit(
                 ordinal_equivalente = bool(
                     article_heading_verified and not selected.get("heading_literal", True)
                 )
+                # Tratados (4-oct-2026): el encabezado elegido no lleva cierre ("Artículo 8º"
+                # solo en su línea); sin metadata no da 🟢 (como la equivalencia ordinal).
+                encabezado_fin_de_linea = bool(selected.get("heading_fin_de_linea"))
                 # R4c (R4-D09): comparación real con la fuente esperada (desde R4b siempre
                 # existe aquí: una cita sin ley identificada no llega a la consulta).
                 source_match = best_source == expected_source
@@ -2958,7 +3027,8 @@ def audit(
                     # Ronda 2: el cuerpo se reconstruye desde la MISMA ocurrencia elegida (el
                     # encabezado auténtico, no una remisión anterior del fragmento).
                     cotejo = cotejar_precepto(best_doc, best_meta, ref["article"], unidades,
-                                              candidatos, solo_autentico=encabezado_autentico)
+                                              candidatos, solo_autentico=encabezado_autentico,
+                                              fin_de_linea=tratado)
                 derogado = bool(cotejo and cotejo["derogacion"] == DEROGADO)
                 derogacion_ambigua = bool(cotejo and cotejo["derogacion"] == DEROGACION_AMBIGUA)
                 evidencia_incompleta = bool(cotejo and not cotejo["completo"])
@@ -2997,6 +3067,7 @@ def audit(
                     ordinal_equivalente=ordinal_equivalente,
                     encabezado_autentico=encabezado_autentico or not article_heading_verified,
                     ubicacion_no_acreditada=ubicacion_no_acreditada,
+                    encabezado_fin_de_linea=encabezado_fin_de_linea,
                 )
                 if ubicacion and metadata_hit:
                     # Ronda 2 (campo añadido): cómo se acreditó (o no) la pertenencia al cuerpo.
@@ -3204,6 +3275,16 @@ def audit(
                         f"grafía del ordinal, en un fragmento sin metadata de ese artículo: la "
                         f"equivalencia lo ubica pero no lo acredita. Cotejar el precepto antes "
                         f"de citar."
+                    )
+                elif encabezado_fin_de_linea:
+                    # Tratados (4-oct-2026): ruta semántica (sin metadata del artículo) con el
+                    # encabezado sin cierre de un tratado: 🟡 (tope 84), como la equivalencia
+                    # ordinal; el 🟢 de la ruta semántica no se amplía.
+                    alerts.append(
+                        f"🟡 COTEJAR (score {vvca['score']}): '{ref['raw']}' — se ubicó en "
+                        f"'{best_source}' el encabezado sin cierre del artículo {ref['article']} "
+                        f"(tratado internacional), en un fragmento sin metadata de ese artículo: "
+                        f"lo ubica pero no lo acredita. Cotejar el precepto antes de citar."
                     )
                 elif article_heading_verified is False and posterior:
                     # D10 (ronda 2): el número sigue al último artículo de la versión indexada

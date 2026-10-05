@@ -616,15 +616,19 @@ ordena por reglas y no por artículos, llevaban etiquetas de remisiones).
   `encabezados_autenticos` (ingesta). Este último reconoce el encabezado de CUALQUIER artículo
   con el prefijo y el cierre de `_encabezado_exacto` y la designación genérica
   `referencias.patron_designacion_cualquiera` (gramática de `patron_articulo`); con
-  `fin_de_linea=True` (solo la ingesta) admite además la designación sola al final de su línea
-  (tratados: "Artículo 51", "ARTÍCULO 1"), salvo que la línea siguiente continúe una oración.
-  La auditoría sigue exigiendo el cierre para el encabezado exacto: un tratado sin cierre queda
-  bien fragmentado y etiquetado, pero su cita no alcanza el 🟢 (decisión pendiente del
-  responsable: aceptar esa forma en la auditoría cambiaría veredictos de fuentes que no se
-  re-ingestan —PIDCP y CADH ya están etiquetados— y sumaría encabezados auténticos, p. ej. los
-  arts. 1–10 de la "Declaratoria" que el Código Civil de Jalisco trae tras sus TRANSITORIOS,
-  que solo la frontera creíble separaría del cuerpo). Coherencia comprobada en las 49 fuentes
-  (cifras de la ronda 2, abajo).
+  `fin_de_linea=True` admite además la designación sola al final de su línea (tratados:
+  "Artículo 51", "ARTÍCULO 1"), salvo que la línea siguiente continúe una oración
+  (`_fin_de_linea_autentico`). **Decisión del responsable (4-oct-2026, opción A):** la
+  auditoría y la ingesta la aceptan ÚNICAMENTE en los tratados internacionales registrados en
+  el catálogo (`OpenNotebook.TRATADOS_INTERNACIONALES`: CADH, CDN, PIDCP), con el parámetro
+  `fin_de_linea` según la fuente (auditoría: `select_article_evidence`,
+  `ocurrencias_encabezado`, `ubicar_en_cuerpo`, `reconstruir_cuerpo`/`cotejar_precepto` y
+  `preparar_ley` de D10; ingesta, desde la ronda 2: `fragmentar`, `medir` y
+  `verificar_identidad`, que `fragmentos_de_pdf` y `reingestar_fuentes` llaman con el nombre del
+  PDF). En las leyes nacionales el cierre es obligatorio, así que los arts. 1–10 de la
+  "Declaratoria" que el Código Civil de Jalisco trae tras sus TRANSITORIOS no son encabezados
+  ni cortan. Ver `docs/PROTOCOLO_VVCA.md` §4 ("Tratados internacionales" y "Párrafo
+  numerado"). Coherencia comprobada en las 49 fuentes (cifras de la ronda 2, abajo).
 - **`itosturre/audit/fragmentacion.py`** (pura, stdlib): `detectar_tipo` (cuenta los
   encabezados auténticos, también en MAYÚSCULAS), `cortes`/`etiqueta` (contratos y
   resoluciones sin cambios), `fragmentar(páginas, max_caracteres, subdividir)` y `medir`
@@ -716,6 +720,7 @@ variantes con sufijo, la prueba de inexistencia y la ingesta:
 | Cotejo de identidad | `python -m unittest -v tests.test_plan_identidad` | Cada push/PR (dentro de la suite); paquetes armados en temporales desde los fixtures oficiales, con un extractor sintético inyectado para las leyes; cubre PL-015…PL-019, que el Gold Set no admite porque no tiene paquete, y las correcciones del piloto PEN-01 (clases `Piloto*`, CRLF de `agregar-tesis` y `evidencia articulo`). Las pruebas de enlaces simbólicos de archivo se omiten donde el sistema no permite crearlos (Windows sin privilegio) y corren en el CI Linux; la de PyMuPDF se omite sin `fitz` |
 | Plantilla de ledger | `python -m unittest -v tests.test_plan_plantilla` | Cada push/PR (dentro de la suite); esquema válido, un ejemplo por tipo, ningún dato jurídico (ni cifras, ni URLs, ni menciones), lint que marca cada ejemplo (PL-001) y queda limpio sin ellos, marcadores pendientes, CLI (nunca sobrescribe, política de rutas D7, sin `--salida` imprime el JSON, entrada inválida → 2) |
 | Gramática de designaciones (ronda 2) | `python -m unittest -v tests.test_vvca_designaciones` | Cada push/PR (dentro de la suite); "58-1" frente a "14-16", "65 Bis 1", latinos extendidos, falla cerrada, encabezado partido, cuerpo hasta TRANSITORIOS, orden de D10 y auditoría de punta a punta con la colección falsa |
+| Tratados y párrafos numerados (4-oct-2026) | `python -m unittest -v tests.test_vvca_tratados` | Cada push/PR (dentro de la suite); registro `TRATADOS_INTERNACIONALES` (cada fuente en `LAW_SOURCE_MAP`; el nombre del archivo no decide), encabezado sin cierre solo con `fin_de_linea` y con la salvaguarda de la ingesta, misma definición que `encabezados_autenticos`, cuerpo tras la línea de título, ubicación sin frontera, D10 que se abstiene, extracción "8.1"/"numeral 1"/"párrafo 1"/"párrafos 1 y 2" con falla cerrada ("8. 1", "8.1.2") y auditoría de punta a punta con la colección falsa (🟢 con metadata, tope 84 sin ella, ley nacional sin cambios). Ronda 2: párrafo numerado solo en tratados, listas de incisos/fracciones/apartados completas (o cobertura incompleta), secuencia de encabezados, cuerpo hasta cualquier candidato, solapamiento comprobado, notas, título solo y el mismo registro en el cortador de la ingesta |
 | Corte de la ingesta y re-ingesta por fuente | `python -m unittest -v tests.test_ingesta_fragmentacion` | Cada push/PR (dentro de la suite); encabezados que cortan y que no (MAYÚSCULAS, tratados, remisiones, citas, apartados), etiquetas compatibles con las anteriores y con `_article_candidates`, misma definición que la auditoría, `fragmentar`/`medir`, y `reingestar_fuentes` con `ColeccionEscribible`: se niega sin fuente, borra solo la pedida, IDs y metadatos coherentes, nunca mezcla, `--simular` sin escrituras, restauración ante fallo, CLI |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |

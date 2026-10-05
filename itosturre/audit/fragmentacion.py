@@ -21,6 +21,10 @@ acepta un encabezado (``_es_autentico``): prefijo con "A" mayúscula ("Artículo
 "ARTICULO", "Art."), designación (número, ordinal o º ª °, sufijos -A, Bis, Ter…) y cierre
 ".-", ".", "-" o ":" no seguido de "," ni ";"; o bien, para los tratados, la designación sola al
 final de su línea ("Artículo 51", "ARTÍCULO 1") si la línea siguiente no continúa una oración.
+Desde el criterio del responsable (4-oct-2026, opción A) esa forma solo corta en un tratado
+internacional registrado en el catálogo (``fin_de_linea=True``, que ``OpenNotebook`` pasa según
+``TRATADOS_INTERNACIONALES``); en las leyes nacionales el cierre es obligatorio (el Código Civil
+de Jalisco ya no corta en las líneas "Artículo N" de su Declaratoria).
 No cortan "artículo 41." (minúscula), "Artículo 2o., fracción I" (cita) ni "Artículo 51 de esta
 Ley…" (sin cierre a media línea). "Artículo 26.\\nA. El Estado…" o "Artículo 185.\\nA efecto
 de…" siguen en un solo fragmento: solo corta una línea que empieza con el prefijo.
@@ -112,16 +116,19 @@ def _inicios_de_linea(texto: str) -> list[int]:
     return inicios
 
 
-def encabezados_de_ley(texto: str) -> list[dict[str, Any]]:
-    """Encabezados auténticos de ``texto`` (con la forma "fin de línea" de los tratados), con
-    posiciones del TEXTO ORIGINAL: ``inicio`` (inicio de su línea), ``primer_caracter`` (primer
-    carácter no blanco), ``designacion``, ``etiqueta`` y ``forma``.
+def encabezados_de_ley(texto: str, *, fin_de_linea: bool = False) -> list[dict[str, Any]]:
+    """Encabezados auténticos de ``texto``, con posiciones del TEXTO ORIGINAL: ``inicio``
+    (inicio de su línea), ``primer_caracter`` (primer carácter no blanco), ``designacion``,
+    ``etiqueta`` y ``forma``. ``fin_de_linea`` (criterio del responsable, 4-oct-2026, opción
+    A): la forma "fin de línea" ("Artículo 51" sin cierre) solo cuenta en un tratado
+    internacional registrado en el catálogo (``OpenNotebook.TRATADOS_INTERNACIONALES``); en las
+    leyes nacionales (por omisión) el cierre es obligatorio, como en la auditoría.
 
     ``encabezados_autenticos`` trabaja sobre el texto sin acentos; quitar acentos no quita
     saltos de línea, así que cada encabezado (que empieza al inicio de una línea) se ubica en
     el original por su número de línea."""
     normalizado = _without_accents(texto)
-    hallados = encabezados_autenticos(texto, fin_de_linea=True)
+    hallados = encabezados_autenticos(texto, fin_de_linea=fin_de_linea)
     if not hallados:
         return []
     lineas_norm = _inicios_de_linea(normalizado)
@@ -143,24 +150,24 @@ def encabezados_de_ley(texto: str) -> list[dict[str, Any]]:
     return salida
 
 
-def etiqueta_ley(pieza: str) -> str:
+def etiqueta_ley(pieza: str, *, fin_de_linea: bool = False) -> str:
     """Etiqueta de un fragmento de ley: la del encabezado auténtico con que EMPIEZA (tras los
     blancos iniciales); "" si no empieza con uno (preámbulo, decreto, remisión)."""
-    for encabezado in encabezados_de_ley(pieza):
+    for encabezado in encabezados_de_ley(pieza, fin_de_linea=fin_de_linea):
         if not pieza[:encabezado["inicio"]].strip():
             return encabezado["etiqueta"]
         break
     return ""
 
 
-def detectar_tipo(texto: str) -> str:
+def detectar_tipo(texto: str, *, fin_de_linea: bool = False) -> str:
     """"contrato", "resolucion" o "ley" según los primeros ``MUESTRA_TIPO`` caracteres.
 
     Igual que antes, salvo cómo se cuentan los artículos: ahora son los encabezados auténticos
     (también en MAYÚSCULAS y los de los tratados al final de su línea); antes, cualquier línea
     "Artículo/artículo N" (con las remisiones en minúscula y sin los "ARTÍCULO N")."""
     muestra = texto[:MUESTRA_TIPO]
-    articulos = len(encabezados_autenticos(muestra, fin_de_linea=True))
+    articulos = len(encabezados_autenticos(muestra, fin_de_linea=fin_de_linea))
     clausulas = len(_CLAUSULA.findall(muestra))
     secciones = len(_SECCION.findall(muestra))
     if clausulas >= 2 and clausulas >= articulos:
@@ -170,7 +177,7 @@ def detectar_tipo(texto: str) -> str:
     return TIPO_LEY
 
 
-def cortes(texto: str, tipo: str) -> list[int]:
+def cortes(texto: str, tipo: str, *, fin_de_linea: bool = False) -> list[int]:
     """Posiciones donde empieza un fragmento según el tipo (sin el 0 inicial)."""
     if tipo == TIPO_CONTRATO:
         return [m.start() for m in _CORTE_CONTRATO.finditer(texto)]
@@ -178,7 +185,10 @@ def cortes(texto: str, tipo: str) -> list[int]:
         return [m.start() for m in _CORTE_RESOLUCION.finditer(texto)]
     # Ronda 2 de la re-ingesta (4-oct-2026): también se corta en la línea TRANSITORIOS, para
     # que los transitorios (y sus fracciones) no queden en el fragmento del último artículo.
-    limites = {e["inicio"] for e in encabezados_de_ley(texto)} | set(_lineas_frontera(texto))
+    limites = (
+        {e["inicio"] for e in encabezados_de_ley(texto, fin_de_linea=fin_de_linea)}
+        | set(_lineas_frontera(texto))
+    )
     return sorted(posicion for posicion in limites if posicion > 0)
 
 
@@ -192,10 +202,10 @@ def _lineas_frontera(texto: str) -> list[int]:
     return posiciones
 
 
-def etiqueta(pieza: str, tipo: str) -> str:
+def etiqueta(pieza: str, tipo: str, *, fin_de_linea: bool = False) -> str:
     """Encabezado de sección del fragmento (artículo, cláusula o sección)."""
     if tipo == TIPO_LEY:
-        return etiqueta_ley(pieza)
+        return etiqueta_ley(pieza, fin_de_linea=fin_de_linea)
     if tipo == TIPO_CONTRATO:
         m = _ETIQUETA_CONTRATO.match(pieza)
         return m.group(1) if m else ""
@@ -246,20 +256,24 @@ def fragmentar(
     *,
     max_caracteres: int,
     subdividir: Callable[[str], Iterable[str]],
+    fin_de_linea: bool = False,
 ) -> Fragmentacion:
     """Fragmentos de un documento a partir de sus páginas (``{"page", "text"}``, en orden).
 
     Corta según el tipo (``detectar_tipo``; si un contrato o una resolución no da al menos dos
     cortes, se intenta como ley), etiqueta cada pieza y subdivide con ``subdividir`` las que
     pasan de ``max_caracteres``, con el prefijo "[LEY N]\\n" en cada subfragmento (como antes).
+    ``fin_de_linea`` (criterio del responsable, 4-oct-2026, opción A): el documento es un
+    tratado internacional registrado en el catálogo; solo entonces se corta en "Artículo 51"
+    sin cierre. En las leyes nacionales (por omisión) el cierre es obligatorio.
     """
     texto, desplazamientos = unir_paginas(paginas)
     if not texto:
         return Fragmentacion(tipo=TIPO_LEY, texto=texto)
-    tipo = detectar_tipo(texto)
-    limites = cortes(texto, tipo)
+    tipo = detectar_tipo(texto, fin_de_linea=fin_de_linea)
+    limites = cortes(texto, tipo, fin_de_linea=fin_de_linea)
     if len(limites) < 2 and tipo != TIPO_LEY:
-        como_ley = cortes(texto, TIPO_LEY)
+        como_ley = cortes(texto, TIPO_LEY, fin_de_linea=fin_de_linea)
         if len(como_ley) >= 2:
             tipo, limites = TIPO_LEY, como_ley
     if not limites or limites[0] > 0:
@@ -272,7 +286,7 @@ def fragmentar(
         if not pieza:
             continue
         pagina = _pagina_de(desplazamientos, inicio)
-        rotulo = etiqueta(pieza, tipo)
+        rotulo = etiqueta(pieza, tipo, fin_de_linea=fin_de_linea)
         if len(pieza) <= max_caracteres:
             fragmentos.append(Fragmento(pieza, rotulo, pagina))
             continue
@@ -296,8 +310,11 @@ def _frontera(texto: str) -> Optional[int]:
     return None
 
 
-def medir(texto: str, fragmentos: Sequence[tuple[str, str]]) -> dict[str, Any]:
+def medir(
+    texto: str, fragmentos: Sequence[tuple[str, str]], *, fin_de_linea: bool = False
+) -> dict[str, Any]:
     """Métricas de una fragmentación de ``texto`` (páginas unidas como en la ingesta).
+    ``fin_de_linea``: el documento es un tratado registrado (4-oct-2026).
 
     ``fragmentos``: (texto, etiqueta) en orden de ``chunk_index`` — los indexados (antes) o
     los de ``fragmentar`` (después). Cada fragmento se ubica en ``texto`` (sin el prefijo de
@@ -314,7 +331,7 @@ def medir(texto: str, fragmentos: Sequence[tuple[str, str]]) -> dict[str, Any]:
       ``etiqueta_sin_encabezado`` (etiqueta sin encabezado auténtico al inicio: remisiones
       tomadas por encabezado) y ``no_ubicados`` (el texto del fragmento no está en el PDF).
     """
-    encabezados = encabezados_de_ley(texto)
+    encabezados = encabezados_de_ley(texto, fin_de_linea=fin_de_linea)
     frontera = _frontera(texto)
     cuerpo = [e for e in encabezados if frontera is None or e["inicio"] < frontera]
     por_posicion = {e["primer_caracter"]: e for e in encabezados}
@@ -427,10 +444,11 @@ def _titulo(texto: str) -> str:
     return ""
 
 
-def _claves_designacion(texto: str) -> set[str]:
+def _claves_designacion(texto: str, fin_de_linea: bool = False) -> set[str]:
     """Designaciones de los encabezados auténticos de ``texto``, comparables entre sí."""
     return {
-        canon_caja(re.sub(r"[\s.]+", "", e["designacion"])) for e in encabezados_de_ley(texto)
+        canon_caja(re.sub(r"[\s.]+", "", e["designacion"]))
+        for e in encabezados_de_ley(texto, fin_de_linea=fin_de_linea)
     }
 
 
@@ -438,7 +456,9 @@ def _sin_blancos(texto: str) -> str:
     return " ".join((texto or "").split())
 
 
-def verificar_identidad(indexados: Sequence[str], texto_nuevo: str) -> dict[str, Any]:
+def verificar_identidad(
+    indexados: Sequence[str], texto_nuevo: str, *, fin_de_linea: bool = False
+) -> dict[str, Any]:
     """¿El PDF nuevo es el MISMO documento que la fuente indexada? ``indexados``: textos de los
     fragmentos indexados de esa fuente en orden de ``chunk_index``; ``texto_nuevo``: páginas
     unidas del PDF. No depende del catálogo ni del cortador:
@@ -466,9 +486,9 @@ def verificar_identidad(indexados: Sequence[str], texto_nuevo: str) -> dict[str,
                     f"('{salida['titulo_nuevo'][:80]}' frente a "
                     f"'{salida['titulo_indexado'][:80]}')"
                 )}
-    previas = _claves_designacion("\n\n".join(limpios))
+    previas = _claves_designacion("\n\n".join(limpios), fin_de_linea)
     if len(previas) >= MIN_DESIGNACIONES_IDENTIDAD:
-        comunes = len(previas & _claves_designacion(texto_nuevo))
+        comunes = len(previas & _claves_designacion(texto_nuevo, fin_de_linea))
         solapamiento = comunes / len(previas)
         criterio = "designaciones"
         detalle = f"{comunes} de {len(previas)} designaciones de artículo indexadas"
