@@ -589,11 +589,24 @@ def main(argv: list[str] | None = None) -> int:
             sem = vvca.get("semaforo")
             if sem not in ("🟡", "🔴"):
                 continue
-            key = (s.get("expected_source") or s.get("source_file"), s.get("article"))
+            explicabilidad = vvca.get("explicabilidad", {}) or {}
+            # Tratados y párrafos numerados (4-oct-2026, ronda 2): la identidad del pop-up
+            # incluye la unidad citada y el resultado de su cotejo; antes se deduplicaba solo
+            # por fuente y artículo, y "8.9" y "8.2, inciso z)" del mismo artículo compartían un
+            # pop-up y se perdía la advertencia de uno de ellos.
+            key = (
+                s.get("expected_source") or s.get("source_file"),
+                s.get("article"),
+                tuple((str(u.get("tipo")), str(u.get("valor")))
+                      for u in (s.get("unidad_citada") or [])),
+                s.get("unidad_cotejada"),
+                s.get("unidad_no_cotejada") or explicabilidad.get("unidad_no_cotejada"),
+                s.get("unidad_derogada") or explicabilidad.get("unidad_derogada"),
+                sem,
+            )
             if key in vistos:
                 vistos[key]["veces_citado"] += 1
                 continue
-            explicabilidad = vvca.get("explicabilidad", {}) or {}
             vistos[key] = {
                 "reference": s.get("reference", ""),
                 "law": s.get("law", ""),
@@ -639,6 +652,8 @@ def main(argv: list[str] | None = None) -> int:
                 "unidad_no_cotejada": (
                     s.get("unidad_no_cotejada") or explicabilidad.get("unidad_no_cotejada")
                 ),
+                # Ronda 2 (campo añadido): la unidad citada de este pop-up.
+                "unidad_citada": s.get("unidad_citada") or [],
                 "evidencia_incompleta": bool(
                     s.get("evidencia_incompleta") or explicabilidad.get("evidencia_incompleta")
                 ),

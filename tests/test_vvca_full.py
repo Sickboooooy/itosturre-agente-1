@@ -519,6 +519,30 @@ class TelegramOptInTests(unittest.TestCase):
         self.assertEqual((paso["precepto_derogado"], paso["unidad_no_cotejada"],
                           paso["evidencia_incompleta"]), (1, 1, 1))
 
+    def test_unidades_distintas_del_mismo_articulo_no_se_funden(self) -> None:
+        # Tratados, ronda 2 (Codex P2): "8.9" y "8.2, inciso z)" del mismo artículo son dos
+        # advertencias distintas; antes se deduplicaban por fuente y artículo y se perdía una.
+        payload = audit_with_yellow_article()
+        primera = payload["retrieved_sources"][0]
+        primera.update({"expected_source": "TRATADO SINTETICO.pdf", "article": "8",
+                        "unidad_citada": [{"tipo": "parrafo_numerado", "valor": "9"}],
+                        "unidad_cotejada": False,
+                        "unidad_no_cotejada": "el párrafo 9 no se ubica (sintético)"})
+        segunda = json.loads(json.dumps(primera, ensure_ascii=False))
+        segunda.update({"unidad_citada": [{"tipo": "parrafo_numerado", "valor": "2"},
+                                          {"tipo": "inciso", "valor": "z"}],
+                        "unidad_no_cotejada": "el inciso z) no se ubica (sintético)"})
+        repetida = json.loads(json.dumps(primera, ensure_ascii=False))
+        payload["retrieved_sources"] += [segunda, repetida]
+        self.fake = FakeSubprocesses(audit_stdout=json.dumps(payload, ensure_ascii=False))
+        code, _summary, _popup = self.run_with_popups()
+        self.assertEqual(code, 0)
+        items = json.loads((self.case / "articulos_popup.json").read_text(encoding="utf-8"))
+        self.assertEqual([(i["unidad_no_cotejada"], i["veces_citado"]) for i in items],
+                         [("el párrafo 9 no se ubica (sintético)", 2),
+                          ("el inciso z) no se ubica (sintético)", 1)])
+        self.assertEqual(items[1]["unidad_citada"], segunda["unidad_citada"])
+
     def test_cobertura_pendiente_es_visible_sin_captura_falsa(self) -> None:
         payload = audit_with_yellow_article()
         payload["traceability"]["records"] = [{

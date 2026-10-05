@@ -128,20 +128,30 @@ class EncabezadoAutenticoTests(unittest.TestCase):
     """Qué líneas son encabezado (corte) y con qué designación, etiqueta y forma."""
 
     def test_cortan(self) -> None:
+        # Tratados (criterio del responsable, 4-oct-2026, opción A): la forma sin cierre solo
+        # corta en un tratado registrado (``fin_de_linea=True``); en una ley nacional (por
+        # omisión) el cierre es obligatorio.
         for linea, designacion, etiqueta, forma in CORTAN:
             with self.subTest(linea=linea):
-                (encabezado,) = encabezados_de_ley(linea)
+                (encabezado,) = encabezados_de_ley(linea, fin_de_linea=True)
                 self.assertEqual(encabezado["inicio"], 0)
                 self.assertEqual(encabezado["designacion"], designacion)
                 self.assertEqual(encabezado["etiqueta"], etiqueta)
                 self.assertEqual(encabezado["forma"], forma)
-                self.assertEqual(etiqueta_ley(linea), etiqueta)
+                self.assertEqual(etiqueta_ley(linea, fin_de_linea=True), etiqueta)
+                if forma == FORMA_FIN_DE_LINEA:
+                    self.assertEqual(encabezados_de_ley(linea), [])
+                    self.assertEqual(etiqueta_ley(linea), "")
+                else:
+                    self.assertEqual(encabezados_de_ley(linea), [encabezado])
+                    self.assertEqual(etiqueta_ley(linea), etiqueta)
 
     def test_no_cortan(self) -> None:
         for linea in NO_CORTAN:
-            with self.subTest(linea=linea):
-                self.assertEqual(encabezados_de_ley(linea), [])
-                self.assertEqual(etiqueta_ley(linea), "")
+            for tratado in (False, True):
+                with self.subTest(linea=linea, tratado=tratado):
+                    self.assertEqual(encabezados_de_ley(linea, fin_de_linea=tratado), [])
+                    self.assertEqual(etiqueta_ley(linea, fin_de_linea=tratado), "")
 
     def test_apartado_tras_el_encabezado_no_es_sufijo(self) -> None:
         for linea, etiqueta in APARTADOS:
@@ -228,7 +238,9 @@ class EtiquetaTests(unittest.TestCase):
             "Artículo 51\n1. Texto sintético.", "Artículo 58-1.- Texto sintético.",
         ):
             with self.subTest(pieza=pieza):
-                self.assertEqual(etiqueta_ley(pieza), _ETIQUETA_ANTERIOR.match(pieza).group(1))
+                # En un tratado (la forma sin cierre solo corta en los registrados).
+                self.assertEqual(etiqueta_ley(pieza, fin_de_linea=True),
+                                 _ETIQUETA_ANTERIOR.match(pieza).group(1))
         self.assertEqual(_ETIQUETA_ANTERIOR.match("Artículo 10- Texto.").group(1), "10-")
         self.assertEqual(etiqueta_ley("Artículo 10- Texto sintético."), "10")
 
@@ -241,7 +253,8 @@ class EtiquetaTests(unittest.TestCase):
             ("247 Bis", "Artículo 247 Bis.- Texto sintético."), ("51", "ARTÍCULO 51 \nTexto."),
         ):
             with self.subTest(cita=cita, encabezado=encabezado):
-                self.assertIn(etiqueta_ley(encabezado), ON._article_candidates(cita))
+                self.assertIn(etiqueta_ley(encabezado, fin_de_linea=True),
+                              ON._article_candidates(cita))
 
 
 def _paginas(*textos: str) -> list[dict]:
@@ -251,8 +264,10 @@ def _paginas(*textos: str) -> list[dict]:
 class FragmentarTests(unittest.TestCase):
     """``fragmentar``: páginas → fragmentos con etiqueta y página (ley sintética)."""
 
-    def _fragmentos(self, *textos: str, max_caracteres: int = 2000, subdividir=_sin_division):
-        return fragmentar(_paginas(*textos), max_caracteres=max_caracteres, subdividir=subdividir)
+    def _fragmentos(self, *textos: str, max_caracteres: int = 2000, subdividir=_sin_division,
+                    fin_de_linea: bool = False):
+        return fragmentar(_paginas(*textos), max_caracteres=max_caracteres, subdividir=subdividir,
+                          fin_de_linea=fin_de_linea)
 
     def test_mayusculas_cortan_y_la_remision_no(self) -> None:
         resultado = self._fragmentos(
@@ -278,13 +293,25 @@ class FragmentarTests(unittest.TestCase):
                 self.assertIn(linea.split("\n")[1], resultado.fragmentos[1].texto)
 
     def test_tratado_con_encabezado_al_final_de_la_linea(self) -> None:
-        resultado = self._fragmentos(
+        texto = (
             "CONVENCIÓN SINTÉTICA\nPREÁMBULO\nTexto sintético.\n"
             "PARTE I\nARTÍCULO 1 \nPara los efectos sintéticos.\n"
             "ARTÍCULO 2 \n1. Texto sintético que cita el\nartículo 1\nde esta Convención.\n"
         )
+        resultado = self._fragmentos(texto, fin_de_linea=True)
         self.assertEqual([f.etiqueta for f in resultado.fragmentos], ["", "1", "2"])
         self.assertIn("artículo 1\nde esta Convención", resultado.fragmentos[2].texto)
+        # Ronda 2 (adjudicado): en una ley nacional (no registrada como tratado) la forma sin
+        # cierre no corta (las líneas "Artículo N" de la Declaratoria del Código Civil de
+        # Jalisco ya no cortan).
+        self.assertEqual([f.etiqueta for f in self._fragmentos(texto).fragmentos], [""])
+        ley = self._fragmentos(
+            "CÓDIGO SINTÉTICO\nArtículo 1.- Texto sintético.\nTRANSITORIOS\nDECLARATORIA\n"
+            "Artículo 1 \nLa familia sintética es la comunidad de prueba.\n"
+            "Artículo 2 \nTexto sintético de la declaratoria.\n"
+        )
+        self.assertEqual([f.etiqueta for f in ley.fragmentos], ["", "1", ""])
+        self.assertIn("Artículo 2 \nTexto sintético de la declaratoria", ley.fragmentos[2].texto)
 
     def test_pagina_del_encabezado_al_inicio_de_pagina(self) -> None:
         # Antes el corte caía en el salto de línea previo y el fragmento quedaba con la página

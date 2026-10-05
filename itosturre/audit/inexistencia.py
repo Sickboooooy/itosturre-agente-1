@@ -51,6 +51,12 @@ Salvaguardas comunes (si alguna falla no hay prueba y la cita queda 🟡):
 Riesgo residual (documentado en ``docs/PROTOCOLO_VVCA.md``): la metadata solo guarda la
 página de inicio de cada fragmento; el control de densidad reduce, no elimina, el riesgo de
 páginas perdidas por la extracción del PDF.
+
+Tratados internacionales (criterio del responsable, 4-oct-2026, opción A): con
+``preparar_ley(..., fin_de_linea=True)`` (fuente registrada como tratado en el catálogo) el
+encabezado sin cierre ("Artículo 51" solo en su línea) es un encabezado numerado del cuerpo y
+acredita existencia. Los tratados del corpus no tienen línea TRANSITORIOS: la prueba se abstiene
+("sin línea TRANSITORIOS") y un artículo inexistente de un tratado queda 🟡, nunca 🔴.
 """
 from __future__ import annotations
 
@@ -63,8 +69,10 @@ from .evidence import (
     _ENCABEZADO_SIGUIENTE,
     _FRONTERA_RE,  # noqa: F401 — reexportado (antes vivía aquí)
     _PREFIJO_SUBFRAGMENTO,
+    FORMA_FIN_DE_LINEA,
     _indice,
     _without_accents,
+    encabezados_autenticos,
     es_frontera_transitorios,
 )
 from .referencias import (
@@ -233,6 +241,9 @@ class LeyPreparada:
     identidad: str = ""                       # "" si se comprobó; si no, el motivo
     version: str = SIN_FECHA
     densidad: str = ""                        # "" si no delata pérdida; si no, el motivo
+    # Tratados (4-oct-2026, campo añadido): la fuente es un tratado internacional registrado
+    # en el catálogo; sus encabezados sin cierre cuentan ("Artículo 51" solo en su línea).
+    fin_de_linea: bool = False
 
 
 def _sin_prueba(motivo: str, **extra: Any) -> dict[str, Any]:
@@ -283,17 +294,28 @@ def _frontera(fragmentos: list[_Fragmento]) -> Optional[tuple[int, int]]:
     return None
 
 
-def _encabezados_de(texto: str, posicion: int) -> list[_Encabezado]:
+def _encabezados_de(texto: str, posicion: int, fin_de_linea: bool = False) -> list[_Encabezado]:
     """Encabezados de un texto en su orden: el exacto (``evidence``) con su designación, el
-    de ordinal en palabra y cualquier otra línea candidata."""
+    de ordinal en palabra y cualquier otra línea candidata. En un tratado (``fin_de_linea``,
+    4-oct-2026) también el auténtico sin cierre ("Artículo 51" solo en su línea), con la
+    definición única de ``evidence.encabezados_autenticos``."""
     hallados: dict[int, _Encabezado] = {}
-    for m in _ENCABEZADO_SIGUIENTE.finditer(texto):
-        designacion = " ".join(m.group("designacion").split())
+    numerados = [
+        (m.start(), m.end(), m.group("designacion")) for m in _ENCABEZADO_SIGUIENTE.finditer(texto)
+    ]
+    if fin_de_linea:
+        numerados += [
+            (h["inicio"], h["fin"], h["designacion"])
+            for h in encabezados_autenticos(texto, fin_de_linea=True)
+            if h["forma"] == FORMA_FIN_DE_LINEA
+        ]
+    for inicio, fin, designacion in numerados:
+        designacion = " ".join(designacion.split())
         # "Artículo 20.- A. De los…" (apartado tras el cierre) se lee como el sufijo "20-A":
         # una letra suelta separada por un espacio es ambigua, no se ordena.
         clave = None if re.search(r"\s[A-Za-z]$", designacion) else clave_orden(designacion)
-        hallados[m.start()] = _Encabezado(
-            posicion, m.start(), m.end(), NUMERADO if clave else CANDIDATA, designacion, clave,
+        hallados[inicio] = _Encabezado(
+            posicion, inicio, fin, NUMERADO if clave else CANDIDATA, designacion, clave,
             int(re.match(r"\d+", designacion).group(0)),
         )
     for m in _ENCABEZADO_EN_PALABRA.finditer(texto):
@@ -412,31 +434,57 @@ def _densidad(fragmentos: list[_Fragmento], frontera: tuple[int, int]) -> str:
 def preparar_ley(
     fragmentos: Iterable[tuple[str, Mapping[str, Any] | None]],
     denominaciones: Iterable[str] = (),
+    *,
+    fin_de_linea: bool = False,
 ) -> LeyPreparada:
-    """Estructura de la ley reutilizable entre referencias (P9)."""
+    """Estructura de la ley reutilizable entre referencias (P9). ``fin_de_linea`` (4-oct-2026):
+    la fuente es un tratado internacional registrado en el catálogo; sus encabezados sin
+    cierre cuentan como encabezados numerados del cuerpo y como prueba de existencia."""
     ordenados, motivo, fuente = _ordenar(fragmentos)
     if ordenados is None:
-        return LeyPreparada(fuente=fuente, motivo=motivo)
+        return LeyPreparada(fuente=fuente, motivo=motivo, fin_de_linea=fin_de_linea)
     frontera = _frontera(ordenados)
     identidad = _identidad(ordenados, denominaciones)
     version = _version(ordenados)
     if frontera is None:
         return LeyPreparada(
             fuente=fuente, motivo="", fragmentos=tuple(ordenados), identidad=identidad,
-            version=version,
+            version=version, fin_de_linea=fin_de_linea,
         )
     ultimo, corte = frontera
     cuerpo = [
         f.texto if posicion < ultimo else f.texto[:corte]
         for posicion, f in enumerate(ordenados[: ultimo + 1])
     ]
-    encabezados = [e for posicion, texto in enumerate(cuerpo) for e in _encabezados_de(texto, posicion)]
+    encabezados = [
+        e for posicion, texto in enumerate(cuerpo)
+        for e in _encabezados_de(texto, posicion, fin_de_linea)
+    ]
     posteriores = [ordenados[ultimo].texto[corte:]] + [f.texto for f in ordenados[ultimo + 1:]]
     return LeyPreparada(
         fuente=fuente, motivo="", fragmentos=tuple(ordenados), frontera=frontera,
         cuerpo=tuple(cuerpo), encabezados=tuple(encabezados), posteriores=tuple(posteriores),
         identidad=identidad, version=version, densidad=_densidad(ordenados, frontera),
+        fin_de_linea=fin_de_linea,
     )
+
+
+def secuencia_de_encabezados(ley: LeyPreparada) -> list[tuple[int, tuple[int, ...]]]:
+    """Tratados (ronda 2, 4-oct-2026): ``(chunk_index, clave)`` de cada encabezado NUMERADO de
+    TODA la fuente (sin frontera, como en un tratado), en el orden del documento, con la
+    definición de ``_encabezados_de`` (en un tratado, también los auténticos sin cierre). Un
+    encabezado repetido en fragmentos consecutivos (solapamiento) cuenta una vez."""
+    secuencia: list[tuple[int, tuple[int, ...]]] = []
+    for posicion, fragmento in enumerate(ley.fragmentos):
+        for encabezado in _encabezados_de(fragmento.texto, posicion, ley.fin_de_linea):
+            if encabezado.tipo != NUMERADO:
+                continue
+            if secuencia and secuencia[-1][1] == encabezado.clave and (
+                fragmento.chunk_index - secuencia[-1][0] <= 1
+            ):
+                continue
+            secuencia.append((fragmento.chunk_index, encabezado.clave))
+    return secuencia
 
 
 def _motivo_frontera_no_creible(ley: LeyPreparada) -> str:
@@ -462,7 +510,7 @@ def _motivo_frontera_no_creible(ley: LeyPreparada) -> str:
             f"artículo ({candidatas[0].designacion}): no se acredita dónde termina el cuerpo"
         )
     for texto in ley.posteriores:
-        for e in _encabezados_de(texto, -1):
+        for e in _encabezados_de(texto, -1, ley.fin_de_linea):
             if _con_forma_de_articulo(e) and e.numero > mayor:
                 return (
                     f"tras la frontera TRANSITORIOS hay una línea con forma de artículo y "
@@ -564,9 +612,13 @@ def evaluar_inexistencia(
     # Existencia: el encabezado citado (cualquier ordinal; también "(Se deroga)") en cualquier
     # parte de la fuente, o una mención del artículo en cualquier parte de su texto.
     # Ronda 2 de la re-ingesta: también partido entre líneas ("ARTICULO\n508.-").
+    # Tratados (4-oct-2026): en un tratado registrado también sin cierre, solo al final de su
+    # línea ("Artículo 51", en cualquier caja: ante la duda, la prueba se abstiene).
+    cierre = r"[^\S\n]*(?:\.\-|[.\-:])"
+    if ley.fin_de_linea:
+        cierre = rf"(?:{cierre}|[^\S\n]*$)"
     encabezado_citado = re.compile(
-        rf"^[^\S\n]*art(?:iculo)?\.?(?:[^\S\n]+|[^\S\n]*\n[^\S\n]*){patron_tolerante}"
-        rf"[^\S\n]*(?:\.\-|[.\-:])",
+        rf"^[^\S\n]*art(?:iculo)?\.?(?:[^\S\n]+|[^\S\n]*\n[^\S\n]*){patron_tolerante}{cierre}",
         re.IGNORECASE | re.MULTILINE,
     )
     if any(encabezado_citado.search(f.texto) for f in ley.fragmentos):

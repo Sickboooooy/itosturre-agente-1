@@ -456,6 +456,38 @@ Comportamiento al auditar (`audit()`):
   reproducido en una aclaración de un decreto de reforma, tras los transitorios (pág. 320), y
   ahora pág. 33; "CPEUM Art. 4o." con la línea "artículo 4o.; y se adicionan…" (pág. 200) y
   ahora pág. 12.
+- **Tratados internacionales (criterio del responsable, 4-oct-2026, opción A)** → el
+  encabezado "Artículo N" / "ARTÍCULO N" / "Artículo Nº" **solo al final de su línea**, sin
+  punto ni guion, es auténtico **únicamente** en las fuentes que el catálogo registra como
+  tratado internacional (`OpenNotebook.TRATADOS_INTERNACIONALES`: CADH, CDN y PIDCP; nunca por
+  el nombre del archivo). Las leyes nacionales siguen exigiendo el cierre (las líneas
+  "Artículo N" sin cierre del Código Civil de Jalisco no son encabezados). Es la misma
+  definición que ya usaba la ingesta (`evidence._fin_de_linea_autentico`: "A" mayúscula,
+  prefijo y número en la misma línea, sin sufijo en la línea siguiente y la línea siguiente sin
+  continuar una oración), activada con `fin_de_linea=True` según la fuente esperada en la
+  selección de evidencia y el encabezado auténtico, la ubicación en el cuerpo (los tratados no
+  tienen frontera TRANSITORIOS: dos encabezados distintos son ubicación ambigua y, desde la
+  ronda 2, uno solo se admite —regla iii— únicamente si encaja en la secuencia de encabezados de
+  la fuente: el anterior es el N−1 y el siguiente el N+1 cuando existen; si no, `🟡 UBICACIÓN NO
+  ACREDITADA`), el cuerpo del precepto (empieza tras el encabezado y tras la línea de título de
+  la CADH —"Obligación de Respetar los Derechos", también con una línea en blanco antes—, que no
+  cuenta como cuerpo; acaba en el siguiente encabezado o, desde la ronda 2, en cualquier línea
+  candidata con "A" mayúscula y número, también partida "Artículo⏎9" aunque no se autentique;
+  la continuación se une sin su solapamiento comprobado) con el cotejo de la unidad, y la
+  existencia de D10 (sin frontera, D10 se abstiene: un artículo inexistente de un tratado queda
+  🟡, nunca 🔴). Un título solo nunca completa la evidencia (ronda 2,
+  `cuerpo_suficiente_tratado`: la primera línea sin puntuación final se separa de forma
+  conservadora como posible título y el resto debe bastar; `_es_titulo` no es la única
+  salvaguarda). **La ingesta usa el mismo registro (ronda 2):** `fragmentar(...,
+  fin_de_linea=...)` solo corta en "Artículo N" sin cierre en un PDF registrado como tratado; en
+  las leyes nacionales el cierre es obligatorio (el Código Civil de Jalisco ya no corta en las
+  líneas "Artículo N" de su Declaratoria; las fuentes indexadas no cambian sin re-ingesta).
+  Con metadata y evidencia completa la cita es 🟢 determinista (`explicabilidad`
+  `encabezado_fin_de_linea: true`, informativo); **sin metadata** (ruta semántica) el
+  encabezado sin cierre ubica pero no da 🟢 (tope 84, `🟡 COTEJAR … encabezado sin cierre`),
+  como la equivalencia ordinal. Para añadir un tratado: indexarlo, añadir sus denominaciones a
+  `LAW_SOURCE_MAP`, su archivo a `TRATADOS_INTERNACIONALES` (una prueba exige que esté en el
+  catálogo) y medir antes→después todos sus artículos.
 - **Ley identificada pero ausente del corpus** → `🟡 NO VERIFICABLE`. *No* se reporta como
   "alucinación": el corpus simplemente no la contiene. (Guard P0 — antes producía un falso 🔴
   que tachaba de falsa una cita válida, p. ej. LGV/PIDCP.)
@@ -524,8 +556,40 @@ Comportamiento al auditar (`audit()`):
     fine", que no se pueden ubicar en el texto del PDF) → `🟡 UNIDAD CITADA NO COTEJADA` con
     el motivo (`unidad_no_cotejada`); tope 84 (nunca 🟢), sin piso;
   - unidad ubicada y vigente → el semáforo de siempre (`unidad_cotejada: true`).
-  Una cita del artículo completo se coteja como antes. Consecuencia: toda cita de párrafo queda
-  🟡 hasta que el cotejo de párrafos sea fiable (p. ej. "artículo 19, párrafo 2°"). Una unidad
+  Una cita del artículo completo se coteja como antes. Consecuencia: toda cita de párrafo **por
+  posición** queda 🟡 hasta que el cotejo de párrafos sea fiable (p. ej. "artículo 19, párrafo
+  2°", "párrafo segundo"). **Párrafo numerado (4-oct-2026):** "artículo 8.1", "artículo 8º.1",
+  "artículo 8, numeral 1", "artículo 8, párrafo 1" (número sin indicador ordinal), "8.1 y
+  8.2", "párrafos 1 y 2", "numerales 1, 2 y 3" y "los párrafos 1 y 2 del artículo 8" son el
+  artículo 8 con la unidad `parrafo_numerado` (`describir_unidad`: "párrafo numerado 1"); con
+  "8.2, inciso h)" también el inciso dentro del párrafo. **Ronda 2 (adjudicado): el cotejo
+  POSITIVO del párrafo numerado solo en los tratados internacionales registrados**, también en
+  cualquier llamada que no lo active (`cotejar_unidad(..., parrafos_numerados=False)` por
+  omisión); en una ley nacional "párrafo 1", "numeral 1" o "N.M" quedan como antes, `🟡 UNIDAD
+  CITADA NO COTEJADA` ("párrafo 1" suele ser el primer párrafo por posición: en el corpus real
+  "artículo 20-Ter, párrafo 1, del CFF" salía 🟢 casando la línea "1." de una lista). En un
+  tratado se ubica la línea que empieza con
+  "1." (seguido de un blanco o del fin de línea; no "1.e.", "1.1" ni "2016."), solo si aparece
+  **una** vez antes de cualquier línea de notas ("Nota", "Notas explicativas"), si las marcas
+  del cuerpo son exactamente 1, 2, 3… (sin saltos ni repeticiones; desde la ronda 2 la línea
+  repetida por el solapamiento de los subfragmentos solo se descuenta si el solapamiento está
+  COMPROBADO: la continuación consecutiva empieza repitiendo exactamente el final de lo reunido)
+  y si antes del "1." no hay fracciones ni incisos (una lista "1. … 2. …" dentro de una
+  fracción no es la numeración de los párrafos). Si la línea no se
+  ubica, `🟡 UNIDAD CITADA NO COTEJADA` (nunca 🟢 del artículo completo). **Listas (ronda 2,
+  falla cerrada):** "incisos c), d) y f)", "incisos a, b y c", "fracción I y II", "fracciones
+  I, II y IV", "apartados A y B", "párrafos primero y segundo" y "los incisos a) y b) de la
+  fracción III del artículo 107" se extraen completas, y el 🟢 exige que TODAS las unidades se
+  coteje(n) ("8.2, incisos a) y z)" → 🟡 porque z) no existe). Lo que entre las unidades leídas
+  y la ley ligada parezca una unidad no extraída ("apartado A y B", "inciso a) y z") deja la
+  cita como `🟡 COBERTURA INCOMPLETA`, nunca auditada sin ella. **Falla cerrada:**
+  "N.M" nunca se reduce en silencio a "N": "artículo 8. 1" (punto con blancos), "8.1.2" u
+  "8.100" quedan como `🟡 COBERTURA INCOMPLETA`; en "artículo 8, párrafo 1, y 25" el 25 no se
+  absorbe como párrafo (solo la palabra en plural admite una lista). Medición del 4-oct-2026:
+  ninguna de las 49 fuentes del índice usa designaciones de artículo con punto ("Artículo 1.1",
+  "ARTÍCULO 2.15"; las "1.1." de la RMF son reglas, no artículos), así que "N.M" tras la cabeza
+  es siempre artículo N, párrafo M. "numeral 1o." (con ordinal) es una unidad no cotejable
+  (antes se perdía y la cita se auditaba sin ella). Una unidad
   que precede al artículo solo se le asocia si la cadena termina pegada a la cabeza con
   "del"/"de la"/"de los": "el segundo párrafo de la sentencia … el artículo 16" o "la fracción
   II de la Ley de Amparo" no son unidades del artículo.
@@ -676,6 +740,25 @@ como "LEY Art. N."):
 | Encabezado repetido: "artículo 54 del CCF" 🟢 con un art. 54 transcrito en otro precepto (pág. 197) | 🟡 UBICACIÓN NO ACREDITADA (5 encabezados antes de la frontera) |
 | "artículo 496 del CFPC" 🟢 con el art. 496 de un decreto de reforma (pág. 126; el cuerpo termina en el art. 626, pág. 63) | 🟡 UBICACIÓN NO ACREDITADA (tras la frontera) |
 | "CFF Art. 4°-A." 🟡 con otra evidencia (se extraía "4") | 🟢 con "Artículo 4o.-A.-" (pág. 3), nunca con el art. 4o. |
+
+### Qué cambia para el abogado (tratados y párrafos numerados, 4-oct-2026)
+
+Medido con el corpus real (main@6d55881 frente a este cambio, sin re-ingestar; "artículo N de
+la <tratado>" para todos los artículos de cada tratado):
+
+| Antes | Después |
+|---|---|
+| CADH 82/82, CDN 54/54 y PIDCP 53/53 artículos 🟡 (la auditoría exigía el cierre del encabezado) | 🟢 determinista los 189, con metadata, encabezado del artículo citado al inicio del fragmento y ubicación única (`encabezado_fin_de_linea`) |
+| "artículo 8.1 de la CADH", "14.3 del PIDCP", "3.1 de la CDN": se auditaba el artículo completo (el ".1" se perdía) | 🟢 solo si la línea "1." se ubica en el cuerpo (`unidad_cotejada`); "artículo N.1" sale 🟢 en 108 de los 189 artículos —todos con esa línea en el índice— y 🟡 UNIDAD CITADA NO COTEJADA en los que no tienen párrafos numerados o tienen una numeración dudosa (CDN art. 24: 1, 2, 4) |
+| "artículo 8, numeral 1" / "párrafo 1": unidad no cotejable (🟡) | párrafo numerado: 🟢 si se ubica la línea (solo en tratados) |
+| Ley nacional: "artículo 20-Ter.1 del CFF" 🟢 (el ".1" se perdía); "20-Ter, párrafo 1" 🟡 | 🟡 UNIDAD CITADA NO COTEJADA en ambos (también INFONAVIT 19 y 25, LFT 513, LNED 9) |
+| "8.2, incisos c), d) y f)" solo cotejaba el c) | 🟢 si los tres se cotejan; "incisos a) y z)" 🟡 |
+| Ingesta (`--simular`) del Código Civil de Jalisco: cortaba en sus 10 líneas "Artículo N" de la Declaratoria (3 193 encabezados) | No corta (3 183, cobertura del cuerpo 100 %); CADH, CDN y PIDCP igual que antes |
+| "artículo 8.9 de la CADH" (sin párrafo 9) | 🟡 UNIDAD CITADA NO COTEJADA (nunca 🟢 del art. 8) |
+| "artículo 8. 1 de la CADH" (punto con blanco): art. 8 completo | 🟡 COBERTURA INCOMPLETA |
+| "artículo 8, párrafos 1 y 2, de la CADH": el 8 sin ley y el 2 como "posible artículo" | art. 8 con los párrafos 1 y 2 |
+| Artículo inexistente de un tratado (90 CADH, 60 CDN, 99 PIDCP): 🟡 | Igual (sin frontera TRANSITORIOS, D10 se abstiene; nunca 🔴) |
+| Código Civil de Jalisco 1–60; CPEUM, CNPP, CFF y Ley de Amparo 1–60; 30 de la LFPC y 30 del CFPC | Sin cambios (0 🟢 nuevos, 0 🟢 perdidos, 0 🔴 nuevos) |
 
 > El guard 🟡 NO VERIFICABLE para una ley ausente solo se ejerce con `--force`; sin `--force`
 > la auditoría se **detiene** antes con `status: corpus_incomplete` (ver §5).

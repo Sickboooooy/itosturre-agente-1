@@ -189,6 +189,14 @@ _CALIFICADOR_PREVIO_RE = re.compile(
 # - NÚMERO tras el sufijo latino: "65 Bis 1", "211 bis 7", "343 Ter 2" (LFPC, CPF, CCJ…).
 _SUBNUMERO = r"[-–—](?P<sub>\d{1,3})(?!\d)"
 _NUMERO_LATINO = r"[ \t]*-?[ \t]*(?P<latnum>\d{1,2})(?![\d/])"
+# Tratados internacionales (4-oct-2026) — PÁRRAFO NUMERADO pegado con punto: "artículo 8.1"
+# (CADH), "14.3" (PIDCP), "3.1" (CDN), también tras el ordinal o el grado ("8º.1", "8°.1"). Es la
+# unidad "párrafo numerado 1" del artículo 8, nunca el artículo 8 completo (falla cerrada: antes
+# "8.1" se extraía como "8" y el ".1" se perdía en silencio). Ninguna de las 49 fuentes del
+# índice usa designaciones de artículo con punto ("Artículo 1.1"), medido el 4-oct-2026: "N.M"
+# tras la cabeza es siempre artículo N, párrafo M. Lo que siga ("8.1.2") o un punto con blancos
+# ("artículo 8. 1") queda como cobertura incompleta (``_continuacion_no_extraida``).
+_PARRAFO_PEGADO = r"\.(?P<pnum>\d{1,2})(?!\d)"
 
 
 def _item_re(*, subnumero: bool, numero_latino: bool) -> re.Pattern:
@@ -198,6 +206,7 @@ def _item_re(*, subnumero: bool, numero_latino: bool) -> re.Pattern:
         rf"(?P<num>\d+){sub}(?P<ord>{_ORDINAL_O_GRADO})?(?P<letra>{_LETRA})?)"
         rf"(?:(?P<latino>{_LATINO}){latnum})?"
         rf"(?P<grado>°)?"
+        rf"(?:{_PARRAFO_PEGADO})?"
         rf"(?:\s*[,;]?\s*{_CLAVE_FRACCION}\s*(?P<fraccion>[\w\.]+))?",
         re.IGNORECASE,
     )
@@ -758,8 +767,14 @@ def _vinculo_derecho(entre: str, *, sin_preposicion: bool = False) -> Optional[b
     determinantes (solo tras la preposición). Devuelve None si no hay vínculo; si lo hay,
     True cuando es distributivo ("…, ambos de la CPEUM"). ``sin_preposicion``: solo admite
     el vínculo pegado ("16 constitucional").
+
+    Tratados (4-oct-2026): primero se descuentan las unidades citadas con la gramática de
+    ``unidades_citadas`` (``_fin_de_unidades``), que reconoce una lista de párrafos numerados
+    tras la palabra en plural ("…, párrafos 1 y 2, de la CADH"); las palabras no ven los números
+    y la "y" entre ellos rompía el vínculo. Todo lo demás que esa gramática consume ya lo
+    aceptaban las palabras, así que no cambia ningún otro vínculo.
     """
-    palabras = _palabras(entre)
+    palabras = _palabras(entre[_fin_de_unidades(entre):])
     i, n = 0, len(palabras)
     while i < n:
         if _es_calificador(palabras, i):
@@ -1134,6 +1149,8 @@ class _Item:
     fin_raw: int     # fin del tramo citado para ``raw`` (un rango comparte el del extremo final)
     # Ronda 2 (falla cerrada): lo que continúa la designación sin haberse extraído, o None.
     incompleta: Optional[str] = None
+    # Tratados (4-oct-2026): párrafo numerado pegado con punto ("8.1" → "1"), o "".
+    parrafo: str = ""
 
 
 @dataclass
@@ -1173,7 +1190,8 @@ def _designacion(m: re.Match) -> str:
 
 
 def _es_simple(m: re.Match) -> bool:
-    return not (m.group("letra") or m.group("latino") or m.group("fraccion") or _grupo(m, "sub"))
+    return not (m.group("letra") or m.group("latino") or m.group("fraccion") or _grupo(m, "sub")
+                or _grupo(m, "pnum"))
 
 
 def _item(texto: str, posicion: int) -> Optional[re.Match]:
@@ -1206,16 +1224,28 @@ def _item(texto: str, posicion: int) -> Optional[re.Match]:
 _CONTINUA_TRAS_LATINO = re.compile(r"[ \t]*-?[ \t]*\d")
 _CONTINUA_TRAS_NUMERO = re.compile(r"[-–—]\d|[ \t]+al?[ \t]+\d", re.IGNORECASE)
 _PALABRA_SIGUIENTE = re.compile(r"[ \t]*\.?[ \t]*-?[ \t]*([^\W\d_]+(?:[ \t]+decies)?)", re.IGNORECASE)
+# Tratados (4-oct-2026, falla cerrada) — Un punto seguido de un número en la misma línea tras
+# lo extraído: otro nivel del párrafo numerado ("8.1.2"), un número de más de dos cifras
+# ("8.100") o un punto con blancos ("artículo 8. 1", que puede ser el párrafo 1 mal escrito). No
+# lo es el adjetivo ordinal de una unidad ("artículo 16. 2o. párrafo"), que lee la unidad citada.
+_CONTINUA_CON_PUNTO = re.compile(r"\.[ \t]*\d+(?:\.\d+)*")
+_ADJETIVO_DE_UNIDAD = re.compile(
+    r"\.[ \t]*\d+[^\W\d_]{0,2}[°ºª]?\.?\s*(?:p[aá]rrafo|fracci[oó]n|apartado|inciso|base|numeral)",
+    re.IGNORECASE,
+)
 
 
 def _continuacion_no_extraida(texto: str, m: re.Match) -> Optional[str]:
     """Fragmento que continúa la designación de ``m`` sin haberse extraído, o None."""
-    fin = max(m.end(g) for g in ("num", "sub", "ord", "letra", "latino", "latnum")
+    fin = max(m.end(g) for g in ("num", "sub", "ord", "letra", "latino", "latnum", "grado", "pnum")
               if _grupo(m, g) is not None)
 
     def fragmento(hasta: int) -> str:
         return " ".join(texto[m.start("num"):hasta].split("\n")[0].split())
 
+    punto = _CONTINUA_CON_PUNTO.match(texto, fin)
+    if punto and not _ADJETIVO_DE_UNIDAD.match(texto, fin):
+        return fragmento(punto.end())
     if m.group("latino") and not _grupo(m, "latnum"):
         sigue = _CONTINUA_TRAS_LATINO.match(texto, fin)
         if sigue:
@@ -1283,7 +1313,8 @@ def _leer_segmento(
         if final_item is None:
             fraccion = (inicio_item.group("fraccion") or "").strip()
             items.append(_Item(_designacion(inicio_item), fraccion, inicio_item.end(),
-                               _continuacion_no_extraida(texto, inicio_item)))
+                               _continuacion_no_extraida(texto, inicio_item),
+                               parrafo=_grupo(inicio_item, "pnum") or ""))
             continue
         a, b = int(inicio_item.group("num")), int(final_item.group("num"))
         if a < b and b - a + 1 <= MAX_RANGO:
@@ -1601,24 +1632,80 @@ _ORDINAL_PARRAFO = (
     r"|[uú]ltim[oa]|pen[uú]ltim[oa]"
     r"|\d{1,2}\s*(?:[°ºª]|[oa](?![^\W\d_])\.?)?)(?![^\W\d_])"
 )
+# Tratados (4-oct-2026) — PÁRRAFO NUMERADO: "párrafo 1", "párrafos 1 y 2", "numeral 1",
+# "numerales 1, 2 y 3" (un número SIN indicador ordinal) designan el párrafo que en el texto
+# empieza con "1." al inicio de línea (CADH, CDN, PIDCP), la misma unidad que "artículo 8.1".
+# Rige para todas las fuentes; el cotejo solo la da por ubicada si encuentra esa línea
+# (``evidence.cotejar_unidad``). Con indicador ordinal ("párrafo 2°", "párrafo 2o.") o en palabra
+# ("párrafo segundo") sigue siendo el párrafo por posición ("parrafo"), que no se coteja. Solo
+# la palabra en plural admite una lista: en "párrafo 1, y 25 de la CADH" el 25 no es un párrafo.
+_NUMERO_PARRAFO = r"\d{1,2}(?!\d|[°ºª]|[oa](?![^\W\d_]))"
+_LISTA_NUMEROS_PARRAFO = (
+    rf"{_NUMERO_PARRAFO}(?:\s*(?:,\s*(?:y|e)?|y|e)\s*{_NUMERO_PARRAFO})*"
+)
+# Ronda 2 (Codex P1, falla cerrada) — LISTAS de unidades: "fracción I y II" / "fracciones I, II
+# y IV" (romanos en mayúscula: no se confunden con "y", "e" ni con un artículo) e "inciso(s)
+# c), d) y f)" o "incisos a, b y c". Antes solo se tomaba la primera ("8.2, incisos c), d) y f)"
+# → c) y los demás se perdían en silencio); todas deben cotejarse para el 🟢.
+_SEP_ROMANO = r"\s*(?:,\s*(?:y|e)?|y|e)\s*"
+_LISTA_INCISOS = (
+    r"(?:[a-z]\)(?:\s*(?:,\s*(?:(?:y|e)\s+)?|(?:y|e)\s+)[a-z]\))+"
+    r"|[a-z](?:\s*,\s*[a-z])*\s+(?:y|e)\s+[a-z](?![^\W\d_]))"
+)
 _UNIDADES_RE = (
     ("fraccion", re.compile(
-        _SEP_UNIDAD + rf"fracciones\s+(?P<v>{_ROMANO_UNIDAD}(?:\s*(?:,\s*(?:y|e)?|y|e)\s*"
-        rf"{_ROMANO_UNIDAD})*)", re.IGNORECASE)),
+        _SEP_UNIDAD + rf"fracciones\s+(?P<v>{_ROMANO_UNIDAD}(?:{_SEP_ROMANO}{_ROMANO_UNIDAD})*)",
+        re.IGNORECASE)),
+    ("fraccion", re.compile(
+        _SEP_UNIDAD + _CLAVE_FRACCION
+        + rf"\s*(?P<v>{_ROMANO_UNIDAD}(?:{_SEP_ROMANO}{_ROMANO_UNIDAD})+)", re.IGNORECASE)),
     ("fraccion", re.compile(
         _SEP_UNIDAD + _CLAVE_FRACCION + rf"\s*(?P<v>{_ROMANO_UNIDAD}|\d{{1,2}}(?!\d))\.?",
         re.IGNORECASE)),
+    ("inciso", re.compile(
+        _SEP_UNIDAD + rf"(?:incisos?|inc\.)\s*(?P<v>{_LISTA_INCISOS})", re.IGNORECASE)),
+    ("parrafo_numerado", re.compile(
+        _SEP_UNIDAD + rf"(?:p[aá]rrafos|numerales)\s+(?P<v>{_LISTA_NUMEROS_PARRAFO})",
+        re.IGNORECASE)),
+    ("parrafo_numerado", re.compile(
+        _SEP_UNIDAD + rf"(?:p[aá]rrafo|p[aá]rr\.|numeral)\s*(?P<v>{_NUMERO_PARRAFO})",
+        re.IGNORECASE)),
+    # Ronda 2: también la lista en plural ("párrafos primero y segundo", "apartados A y B").
+    ("parrafo", re.compile(
+        _SEP_UNIDAD + rf"p[aá]rrafos\s+(?P<v>{_ORDINAL_PARRAFO}(?:{_SEP_ROMANO}"
+        rf"{_ORDINAL_PARRAFO})+)", re.IGNORECASE)),
     ("parrafo", re.compile(
         _SEP_UNIDAD + rf"(?:(?:p[aá]rrafos?|p[aá]rr\.)\s*(?P<v>{_ORDINAL_PARRAFO})"
         rf"|(?P<w>{_ORDINAL_PARRAFO})\s+p[aá]rrafos?(?![^\W\d_]))", re.IGNORECASE)),
     ("inciso", re.compile(
         _SEP_UNIDAD + r"(?:incisos?|inc\.)\s*(?P<v>[a-z])\)?(?![^\W\d_])", re.IGNORECASE)),
     ("apartado", re.compile(
+        _SEP_UNIDAD + rf"apartados\s+(?P<v>(?-i:[A-Z])(?:{_SEP_ROMANO}(?-i:[A-Z]))+)"
+        r"(?![^\W\d_])", re.IGNORECASE)),
+    ("apartado", re.compile(
         _SEP_UNIDAD + r"(?:apartados?|ap\.)\s*(?P<v>(?-i:[A-Z]))(?![^\W\d_])", re.IGNORECASE)),
+    # Tratados (4-oct-2026): "numeral 1o." (con indicador ordinal, CPEUM art. 35, fr. VIII) es
+    # una unidad no cotejable; antes no se reconocía y la cita se auditaba sin ella.
     ("otra", re.compile(
-        _SEP_UNIDAD + r"(?P<v>in\s+fine|parte\s+final|base\s+(?-i:[IVXLC]+)|numeral\s+\d+)"
+        _SEP_UNIDAD + r"(?P<v>in\s+fine|parte\s+final|base\s+(?-i:[IVXLC]+)"
+        r"|numeral\s+\d+(?:[oaºª°](?![^\W\d_])\.?)?)"
         r"(?![^\W\d_])", re.IGNORECASE)),
 )
+
+
+def _fin_de_unidades(texto: str) -> int:
+    """Hasta dónde llegan, desde el inicio de ``texto``, las unidades citadas consecutivas
+    (la gramática de ``unidades_citadas``). 0 si no empieza con una."""
+    posicion = 0
+    while posicion < len(texto):
+        for _tipo, patron in _UNIDADES_RE:
+            m = patron.match(texto, posicion)
+            if m and m.end() > posicion:
+                posicion = m.end()
+                break
+        else:
+            break
+    return posicion
 
 
 # Unidad que PRECEDE al artículo: "párrafo tercero del artículo 1o.", "fracción II del
@@ -1626,12 +1713,17 @@ _UNIDADES_RE = (
 # 16". La cadena de unidades (unidas por "de la"/"del") debe terminar pegada a la cabeza con
 # "del"/"de la"/"de los": una unidad de otro contexto ("el 2o. párrafo de la sentencia …
 # el artículo 16") o de una ley ("fracción II de la Ley de Amparo") no se asocia.
+# Tratados (4-oct-2026): también la lista tras la palabra en plural ("los párrafos 1 y 2 del
+# artículo 8", "los numerales 1 y 2 del artículo 8", "los párrafos primero y segundo del
+# artículo 16"); antes la cadena no se reconocía y el artículo se auditaba completo.
 _UNIDAD_SUELTA = (
     rf"(?:fracci[oó]n(?:es)?\s+{_ROMANO_UNIDAD}(?:\s*(?:,\s*(?:y|e)?|y|e)\s*{_ROMANO_UNIDAD})*"
     rf"|fracc?\.\s*{_ROMANO_UNIDAD}"
     rf"|fr\.\s*{_ROMANO_UNIDAD}"
+    rf"|(?:p[aá]rrafos|numerales)\s+{_ORDINAL_PARRAFO}"
+    rf"(?:\s*(?:,\s*(?:y|e)?|y|e)\s*{_ORDINAL_PARRAFO})+"
     rf"|(?:p[aá]rrafos?|p[aá]rr\.)\s*{_ORDINAL_PARRAFO}|{_ORDINAL_PARRAFO}\s+p[aá]rrafos?"
-    r"|(?:incisos?|inc\.)\s*[a-z]\)?|(?:apartados?|ap\.)\s*(?-i:[A-Z])"
+    rf"|(?:incisos?|inc\.)\s*(?:{_LISTA_INCISOS}|[a-z]\)?)|(?:apartados?|ap\.)\s*(?-i:[A-Z])"
     rf"|in\s+fine|parte\s+final|base\s+{_ROMANO_UNIDAD}|numeral\s+\d+)(?![^\W\d_])"
 )
 _CONECTOR_UNIDAD = r"\s*,?\s*(?:de\s+la|del|de)\s+"
@@ -1659,6 +1751,13 @@ def unidades_citadas(
     """Unidades del precepto nombradas en ``texto[desde:hasta]`` justo tras el artículo
     (calificadores consecutivos; se detiene en la primera palabra que no lo es). Con
     ``conectores`` admite "de la"/"del" entre unidades (cadena previa al artículo)."""
+    return _leer_unidades(texto, desde, hasta, conectores=conectores)[0]
+
+
+def _leer_unidades(
+    texto: str, desde: int, hasta: int, *, conectores: bool = False
+) -> tuple[list[dict], int]:
+    """``unidades_citadas`` y la posición donde terminó la lectura (ronda 2)."""
     unidades: list[dict] = []
     posicion = desde
     while posicion < hasta:
@@ -1677,20 +1776,51 @@ def unidades_citadas(
         if tipo == "fraccion" and re.search(r"[\s,]", valor):
             unidades.extend({"tipo": "fraccion", "valor": v}
                             for v in re.findall(r"[IVXLC]+", valor))
+        elif tipo == "parrafo_numerado":
+            # Tratados (4-oct-2026): "párrafos 1 y 2" → un párrafo numerado por número.
+            unidades.extend({"tipo": "parrafo_numerado", "valor": str(int(v))}
+                            for v in re.findall(r"\d+", valor))
+        elif tipo == "inciso":
+            # Ronda 2: "incisos c), d) y f)" o "incisos a, b y c" → un inciso por letra.
+            letras = (re.findall(r"([a-z])\)", valor, re.IGNORECASE) if ")" in valor
+                      else re.split(r"\s*,\s*|\s+(?:y|e)\s+", valor))
+            unidades.extend({"tipo": "inciso", "valor": letra.strip().lower()}
+                            for letra in letras if letra.strip())
+        elif tipo in ("parrafo", "apartado") and re.search(r",|\s(?:y|e)\s", valor):
+            # Ronda 2: "párrafos primero y segundo", "apartados A y B" → una unidad por valor.
+            unidades.extend({"tipo": tipo, "valor": v.strip()}
+                            for v in re.split(r"\s*,\s*(?:(?:y|e)\s+)?|\s+(?:y|e)\s+", valor)
+                            if v.strip())
         else:
-            unidades.append({"tipo": tipo, "valor": valor.lower() if tipo == "inciso" else valor})
+            unidades.append({"tipo": tipo, "valor": valor})
         posicion = m.end()
-    return unidades
+    return unidades, posicion
 
 
-def _unidad_del_item(texto: str, u: _Unidad, i: int, item: _Item) -> list[dict]:
+# Ronda 2 (Codex P1, falla cerrada) — Fracciones que siguen a la fracción pegada al artículo
+# ("artículo 42, fracción I y II, del CFF": el ítem lee "fracción I" y la lista sigue).
+_SIGUEN_FRACCIONES = re.compile(rf"(?:\s*(?:,\s*(?:(?:y|e)\s+)?|\s+(?:y|e)\s+){_ROMANO_UNIDAD})+")
+# Lo único que puede quedar entre las unidades leídas y la ley ligada a la derecha.
+_RESTO_ADMITIDO = _DISTRIBUTIVOS | _DETERMINANTES | {"de", "del"}
+
+
+def _unidad_del_item(texto: str, u: _Unidad, i: int, item: _Item) -> tuple[list[dict], str]:
     """Unidad citada de un artículo: la que precede a la cabeza ("párrafo tercero del
     artículo 1o.", para los artículos del primer segmento), su fracción pegada y, para el
     último del segmento, los calificadores entre él y su ley ("artículo 107, fracción V,
-    inciso a), de la …")."""
+    inciso a), de la …").
+
+    Ronda 2 (falla cerrada): devuelve además lo que, entre las unidades leídas y la ley ligada
+    a la derecha, parece una unidad que no se extrajo ("" si nada): un número, una letra, un
+    romano o cualquier palabra que no sea "de", un determinante o "ambos/todos". La cita queda
+    entonces como cobertura incompleta, nunca auditada sin esa unidad."""
     unidades = unidades_previas(texto, u.cabeza) if u.primera else []
+    if item.parrafo:
+        # Tratados (4-oct-2026): "artículo 8.1" → párrafo numerado 1 del artículo 8.
+        unidades.append({"tipo": "parrafo_numerado", "valor": str(int(item.parrafo))})
     if item.fraccion.strip().rstrip(".,;"):
         unidades.append({"tipo": "fraccion", "valor": item.fraccion.strip().rstrip(".,;")})
+    resto = ""
     if i == len(u.items) - 1:
         if u.enlace:
             hasta = u.enlace.elementos[0].inicio
@@ -1699,8 +1829,21 @@ def _unidad_del_item(texto: str, u: _Unidad, i: int, item: _Item) -> list[dict]:
             siguiente = _CABEZA_RE.search(texto, u.fin)
             hasta = min(u.oracion[1], u.fin + 160, len(texto),
                         siguiente.start() if siguiente else len(texto))
-        unidades.extend(unidades_citadas(texto, u.fin, max(u.fin, hasta)))
-    return unidades
+        desde = u.fin
+        if item.fraccion.strip() and re.fullmatch(r"[IVXLC]+", item.fraccion.strip().rstrip(".,;")):
+            siguen = _SIGUEN_FRACCIONES.match(texto, desde, max(desde, hasta))
+            if siguen:
+                unidades.extend({"tipo": "fraccion", "valor": v}
+                                for v in re.findall(r"[IVXLC]+", siguen.group(0)))
+                desde = siguen.end()
+        leidas, fin = _leer_unidades(texto, desde, max(desde, hasta))
+        unidades.extend(leidas)
+        if u.enlace:
+            sobrante = texto[fin:hasta]
+            fichas = re.findall(r"\d+|[^\W\d_]+", sin_acentos(sobrante).lower())
+            if any(ficha not in _RESTO_ADMITIDO for ficha in fichas):
+                resto = " ".join(texto[u.fin:hasta].split()).strip(" ,;")
+    return unidades, resto
 
 
 def _referencia(
@@ -1751,15 +1894,24 @@ def extraer_articulos(texto: str, catalogo: CatalogoLeyes) -> list[dict]:
         group_raw = texto[u.cabeza:fin_grupo[u.grupo]].strip()
         for i, item in enumerate(u.items):
             r = u.por_item[i] if u.por_item else u.resolucion
-            refs.append(_referencia(
-                texto, u, item.articulo, item.fraccion, item.fin_raw, r, group_raw,
-                unidad=_unidad_del_item(texto, u, i, item),
+            unidad, resto = _unidad_del_item(texto, u, i, item)
+            if item.incompleta:
                 # Ronda 2 (falla cerrada): designación que el texto continúa sin extraerse.
-                cobertura=(
+                cobertura = (
                     f"la designación continúa en el texto ('{item.incompleta}') y no se extrajo "
                     f"completa: no se audita como el artículo {item.articulo}"
-                    if item.incompleta else None
-                ),
+                )
+            elif resto:
+                # Ronda 2 de tratados (falla cerrada): unidad citada no extraída completa.
+                cobertura = (
+                    f"la unidad citada continúa en el texto ('{resto}') y no se extrajo "
+                    f"completa: no se audita el artículo {item.articulo} sin ella"
+                )
+            else:
+                cobertura = None
+            refs.append(_referencia(
+                texto, u, item.articulo, item.fraccion, item.fin_raw, r, group_raw,
+                unidad=unidad, cobertura=cobertura,
             ))
         for a, b, total in u.excedidos:
             refs.append(_referencia(
