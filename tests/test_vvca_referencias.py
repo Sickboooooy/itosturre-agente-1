@@ -56,7 +56,25 @@ class DesignacionTests(unittest.TestCase):
         }
         for articulo, esperado in casos.items():
             with self.subTest(articulo=articulo):
+                partes = R.partes_articulo(articulo)
+                # Ronda 2 de la re-ingesta: dos campos añadidos (subnúmero y número latino).
+                self.assertEqual(tuple(partes)[:4], esperado)
+                self.assertEqual((partes.subnumero, partes.numero_latino), ("", ""))
+        # Ronda 2 (4-oct-2026): subnúmero pegado menor que el número, número tras el sufijo
+        # latino y sufijos más allá de "decies" (forma canónica).
+        for articulo, esperado in {
+            "58-1": ("58", "", "", "", "1", ""),
+            "142-0": ("142", "", "", "", "0", ""),
+            "65 Bis 1": ("65", "", "", "bis", "", "1"),
+            "76 BIS 1": ("76", "", "", "bis", "", "1"),
+            "67 Terdecies": ("67", "", "", "terdecies", "", ""),
+            "67. Quaterdecies": ("67", "", "", "quaterdecies", "", ""),
+            "5 Sexies Decies": ("5", "", "", "sexiesdecies", "", ""),
+            "63 QUINTUS": ("63", "", "", "quintus", "", ""),
+        }.items():
+            with self.subTest(articulo=articulo):
                 self.assertEqual(tuple(R.partes_articulo(articulo)), esperado)
+        self.assertIsNone(R.partes_articulo("14-16"))   # M ≥ N: rango, no designación
         self.assertIsNone(R.partes_articulo("247-250"))
         self.assertIsNone(R.partes_articulo("Único"))
         self.assertEqual(R.partes_articulo("4o.-A").base, "4o")

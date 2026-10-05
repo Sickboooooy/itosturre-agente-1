@@ -40,10 +40,27 @@ fi
 echo "🔧 Indexando en ChromaDB (puede tardar varios minutos la primera vez)..."
 # Forzar INGEST_ALLOWED_BASE al repo para que corpus/ pase el guard aunque el .env
 # local apunte a otra base. load_dotenv(override=False) respeta esta var del entorno.
+# Código 3 = MIGRACIÓN PENDIENTE (4-oct-2026): fuentes ya indexadas con otra fragmentación que
+# la ingesta omitió sin mezclar; el comando --fuente exacto quedó impreso arriba.
+MIGRACION_PENDIENTE=0
+set +e
 INGEST_ALLOWED_BASE="$REPO" "$PY" "$REPO/OpenNotebook.py" ingest --directory "$CORPUS_DIR"
+INGEST_RC=$?
+set -e
+if [ "$INGEST_RC" -eq 3 ]; then
+  MIGRACION_PENDIENTE=1
+elif [ "$INGEST_RC" -ne 0 ]; then
+  echo "❌ La ingesta falló (código $INGEST_RC)."
+  exit "$INGEST_RC"
+fi
 
 echo "✅ Verificando cobertura del corpus..."
 if "$PY" "$REPO/scripts/check_corpus.py"; then
+  if [ "$MIGRACION_PENDIENTE" -eq 1 ]; then
+    echo "⚠️  Corpus indexado con MIGRACIÓN PENDIENTE: hay fuentes con la fragmentación anterior."
+    echo "   Re-ingéstalas con el comando --fuente que imprimió la ingesta (arriba) antes de auditar."
+    exit 3
+  fi
   echo "🟢 Corpus listo. Ya puedes auditar: python OpenNotebook.py audit --file <archivo.md>"
 else
   echo "⚠️  Cobertura incompleta — revisa los faltantes arriba (¿algún PDF no bajó del Drive?)."

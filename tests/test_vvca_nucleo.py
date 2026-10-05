@@ -871,8 +871,13 @@ class ResolucionLeyTests(unittest.TestCase):
         # con el indicador ordinal equivalente ('' / 'o' / 'º'; '°' no es carácter de palabra
         # y la etiqueta de "Artículo 1°" es '1'), con su letra si la trae. Antes: '19' → ['19'],
         # '4o' → ['4o'], '1004-A' → ['1004-A'], '4o.-A' → ['4o', '4o.-A'], etc.
+        # Ronda 2 de la re-ingesta (4-oct-2026): más la variante en la caja de la ingesta
+        # (``canon_caja``) de cada candidato con forma de etiqueta ("247Bis" → "247BIS"), y el
+        # subnúmero ("58-1").
         casos = {
-            "247 Bis": ["247", "247 Bis", "247Bis", "247o", "247º"],
+            "247 Bis": ["247", "247 Bis", "247BIS", "247Bis", "247o", "247º"],
+            "58-1": ["58", "58-1", "58o", "58º"],
+            "29-a": ["29", "29-A", "29-a", "29A", "29o", "29o-A", "29oA", "29º", "29º-A", "29ºA"],
             "1004-A": ["1004", "1004-A", "1004A", "1004o", "1004o-A", "1004oA", "1004º",
                        "1004º-A", "1004ºA"],
             "19": ["19", "19o", "19º"],
@@ -882,8 +887,8 @@ class ResolucionLeyTests(unittest.TestCase):
             # Etiquetas del chunker para designaciones con sufijo (número base incluido).
             "4o.-A": ["4", "4-A", "4A", "4o", "4o-A", "4o.-A", "4oA", "4º", "4º-A", "4ºA"],
             "2o. Bis": ["2", "2o", "2o. Bis", "2o.Bis", "2º"],
-            "32-B Quáter": ["32", "32-B", "32-B Quáter", "32-BQuáter", "32B", "32o", "32o-B",
-                            "32oB", "32º", "32º-B", "32ºB"],
+            "32-B Quáter": ["32", "32-B", "32-B Quáter", "32-BQUÁTER", "32-BQuáter", "32B", "32o",
+                            "32o-B", "32oB", "32º", "32º-B", "32ºB"],
             # El femenino no se usa en la numeración de artículos: solo consigo mismo.
             "1a": ["1a", "1ª"],
             "1°": ["1", "1o", "1°", "1º"],

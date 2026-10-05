@@ -21,6 +21,10 @@ no debe convertirse en silencio en un camino de respaldo. Las entradas que Chrom
 también rechaza (``$and`` con una sola expresión, ``n_results`` no positivo) lanzan
 ``ValueError``, como ChromaDB.
 
+``ColeccionEscribible`` (re-ingesta por fuente, 4-oct-2026) añade ``add``, ``delete`` y ``get``
+por ``ids`` con ``embeddings``, más estricta que ChromaDB (un ID existente en ``add`` falla) y
+con un fallo de escritura inyectable; ``FakeCollection`` sigue sin emular escrituras.
+
 ``CodificadorFalso`` asigna a cada consulta registrada un eje propio; la colección coloca
 cada fragmento a la distancia coseno que fija la prueba respecto de ese eje (y a 1.0 de
 cualquier otro). Una consulta no registrada también lanza ``UsoNoEmulado``: la prueba
@@ -300,3 +304,107 @@ class FakeCollection:
         if nombre.startswith("__"):
             raise AttributeError(nombre)
         raise UsoNoEmulado(f"FakeCollection no emula '{nombre}'")
+
+
+class ColeccionEscribible(FakeCollection):
+    """``FakeCollection`` con la escritura que usa la re-ingesta por fuente (4-oct-2026):
+    ``add(ids=, documents=, metadatas=, embeddings=)``, ``delete(where=)`` / ``delete(ids=)`` y
+    ``get`` también por ``ids`` y con ``include=["embeddings"]``.
+
+    Más estricta que ChromaDB a propósito: ``add`` con un ID que ya existe (o repetido en el
+    lote) lanza ``ValueError`` —ChromaDB lo omite con un aviso, que es justo como la ingesta de
+    antes mezclaba fragmentos viejos y nuevos—, y ``add`` sin ``embeddings`` es un uso no
+    emulado (la re-ingesta los calcula antes de tocar el índice). ``fallar_add_en=n`` hace
+    fallar la n-ésima llamada a ``add`` (1 = la primera) para ejercer la restauración; las
+    filas de ese lote no se agregan.
+    """
+
+    def __init__(self, *, fallar_add_en: int | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.fallar_add_en = fallar_add_en
+        self._adds = 0
+
+    def agregar_fila(self, identificador: str, documento: str, metadata: dict[str, Any],
+                     embedding: list[float] | None = None) -> None:
+        """Preparación: fila con ID propio (la forma que guarda la ingesta)."""
+        if any(fila["id"] == identificador for fila in self._filas):
+            raise ValueError(f"ID repetido en la preparación: {identificador}")
+        self._filas.append({
+            "id": identificador, "document": documento, "metadata": dict(metadata),
+            "embedding": list(embedding) if embedding is not None else _vector_sin_afinidad(),
+        })
+
+    def filas(self) -> list[tuple[str, str, dict[str, Any], list[float]]]:
+        """Estado completo (para comparar antes/después en las pruebas)."""
+        return [
+            (f["id"], f["document"], copy.deepcopy(f["metadata"]), list(f["embedding"]))
+            for f in self._filas
+        ]
+
+    def get(
+        self,
+        *,
+        ids: list[str] | None = None,
+        where: dict | None = None,
+        limit: int | None = None,
+        include: list[str] | None = None,
+    ) -> dict[str, Any]:
+        self.llamadas.append(
+            ("get", {"ids": ids, "where": where, "limit": limit, "include": include})
+        )
+        incluidos = _validar_include(include, _INCLUDE_GET | {"embeddings"}, _INCLUDE_GET)
+        _validar_where(where)
+        filas = [fila for fila in self._filas if _cumple(fila["metadata"], where)]
+        if ids is not None:
+            pedidos = set(ids)
+            filas = [fila for fila in filas if fila["id"] in pedidos]
+        if limit is not None:
+            filas = filas[:limit]
+        return {
+            "ids": [fila["id"] for fila in filas],
+            "embeddings": (
+                [list(fila["embedding"]) for fila in filas] if "embeddings" in incluidos else None
+            ),
+            "documents": [fila["document"] for fila in filas] if "documents" in incluidos else None,
+            "metadatas": (
+                [copy.deepcopy(fila["metadata"]) for fila in filas]
+                if "metadatas" in incluidos else None
+            ),
+            "include": sorted(incluidos),
+        }
+
+    def add(
+        self,
+        *,
+        ids: list[str],
+        documents: list[str],
+        metadatas: list[dict[str, Any]],
+        embeddings: list[list[float]] | None = None,
+    ) -> None:
+        self.llamadas.append(("add", {"ids": list(ids)}))
+        self._adds += 1
+        if self.fallar_add_en is not None and self._adds == self.fallar_add_en:
+            raise RuntimeError("fallo de escritura (simulación de la prueba)")
+        if embeddings is None:
+            raise UsoNoEmulado("add sin embeddings")
+        if not (len(ids) == len(documents) == len(metadatas) == len(embeddings)):
+            raise ValueError("add con listas de longitudes distintas")
+        existentes = {fila["id"] for fila in self._filas}
+        if len(set(ids)) != len(ids) or existentes & set(ids):
+            raise ValueError(f"add con IDs existentes o repetidos: {sorted(existentes & set(ids))}")
+        for identificador, documento, metadata, vector in zip(ids, documents, metadatas, embeddings):
+            self._filas.append({
+                "id": identificador, "document": documento, "metadata": dict(metadata),
+                "embedding": [float(x) for x in vector],
+            })
+
+    def delete(self, *, ids: list[str] | None = None, where: dict | None = None) -> None:
+        self.llamadas.append(("delete", {"ids": ids, "where": where}))
+        if ids is None and where is None:
+            raise ValueError("delete exige ids o where")
+        _validar_where(where)
+        pedidos = set(ids) if ids is not None else None
+        self._filas = [
+            fila for fila in self._filas
+            if not (_cumple(fila["metadata"], where) and (pedidos is None or fila["id"] in pedidos))
+        ]
