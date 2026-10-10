@@ -457,7 +457,8 @@ def _sin_blancos(texto: str) -> str:
 
 
 def verificar_identidad(
-    indexados: Sequence[str], texto_nuevo: str, *, fin_de_linea: bool = False
+    indexados: Sequence[str], texto_nuevo: str, *, fin_de_linea: bool = False,
+    titulo_confirmado: bool = False,
 ) -> dict[str, Any]:
     """¿El PDF nuevo es el MISMO documento que la fuente indexada? ``indexados``: textos de los
     fragmentos indexados de esa fuente en orden de ``chunk_index``; ``texto_nuevo``: páginas
@@ -471,7 +472,13 @@ def verificar_identidad(
       aparece en el PDF).
 
     Devuelve ``coincide``, ``motivo`` ("" si coincide), ``criterio``, ``solapamiento`` y los
-    títulos. Sin fragmentos indexados no hay nada que comparar: coincide (fuente nueva)."""
+    títulos. Sin fragmentos indexados no hay nada que comparar: coincide (fuente nueva).
+
+    ``titulo_confirmado`` (orden del responsable, 10-oct-2026): el operador confirma que es el
+    mismo ordenamiento aunque la primera línea difiera (el PDF oficial del Congreso de Jalisco
+    antepone el preámbulo del decreto al título). Solo omite la comparación del título; el
+    contenido decide con el mismo umbral, y el resultado lo registra (``titulo_confirmado``).
+    Con el mismo título la confirmación no se usa."""
     if not indexados:
         return {"coincide": True, "motivo": "", "criterio": "fuente_nueva", "solapamiento": None,
                 "titulo_indexado": "", "titulo_nuevo": _titulo(texto_nuevo)}
@@ -479,13 +486,16 @@ def verificar_identidad(
     salida: dict[str, Any] = {
         "titulo_indexado": _titulo(limpios[0]), "titulo_nuevo": _titulo(texto_nuevo),
     }
-    if salida["titulo_indexado"] != salida["titulo_nuevo"]:
+    confirmado = salida["titulo_indexado"] != salida["titulo_nuevo"]
+    if confirmado and not titulo_confirmado:
         return {**salida, "coincide": False, "criterio": "titulo", "solapamiento": None,
                 "motivo": (
                     f"el título de la primera página no coincide con el indexado "
                     f"('{salida['titulo_nuevo'][:80]}' frente a "
                     f"'{salida['titulo_indexado'][:80]}')"
                 )}
+    if confirmado:
+        salida["titulo_confirmado"] = True
     previas = _claves_designacion("\n\n".join(limpios), fin_de_linea)
     if len(previas) >= MIN_DESIGNACIONES_IDENTIDAD:
         comunes = len(previas & _claves_designacion(texto_nuevo, fin_de_linea))

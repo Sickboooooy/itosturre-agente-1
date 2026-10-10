@@ -13,6 +13,13 @@ itosturre/audit/vigencia.py):
      los pasajes cercanos son contexto (⚪), nunca 🟢 por parecido ni 🔴 por poco parecido
      (antes: "art. 750 LA" 🟢 87 con el art. 5o; un derogado 🟢 100 «literal»).
 
+Cambios identidad confirmada (orden del responsable, 10-oct-2026):
+  ✅ ``ingest --fuente X.pdf --identidad-confirmada X.pdf``: el operador confirma que X es el
+     mismo ordenamiento aunque el título de su primera página difiera del indexado (los PDF
+     oficiales del Congreso de Jalisco anteponen el preámbulo del decreto). Solo se omite la
+     comparación del título; el contenido decide con el mismo umbral (90 % de designaciones) y
+     el informe registra ambos títulos. Sin su --fuente, la opción se rechaza.
+
 Cambios re-ingesta por fuente (orden del responsable jurídico, 4-oct-2026):
   ✅ Corte y etiqueta de "ley" como funciones puras (itosturre/audit/fragmentacion.py) con la
      misma definición de encabezado AUTÉNTICO que la auditoría (evidence._es_autentico): cortan
@@ -1286,6 +1293,7 @@ def reingestar_fuentes(
     extraer: Optional[Callable[[Path], list]] = None,
     subdividir: Optional[Callable[[str], List[str]]] = None,
     respaldos_dir: Optional[str] = None,
+    identidad_confirmada: Sequence[str] = (),
 ) -> List[Dict]:
     """Re-ingesta (o, con ``simular``, simulación) de las ``fuentes`` nombradas de
     ``directory``: borra SOLO sus fragmentos y los sustituye por los del cortador actual, con
@@ -1300,9 +1308,18 @@ def reingestar_fuentes(
 
     Costuras (para pruebas sin dependencias): ``collection`` (``get``, ``delete``, ``add``),
     ``codificar`` (textos → vectores "passage: "), ``extraer`` (ruta → páginas),
-    ``subdividir`` (divisor de respaldo) y ``respaldos_dir``."""
+    ``subdividir`` (divisor de respaldo) y ``respaldos_dir``.
+
+    ``identidad_confirmada`` (``--identidad-confirmada``; orden del responsable, 10-oct-2026):
+    fuentes, entre las nombradas, cuyo título de primera página el operador confirma aunque
+    difiera del indexado. La identidad de esas fuentes la decide solo el contenido, con el
+    mismo umbral (``verificar_identidad(titulo_confirmado=True)``); el informe lo registra."""
     pdf_dir = _directorio_de_ingesta(directory)
     rutas = _validar_fuentes(pdf_dir, fuentes)
+    sobrantes = sorted(set(identidad_confirmada) - set(fuentes))
+    if sobrantes:
+        raise ValueError(f"--identidad-confirmada sin su --fuente: {', '.join(sobrantes)}")
+    confirmadas = set(identidad_confirmada)
     respaldos = None if simular else _directorio_respaldos(respaldos_dir)
 
     if collection is None:
@@ -1336,7 +1353,8 @@ def reingestar_fuentes(
             where={"source": ruta.name}, include=["documents", "metadatas"]
         ))
         identidad = verificar_identidad([doc for _, doc, _ in previos], fragmentacion.texto,
-                                        fin_de_linea=tratado)
+                                        fin_de_linea=tratado,
+                                        titulo_confirmado=ruta.name in confirmadas)
         extraccion = paginas_incompletas(paginas)
         ajenos = _ids_ajenos(collection, ruta.name, ids)
         rechazo = []
@@ -1466,7 +1484,11 @@ def formato_informe_reingesta(informes: List[Dict]) -> str:
             f"   etiquetas perdidas: {inf['etiquetas_perdidas']}"
             + (f" ({', '.join(inf['muestra_perdidas'][:20])}…)" if inf["muestra_perdidas"] else ""),
             f"   identidad        : {'✅' if identidad.get('coincide') else '❌'} "
-            f"({identidad.get('criterio')}; solapamiento {identidad.get('solapamiento')})",
+            f"({identidad.get('criterio')}; solapamiento {identidad.get('solapamiento')}"
+            + (f"; título confirmado por el operador: '{identidad.get('titulo_nuevo', '')[:80]}' "
+               f"frente a '{identidad.get('titulo_indexado', '')[:80]}'"
+               if identidad.get("titulo_confirmado") else "")
+            + ")",
         ]
         if a["no_ubicados"]:
             lineas.append(
@@ -4186,6 +4208,13 @@ Ejemplos:
         help="Con --fuente: emitir también el informe en JSON"
     )
     ingest_parser.add_argument(
+        "--identidad-confirmada", action="append", metavar="ARCHIVO.pdf",
+        help="Con --fuente ARCHIVO.pdf: el operador confirma que es el mismo ordenamiento aunque "
+             "el título de la primera página difiera del indexado (p. ej. el PDF oficial antepone "
+             "el preámbulo del decreto); la identidad la decide solo el contenido, con el mismo "
+             "umbral (repetible)"
+    )
+    ingest_parser.add_argument(
         "--respaldos", metavar="CARPETA",
         help="Con --fuente/--restaurar: carpeta de los respaldos durables de cada fuente (fuera "
              "del repositorio y del índice; por omisión $ITOSTURRE_RESPALDOS_REINGESTA o "
@@ -4340,8 +4369,10 @@ Ejemplos:
         if not args.restaurar and not args.directory:
             parser.error("ingest exige --directory (salvo con --restaurar)")
         if args.restaurar:
-            if args.fuente or args.simular or args.clear or args.reingest:
-                parser.error("--restaurar no se combina con --fuente, --simular, --clear ni --reingest")
+            if (args.fuente or args.simular or args.clear or args.reingest
+                    or args.identidad_confirmada):
+                parser.error("--restaurar no se combina con --fuente, --simular, --clear, "
+                             "--reingest ni --identidad-confirmada")
             try:
                 resultado = restaurar_respaldo(args.restaurar, respaldos_dir=args.respaldos)
             except ValueError as exc:
@@ -4352,8 +4383,9 @@ Ejemplos:
                 sys.exit(1)
             print(f"✅ {resultado['fuente']}: {resultado['fragmentos']} fragmentos restaurados; "
                   f"estado anterior respaldado en {resultado['respaldo_previo']}")
-        elif args.fuente or args.simular or args.json:
+        elif args.fuente or args.simular or args.json or args.identidad_confirmada:
             # Re-ingesta por fuente (4-oct-2026): nunca junto con los borrados de la colección.
+            # --identidad-confirmada sin --fuente no puede caer en la ingesta de siempre.
             if args.clear or args.reingest:
                 parser.error(
                     "--fuente/--simular no se combinan con --clear ni --reingest "
@@ -4361,11 +4393,14 @@ Ejemplos:
                 )
             if not args.fuente:
                 parser.error(
-                    "--simular y --json exigen al menos una --fuente (nombre exacto del PDF)"
+                    "--simular, --json e --identidad-confirmada exigen al menos una --fuente "
+                    "(nombre exacto del PDF)"
                 )
+            opciones = {"identidad_confirmada": args.identidad_confirmada} \
+                if args.identidad_confirmada else {}
             try:
                 informes = reingestar_fuentes(args.directory, args.fuente, simular=args.simular,
-                                              respaldos_dir=args.respaldos)
+                                              respaldos_dir=args.respaldos, **opciones)
             except ValueError as exc:
                 print(f"❌ {exc}", file=sys.stderr)
                 sys.exit(2)

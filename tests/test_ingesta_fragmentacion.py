@@ -638,6 +638,60 @@ class SeguridadReingestaTests(ReingestaBase):
         self.assertEqual(verificar_identidad(["LEY X\nUno.", "Dos."], "LEY X\nUno.\nDos.")["criterio"],
                          "texto")
 
+    def test_titulo_confirmado_solo_omite_el_titulo(self) -> None:
+        # Identidad confirmada por el operador (10-oct-2026): el PDF oficial antepone el
+        # preámbulo del decreto y la primera línea ya no es el título; decide el contenido.
+        cuerpo = "LEY SINTÉTICA C\n" + "".join(f"Artículo {n}.- Texto sintético.\n" for n in range(1, 21))
+        preambulo = "Al margen un sello sintético del decreto.\n" + cuerpo
+        self.assertEqual(verificar_identidad([cuerpo], preambulo)["criterio"], "titulo")
+        confirmada = verificar_identidad([cuerpo], preambulo, titulo_confirmado=True)
+        self.assertEqual(
+            (confirmada["coincide"], confirmada["criterio"], confirmada["solapamiento"],
+             confirmada["titulo_confirmado"]),
+            (True, "designaciones", 1.0, True))
+        self.assertEqual((confirmada["titulo_indexado"], confirmada["titulo_nuevo"]),
+                         ("ley sintetica c", "al margen un sello sintetico del decreto"))
+        # El umbral no se relaja: 15 de 20 designaciones no bastan aunque haya confirmación.
+        corto = "Al margen un sello sintético.\n" + "".join(
+            f"Artículo {n}.- Texto.\n" for n in range(1, 16))
+        distinto = verificar_identidad([cuerpo], corto, titulo_confirmado=True)
+        self.assertEqual((distinto["coincide"], distinto["solapamiento"]), (False, 0.75))
+        self.assertIn("15 de 20 designaciones", distinto["motivo"])
+        # Con el mismo título la confirmación no se usa ni se registra.
+        mismo = verificar_identidad([cuerpo], cuerpo, titulo_confirmado=True)
+        self.assertTrue(mismo["coincide"])
+        self.assertNotIn("titulo_confirmado", mismo)
+
+    def test_identidad_confirmada_por_fuente(self) -> None:
+        con_preambulo = [
+            {"page": 1, "text": "Al margen un sello sintético del decreto.\n"
+                                + PAGINAS[LEY_A][0]["text"]},
+        ] + PAGINAS[LEY_A][1:]
+        with self.assertRaisesRegex(ON.ReingestaRechazada, "otro documento: el título"):
+            self.reingestar([LEY_A], extraer=lambda _ruta: con_preambulo)
+        self.assertEqual(self.escrituras(), [])
+        # La confirmación tiene que nombrar una de las fuentes a re-ingestar.
+        with self.assertRaisesRegex(ValueError, "sin su --fuente"):
+            self.reingestar([LEY_A], extraer=lambda _ruta: con_preambulo,
+                            identidad_confirmada=[LEY_B])
+        # Contenido incompleto: se rechaza aunque el operador confirme la identidad.
+        with self.assertRaisesRegex(ON.ReingestaRechazada, "otro documento: solo"):
+            self.reingestar([LEY_A], extraer=lambda _ruta: con_preambulo[:1],
+                            identidad_confirmada=[LEY_A])
+        self.assertEqual(self.escrituras(), [])
+        (informe,) = self.reingestar([LEY_A], extraer=lambda _ruta: con_preambulo,
+                                     identidad_confirmada=[LEY_A])
+        identidad = informe["identidad"]
+        self.assertEqual(
+            (identidad["coincide"], identidad["criterio"], identidad["solapamiento"],
+             identidad["titulo_confirmado"]),
+            (True, "texto", 1.0, True))
+        self.assertEqual(informe["rechazo"], [])
+        self.assertTrue(self.escrituras())
+        texto = ON.formato_informe_reingesta([informe])
+        self.assertIn("título confirmado por el operador: 'al margen un sello sintetico del "
+                      "decreto' frente a 'ley sintetica a'", texto)
+
     # ── (b) extracción completa ─────────────────────────────────────────────────────────
     def test_extraccion_incompleta_antes_de_la_frontera(self) -> None:
         completa = PAGINAS[LEY_A]
@@ -817,6 +871,29 @@ class CliTests(ReingestaBase):
         ingestar.assert_not_called()
         self.assertIn("INFORME", salida)
         self.assertEqual(json.loads(salida[salida.index("["):]), [informe])
+
+    def test_identidad_confirmada_va_con_su_fuente(self) -> None:
+        with mock.patch.object(ON, "reingestar_fuentes", return_value=[{"fuente": LEY_A}]) as reingestar, \
+                mock.patch.object(ON, "formato_informe_reingesta", return_value="INFORME"), \
+                mock.patch.object(ON, "ingest") as ingestar:
+            codigo, _, _ = self._main("--fuente", LEY_A, "--identidad-confirmada", LEY_A)
+        self.assertEqual(codigo, 0)
+        reingestar.assert_called_once_with(str(self.carpeta), [LEY_A], simular=False,
+                                           respaldos_dir=None, identidad_confirmada=[LEY_A])
+        ingestar.assert_not_called()
+        # Sin --fuente (o con --restaurar) nunca cae en la ingesta de siempre ni restaura.
+        for argumentos, directorio in ((("--identidad-confirmada", LEY_A), True),
+                                       (("--restaurar", "r.json", "--identidad-confirmada", LEY_A),
+                                        False)):
+            with self.subTest(argumentos=argumentos), \
+                    mock.patch.object(ON, "reingestar_fuentes") as reingestar, \
+                    mock.patch.object(ON, "restaurar_respaldo") as restaurar, \
+                    mock.patch.object(ON, "ingest") as ingestar:
+                codigo, _, errores = self._main(*argumentos, directorio=directorio)
+                self.assertEqual(codigo, 2)
+                reingestar.assert_not_called()
+                restaurar.assert_not_called()
+                ingestar.assert_not_called()
 
     def test_errores_de_validacion_y_de_reingesta(self) -> None:
         for error, codigo_esperado in ((ValueError("fuente inválida"), 2),

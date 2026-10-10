@@ -126,7 +126,11 @@ Qué hace la re-ingesta por fuente (`reingestar_fuentes` en `OpenNotebook.py`), 
    última); **identidad** con lo indexado de esa misma fuente, sin depender del catálogo
    (mismo título en la primera página y ≥ 90 % de las designaciones de artículo indexadas
    presentes en el PDF; con menos de 10, ≥ 90 % de los fragmentos indexados presentes en su
-   texto); ningún ID nuevo ocupado por **otra** fuente.
+   texto); ningún ID nuevo ocupado por **otra** fuente. Si el título difiere solo por el
+   formato del PDF (los oficiales del Congreso de Jalisco anteponen el preámbulo del decreto) y
+   el operador confirma que es el mismo ordenamiento, `--identidad-confirmada "<pdf>"` (junto a
+   su `--fuente`) omite solo la comparación del título: decide el contenido, con el mismo
+   umbral, y el informe registra los dos títulos (desde el 10-oct-2026).
 2. **Por fuente:** calcula los vectores antes de escribir; escribe un **respaldo durable** de
    los fragmentos actuales (ids, documentos, metadatos y vectores float32, con su huella
    SHA-256) en `--respaldos`, `$ITOSTURRE_RESPALDOS_REINGESTA` o
