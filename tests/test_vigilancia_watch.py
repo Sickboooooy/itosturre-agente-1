@@ -16,6 +16,7 @@ sat.gob.mx, sjf2.scjn.gob.mx ni la API de Anthropic):
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -95,47 +96,86 @@ class RedDofSat:
         return FakeResponse(text=HTML_SIN_HALLAZGO)
 
 
-FICHA_SJF = {
-    "rubro": "CANCELACIÓN DE CSD. CRITERIO DE PRUEBA.",
-    "claveTesis": "PR.A.C.CN. 1 A (12a.)",
+FECHA_NUEVA = vjur.TODAY.isoformat()   # dentro de la ventana de la semana
+FECHA_VIEJA = "2024-03-01"             # contexto: fuera de la ventana
+
+
+def doc_sjf(ius: int, fecha: str = FECHA_NUEVA, *, ta_tj: int = 1,
+            rubro: str = "CRITERIO FICTICIO DE PRUEBA SOBRE CANCELACIÓN DE CERTIFICADOS DE SELLO DIGITAL.",
+            sala: str = "SEGUNDA SALA") -> dict:
+    """Documento con la forma real de la respuesta de POST /tesis (observada el
+    10-oct-2026: 37 claves, sin texto completo, 'sala' con el nombre del órgano y
+    'tipoTesis' como código). Los valores son ficticios."""
+    return {
+        "claveTesis": f"2a./J. {ius % 1000}/2026 (12a.)", "concordancia": None, "ejecutorias": [],
+        "epoca": None, "epocaAbr": "12a. Época", "fechaPublicacion": f"{fecha}T10:27:00Z",
+        "fuente": "Semanario Judicial de la Federación", "genenalogia": None, "id": str(ius),
+        "instancia": None, "instanciaAbr": "2a. Sala", "ius": ius,
+        "localizacion": f"[{'J' if ta_tj else 'TA'}]; 12a. Época; 2a. Sala; Semanario Judicial de la Federación",
+        "rubro": rubro, "sInstancia": None, "sala": sala, "semanal": 1, "ta_tj": ta_tj, "texto": None,
+        "textoPublicacion": "Esta tesis se publicó en el Semanario Judicial de la Federación (texto ficticio).",
+        "tipoJurisprudencia": 0, "tipoTesis": "0",
+    }
+
+
+DETALLE_SJF = {
+    "rubro": "CRITERIO FICTICIO DE PRUEBA SOBRE CANCELACIÓN DE CERTIFICADOS DE SELLO DIGITAL.",
+    "claveTesis": "2a./J. 1/2026 (12a.)",
     "ta_tj": 1,
     "tipoTesis": "Jurisprudencia",
     "formasIntegracion": [{"formaIntegracion": "Reiteración de criterios"}],
-    "fechaPublicacion": "2026-09-05",
+    "fechaPublicacion": f"{FECHA_NUEVA}T10:27:00Z",
     "epoca": "Duodécima Época",
-    "sala": "1",
-    "instancia": "Primera Sala",
+    "sala": "2",
+    "instancia": "Segunda Sala",
+    "texto": "TEXTO COMPLETO FICTICIO DEL CRITERIO.",
 }
 
 
 class RedSjf:
     """Doble de requests.request para el microservicio del SJF.
 
-    busqueda: 'hallazgo' | 'vacia' | 'bloqueado'; detalle: 'ok' | '500' |
-    'incapsula' (desafío anti-bots en HTML, como el observado el 10-oct-2026);
-    temas_caidos: expresiones cuya búsqueda responde HTTP 500."""
+    busqueda: 'hallazgo' (una tesis nueva y una de contexto) | 'historico' (solo
+    contexto) | 'vacia' (la expresión no tiene resultados en el SJF) | 'bloqueado';
+    detalle: 'ok' | '500' | 'incapsula' (desafío anti-bots en HTML, como el
+    observado el 10-oct-2026); temas_caidos: expresiones cuya búsqueda responde
+    HTTP 500. Cuenta las peticiones (total, POST y GET) y guarda las URL."""
 
-    def __init__(self, busqueda="hallazgo", detalle="ok", temas_caidos=()):
+    def __init__(self, busqueda="hallazgo", detalle="ok", temas_caidos=(), docs=None):
         self.busqueda = busqueda
         self.detalle = detalle
         self.temas_caidos = set(temas_caidos)
-        self.llamadas = 0
+        self.docs = docs
+        self.llamadas = self.posts = self.gets = 0
+        self.urls: list[str] = []
+
+    def documentos(self) -> list[dict]:
+        if self.docs is not None:
+            return self.docs
+        return {
+            "hallazgo": [doc_sjf(2099001), doc_sjf(2088001, FECHA_VIEJA, ta_tj=0)],
+            "historico": [doc_sjf(2088001, FECHA_VIEJA, ta_tj=0)],
+            "vacia": [],
+        }[self.busqueda]
 
     def __call__(self, method, url, headers=None, timeout=None, json=None, **kw):
         self.llamadas += 1
+        self.urls.append(url)
         if self.busqueda == "bloqueado":
             raise requests.exceptions.ProxyError("gateway answered 403 to CONNECT sjf2.scjn.gob.mx:443")
         if method == "POST":
+            self.posts += 1
             if json["searchTerms"][0]["expression"] in self.temas_caidos:
                 return FakeResponse(status_code=500, text="error interno")
-            docs = [{"ius": "2028888"}] if self.busqueda == "hallazgo" else []
-            return FakeResponse(json_data={"documents": docs})
+            docs = self.documentos()
+            return FakeResponse(json_data={"documents": docs, "total": len(docs), "totalPage": len(docs)})
         if method == "GET":
+            self.gets += 1
             if self.detalle == "500":
                 return FakeResponse(status_code=500, text="error interno")
             if self.detalle == "incapsula":
                 return FakeResponse(text=HTML_INCAPSULA, headers={"content-type": "text/html"})
-            return FakeResponse(json_data=FICHA_SJF)
+            return FakeResponse(json_data=DETALLE_SJF)
         raise AssertionError(f"método inesperado: {method}")
 
 
@@ -237,6 +277,12 @@ class TestCasoA_TodasDisponibles(_AislaSalidaMixin, unittest.TestCase):
         contrato_jur = c.leer_sidecar(vjur.OUTPUT_FILE.with_suffix(".json"))
         self.assertTrue(all(v["status"] == c.SUCCESS and v["items"] for v in contrato_jur.values()))
         self.assertEqual(self._estado(vjur.OUTPUT_FILE)["estado"], r.OK)
+        nueva = next(f for f in contrato_jur[vjur.TEMAS[0]["label"]]["items"] if f["ius"] == 2099001)
+        self.assertTrue(nueva["novedad"])
+        self.assertEqual(nueva["texto"], "TEXTO COMPLETO FICTICIO DEL CRITERIO.")   # detalle
+        self.assertEqual(nueva["tipo_clasificado"], "Jurisprudencia obligatoria")
+        self.assertTrue(nueva["hash_sha256_detalle"])
+        self.assertTrue(all(d["novedad"] for d in contrato_vig["DOF"]["items"]))
 
         self.assertEqual(vli.main(), r.EXIT_OK)
         self.assertIn("hallazgos válidos", vli.OUTPUT_FILE.read_text(encoding="utf-8"))
@@ -293,15 +339,17 @@ class TestCasoC_SjfCaido(_AislaSalidaMixin, unittest.TestCase):
             self.assertEqual(tema["status"], c.SOURCE_UNAVAILABLE)
             self.assertFalse(tema["retryable"])
 
-    def test_detalle_caido_no_cuenta_como_criterio(self):
-        """La búsqueda responde con IUS pero ninguna ficha se puede leer: no hay
-        criterio verificado — el tema no es 'SUCCESS con hallazgos'."""
-        self.assertEqual(self._correr_sjf(RedSjf(detalle="500")), r.EXIT_FUENTE_INACCESIBLE)
-        self.assertFalse(vjur.OUTPUT_FILE.exists())
-        for tema in self._estado(vjur.OUTPUT_FILE)["temas"].values():
-            self.assertEqual(tema["status"], c.SOURCE_UNAVAILABLE)
-            self.assertTrue(tema["retryable"], "un HTTP 500 del detalle puede ser transitorio")
-            self.assertTrue(any("2028888" in e for e in tema["errors"]))
+    def test_detalle_caido_no_tumba_las_fichas_de_la_busqueda(self):
+        """El detalle solo aporta el texto completo: si falla, las fichas armadas
+        con la búsqueda (que sí respondió) siguen siendo hallazgos verificados."""
+        self.assertEqual(self._correr_sjf(RedSjf(detalle="500")), r.EXIT_OK)
+        estado = self._estado(vjur.OUTPUT_FILE)
+        self.assertEqual(estado["estado"], r.OK)
+        self.assertIn("HTTP 500", estado["detalle"])
+        contrato = c.leer_sidecar(vjur.OUTPUT_FILE.with_suffix(".json"))
+        for tema in contrato.values():
+            self.assertEqual(tema["status"], c.SUCCESS)
+            self.assertEqual({f["ius"] for f in tema["items"]}, {2099001, 2088001})
 
 
 class TestCasoC2_UnTemaCaido(_AislaSalidaMixin, unittest.TestCase):
@@ -341,13 +389,14 @@ class TestCasoD2_FuentesOkSinHallazgos(_AislaSalidaMixin, unittest.TestCase):
         """Distinto de una fuente caída: las fuentes SÍ respondieron, solo que no
         había nada noticiable — tampoco se escribe un post."""
         self.assertEqual(self._correr_dof(RedDofSat(dof="vacio", sat="vacio")), r.EXIT_OK)
-        self.assertEqual(self._correr_sjf(RedSjf(busqueda="vacia")), r.EXIT_OK)
+        self.assertEqual(self._correr_sjf(RedSjf(busqueda="historico")), r.EXIT_OK)
         self.assertEqual(self._estado(vdof.OUTPUT_FILE)["estado"], r.OK)
 
         informe = vjur.OUTPUT_FILE.read_text(encoding="utf-8")
         for tema in vjur.TEMAS:
             seccion = informe.split(f"## {tema['label']}")[1].split("\n## ")[0]
-            self.assertIn("Sin criterios", seccion)
+            self.assertIn("Sin criterios publicados en la ventana", seccion)
+            self.assertIn("### Contexto (fuera de ventana)", seccion)   # lo histórico no es novedad
 
         self.assertEqual(vli.main(), r.EXIT_SIN_INSUMOS)
         self.assertFalse(vli.OUTPUT_FILE.exists())
@@ -463,27 +512,19 @@ class TestHallazgosDeLaCorridaReal(_AislaSalidaMixin, unittest.TestCase):
             "https://www.sat.gob.mx/articulo/87284/regla-miscelanea",
         ])
 
-    def test_detalle_tras_anti_bots_se_diagnostica_y_no_cuenta(self):
-        self.assertEqual(self._correr_sjf(RedSjf(detalle="incapsula")), r.EXIT_FUENTE_INACCESIBLE)
-        self.assertFalse(vjur.OUTPUT_FILE.exists())
-        for tema in self._estado(vjur.OUTPUT_FILE)["temas"].values():
-            self.assertEqual(tema["status"], c.SOURCE_UNAVAILABLE)
-            self.assertFalse(tema["retryable"], "reintentar por HTTP no resuelve el anti-bots")
-            self.assertTrue(all("Incapsula" in e for e in tema["errors"]), tema["errors"])
-
-    def test_el_mismo_diagnostico_se_agrupa_por_causa(self):
-        temas = {"ius": ["101", "102", "103"]}
-
-        class _Red(RedSjf):
-            def __call__(self, method, url, headers=None, timeout=None, json=None, **kw):
-                if method == "POST":
-                    return FakeResponse(json_data={"documents": [{"ius": i} for i in temas["ius"]]})
-                return FakeResponse(text=HTML_INCAPSULA, headers={"content-type": "text/html"})
-
-        self._correr_sjf(_Red())
-        errores = next(iter(self._estado(vjur.OUTPUT_FILE)["temas"].values()))["errors"]
-        self.assertEqual(len(errores), 1, errores)
-        self.assertIn("101, 102, 103", errores[0])
+    def test_anti_bots_del_detalle_corta_tras_el_primer_intento(self):
+        """El detalle respondió con el desafío anti-bots: un solo intento por
+        corrida (no se insiste ni se evade) y las fichas quedan con la búsqueda."""
+        nuevas = [doc_sjf(2099001 + i) for i in range(4)]
+        red = RedSjf(detalle="incapsula", docs=nuevas)
+        self.assertEqual(self._correr_sjf(red), r.EXIT_OK)
+        self.assertEqual(red.gets, 1)
+        estado = self._estado(vjur.OUTPUT_FILE)
+        self.assertEqual(estado["estado"], r.OK)
+        self.assertIn("Incapsula", estado["detalle"])
+        informe = vjur.OUTPUT_FILE.read_text(encoding="utf-8")
+        self.assertIn("Texto completo no disponible", informe)
+        self.assertIn("2099003", informe)
 
     def test_respuesta_no_json_sin_anti_bots_dice_que_llego(self):
         with mock.patch.object(vjur.requests, "request",
@@ -493,6 +534,111 @@ class TestHallazgosDeLaCorridaReal(_AislaSalidaMixin, unittest.TestCase):
         self.assertIn("no JSON", ficha["_error"])
         self.assertIn("text/html", ficha["_error"])
         self.assertNotIn("Incapsula", ficha["_error"])
+
+
+class TestBusquedaCompleta(_AislaSalidaMixin, unittest.TestCase):
+    """Antes se pedían 10 resultados por orden de relevancia de todas las épocas:
+    una tesis de la semana fuera de esos 10 no se veía."""
+
+    class _Paginas:
+        def __init__(self, total, caer_en=None):
+            self.total, self.caer_en, self.urls = total, caer_en, []
+
+        def __call__(self, method, url, headers=None, timeout=None, json=None, **kw):
+            self.urls.append(url)
+            pagina = int(url.split("page=")[1].split("&")[0])
+            size = int(url.split("size=")[1].split("&")[0])
+            if pagina == self.caer_en:
+                return FakeResponse(status_code=500, text="error interno")
+            inicio = pagina * size
+            docs = [doc_sjf(3000000 + i, FECHA_VIEJA) for i in range(inicio, min(inicio + size, self.total))]
+            return FakeResponse(json_data={"documents": docs, "total": self.total})
+
+    def test_pide_paginas_de_100_y_recorre_hasta_el_total(self):
+        red = self._Paginas(total=130)
+        with mock.patch.object(vjur.requests, "request", red):
+            docs, error, meta = vjur.buscar_documentos("expresión")
+        self.assertIsNone(error)
+        self.assertEqual(len(docs), 130)
+        self.assertEqual((meta["total"], meta["truncado"]), (130, False))
+        self.assertEqual(len(red.urls), 2)
+        self.assertTrue(all("size=100" in u for u in red.urls))
+
+    def test_trunca_en_el_tope_de_paginas_y_lo_declara(self):
+        red = self._Paginas(total=1000)
+        with mock.patch.object(vjur.requests, "request", red):
+            docs, error, meta = vjur.buscar_documentos("expresión")
+        self.assertEqual(len(red.urls), vjur.MAX_PAGINAS)
+        self.assertEqual(len(docs), vjur.MAX_PAGINAS * vjur.TAMANO_PAGINA)
+        self.assertTrue(meta["truncado"])
+
+    def test_si_cae_una_pagina_posterior_la_busqueda_no_cuenta_como_completa(self):
+        with mock.patch.object(vjur.requests, "request", self._Paginas(total=250, caer_en=1)):
+            docs, error, _ = vjur.buscar_documentos("expresión")
+        self.assertIsNone(docs)
+        self.assertIn("página 2", error["error"])
+
+    def test_tema_truncado_lo_dice_en_el_informe_y_el_estado(self):
+        with mock.patch.object(vjur, "MAX_PAGINAS", 1):
+            self.assertEqual(self._correr_sjf(self._Paginas(total=150)), r.EXIT_OK)
+        self.assertIn("truncada", vjur.OUTPUT_FILE.read_text(encoding="utf-8"))
+        estado = self._estado(vjur.OUTPUT_FILE)
+        self.assertTrue(all(t["truncado"] for t in estado["temas"].values()))
+        self.assertTrue(any("truncada" in a for a in estado["advertencias"]))
+
+
+class TestFichaDeBusqueda(unittest.TestCase):
+    def test_campos_de_la_busqueda_y_hash_del_documento(self):
+        doc = doc_sjf(2099001)
+        ficha = vjur.ficha_de_busqueda(doc)
+        self.assertEqual(ficha["ius"], 2099001)
+        self.assertEqual(ficha["rubro"], doc["rubro"])
+        self.assertEqual(ficha["clave_tesis"], doc["claveTesis"])
+        self.assertEqual(ficha["epoca"], "12a. Época")
+        self.assertEqual(ficha["instancia"], "SEGUNDA SALA")       # en la búsqueda 'sala' es el órgano
+        self.assertEqual(ficha["texto_publicacion"], doc["textoPublicacion"])
+        self.assertTrue(ficha["en_ventana_semana"] and ficha["novedad"])
+        self.assertEqual(ficha["tipo_clasificado"], "Jurisprudencia (forma de integración ⚠️ no especificada)")
+        canonico = json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        self.assertEqual(ficha["hash_sha256"], hashlib.sha256(canonico.encode("utf-8")).hexdigest())
+
+    def test_sala_numerica_es_codigo_no_organo(self):
+        ficha = vjur.ficha_de_busqueda({**doc_sjf(2099001), "sala": "7", "sInstancia": "Tribunales Colegiados"})
+        self.assertEqual(ficha["sala_codigo"], "7")
+        self.assertEqual(ficha["instancia"], "Tribunales Colegiados")
+
+    def test_contexto_no_es_novedad(self):
+        ficha = vjur.ficha_de_busqueda(doc_sjf(2088001, FECHA_VIEJA, ta_tj=0))
+        self.assertFalse(ficha["en_ventana_semana"] or ficha["novedad"])
+        self.assertEqual(ficha["tipo_clasificado"], "Tesis aislada")
+
+
+class TestExpresionSinResultados(_AislaSalidaMixin, unittest.TestCase):
+    def test_expresion_sin_resultados_en_el_sjf_se_advierte(self):
+        """Una expresión que no devuelve nada en todo el SJF no acredita que no
+        haya criterios: el informe lo advierte en vez de decir 'sin criterios'."""
+        self.assertEqual(self._correr_sjf(RedSjf(busqueda="vacia")), r.EXIT_OK)
+        informe = vjur.OUTPUT_FILE.read_text(encoding="utf-8")
+        for tema in vjur.TEMAS:
+            seccion = informe.split(f"## {tema['label']}")[1].split("\n## ")[0]
+            self.assertIn("no devuelve ningún resultado en el SJF", seccion)
+            self.assertNotIn("Sin criterios", seccion)
+        estado = self._estado(vjur.OUTPUT_FILE)
+        self.assertEqual(len(estado["advertencias"]), len(vjur.TEMAS))
+        self.assertTrue(all(t["sin_resultados_sjf"] for t in estado["temas"].values()))
+
+
+class TestNovedadParaElBorrador(unittest.TestCase):
+    def test_solo_las_novedades_cuentan_como_hallazgo(self):
+        contrato = {"SJF:x": {"source": "SJF:x", "status": c.SUCCESS, "items": [
+            {"ius": 1, "novedad": False}, {"ius": 2, "novedad": False}]}}
+        self.assertEqual(vli._items_validados(contrato)[0], 0)
+        contrato["SJF:x"]["items"].append({"ius": 3, "novedad": True})
+        self.assertEqual(vli._items_validados(contrato)[0], 1)
+
+    def test_un_item_sin_marca_cuenta_como_novedad(self):
+        contrato = {"DOF": {"source": "DOF", "status": c.SUCCESS, "items": [{"titulo": "x"}]}}
+        self.assertEqual(vli._items_validados(contrato)[0], 1)
 
 
 class TestInformeDegradadoSjf(unittest.TestCase):
@@ -515,6 +661,16 @@ class TestInformeDegradadoSjf(unittest.TestCase):
         self.assertIn('no equivale a "sin criterios"', fallido)
         vacio = texto.split(f"## {temas[2]}")[1].split("\n## ")[0]
         self.assertIn("Sin criterios", vacio)
+
+    def test_el_contexto_se_acota_a_los_mas_recientes(self):
+        label = vjur.TEMAS[0]["label"]
+        viejas = [{"ius": 3000000 + i, "rubro": f"R{i}", "fecha_publicacion": f"2020-01-{i + 1:02d}",
+                   "en_ventana_semana": False} for i in range(vjur.MAX_CONTEXTO + 2)]
+        resultados = {label: {"status": c.SUCCESS, "retryable": False, "errors": [], "fichas": viejas}}
+        texto = vjur._informe_degradado(resultados, motivo="prueba")
+        self.assertIn(str(3000000 + vjur.MAX_CONTEXTO + 1), texto)   # la más reciente sí
+        self.assertNotIn("**Registro IUS:** 3000000\n", texto)      # la más vieja no
+        self.assertIn("y 2 más", texto)
 
 
 class TestContenidoSoloBriefsVigentes(_AislaSalidaMixin, unittest.TestCase):

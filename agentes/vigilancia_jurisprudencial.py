@@ -9,13 +9,16 @@ Consulta el microservicio oficial del SJF sobre 5 temas de defensa fiscal:
   5. Facultades de comprobación
 
 Flujo por tema:
-  POST /tesis → lista con IUS → GET /tesis/{ius} → ficha JSON completa
+  POST /tesis (todas las páginas, de 100 en 100) → ficha por documento de la
+  búsqueda → (opcional) GET /tesis/{ius} para el texto completo de las nuevas
 
 Protocolo Itosturre (innegociable):
   - TODOS los datos de localización (IUS, época, sala, fecha, tipo) vienen
     ÚNICAMENTE del JSON de la API.  El LLM SOLO redacta el análisis sobre
     esos datos. Si la API no devuelve un campo, viaja vacío y marcado ⚠️.
-  - El hash SHA-256 se captura por criterio (cadena de custodia).
+  - El hash SHA-256 se captura por criterio (cadena de custodia): sobre el
+    documento de la búsqueda en JSON canónico (hash_documento) y, si el detalle
+    responde, también sobre los bytes del detalle.
   - Sin ANTHROPIC_API_KEY: modo degradado — datos crudos, sin análisis LLM.
   - Un tema cuya búsqueda NO PUDO CONSULTARSE (SOURCE_UNAVAILABLE/TIMEOUT/
     PARSER_ERROR) se reporta como tal — NUNCA como "sin criterios esta semana".
@@ -23,14 +26,15 @@ Protocolo Itosturre (innegociable):
     error de fondo que este módulo existe para evitar (docs/SJF_OPERATIVA.md).
 
 Endpoints (microservicio oficial, público). Verificado el 10-oct-2026: el POST
-de búsqueda responde JSON, pero GET /tesis/{ius} devuelve el desafío anti-bots
-de Incapsula (HTML) en lugar de la ficha. El watcher marca esos temas
-SOURCE_UNAVAILABLE con ese diagnóstico y no intenta evadirlo; la vía con
-navegador del repo es services/itosturre-scraper (vvca_audit.ts).
+de búsqueda responde JSON y cada documento ya trae la localización completa
+(rubro, clave, época, órgano, fecha y texto de publicación, [J]/[TA]); el GET de
+detalle devuelve el desafío anti-bots de Incapsula (HTML). Por eso las fichas
+salen de la búsqueda y el detalle es solo un extra (texto completo, formas de
+integración): un intento por corrida, sin insistir ni evadir el control. La vía
+con navegador del repo para el texto es services/itosturre-scraper (vvca_audit.ts).
   BASE: https://sjf2.scjn.gob.mx/services/sjftesismicroservice/api/public
-  POST /tesis           — búsqueda (body JSON)
-  POST /tesis/ids       — solo IUS para iterar
-  GET  /tesis/{ius}     — ficha completa JSON
+  POST /tesis?page=N&size=100 — búsqueda paginada (body JSON)
+  GET  /tesis/{ius}           — ficha completa JSON (hoy tras el anti-bots)
 
 Rate: 1 req/seg + retry exponencial (2 s, 4 s, 8 s) — salvo que el error se
 clasifique como bloqueo de política de red del entorno, en cuyo caso NO se
@@ -96,8 +100,17 @@ SJF_DETAIL_WEB = "https://sjf2.scjn.gob.mx/detalle/tesis"
 # guarda su época como metadato. No se excluye Undécima/Décima (siguen obligatorias
 # si no están superadas). El catálogo de épocas vive en /tesis/epocas (contrato por
 # documentar con el skill scjn-api).
-TAMANO_PAGINA = 10      # resultados por búsqueda (max 100)
-MAX_DETALLE = 8         # fichas completas máximas por tema
+# Antes se pedían 10 resultados por relevancia y una tesis de la semana fuera de
+# esos 10 no se veía; los temas tienen pocas decenas de resultados (10-oct-2026).
+TAMANO_PAGINA = 100     # resultados por página (máximo del microservicio)
+MAX_PAGINAS = 5         # tope por tema (500 resultados); si se alcanza, se declara "truncada"
+MAX_DETALLE = 8         # detalles (texto completo) a intentar por corrida, solo tesis nuevas
+MAX_CONTEXTO = 5        # fichas de contexto por tema en el informe; el resto queda en el .json
+
+AVISO_SIN_RESULTADOS = (
+    "la expresión de búsqueda no devuelve ningún resultado en el SJF (en ninguna de las "
+    "épocas consultadas): no acredita ausencia de criterios — revisar la expresión del tema"
+)
 
 HEADERS = {
     "Content-Type": "application/json",
@@ -234,34 +247,77 @@ def _search_body(expresion: str) -> dict:
     }
 
 
-def buscar_tesis(expresion: str) -> tuple[Optional[list[int]], Optional[dict]]:
-    """
-    Búsqueda con el CONTRATO REAL del buscador oficial: POST /tesis?page=0&size=N,
-    body con classifiers + searchTerms (keyword en expression sobre
-    localizacionBusqueda/rubro/texto). La paginación va en la URL, no en el body.
-
-    Devuelve (ids, None) si la búsqueda se pudo ejecutar (ids puede ser [] si
-    genuinamente no hay resultados). Devuelve (None, info_error) si la fuente NO
-    pudo consultarse: None ≠ [] — "no pude preguntar" no es "no hay nada".
-    """
-    outcome = _http("POST", f"{SJF_API}/tesis?page=0&size={TAMANO_PAGINA}", json=_search_body(expresion))
+def _error_busqueda(outcome: _HttpOutcome) -> Optional[dict]:
+    """Error de una página de búsqueda, o None si la respuesta es utilizable."""
     if outcome.response is None:
-        return None, {
+        return {
             "status": outcome.status, "retryable": outcome.retryable, "error": outcome.error,
             "bloqueo_politica": outcome.bloqueo_politica,
         }
     if not outcome.response.ok:
-        return None, {
+        return {
             "status": SOURCE_UNAVAILABLE,
             "retryable": outcome.response.status_code >= 500,
             "error": f"HTTP {outcome.response.status_code} en POST /tesis",
         }
-    try:
-        docs = outcome.response.json().get("documents", [])
-        ids = [int(d["ius"]) for d in docs if str(d.get("ius", "")).isdigit()][:TAMANO_PAGINA]
-        return ids, None
-    except (ValueError, TypeError, AttributeError) as exc:
-        return None, {"status": PARSER_ERROR, "retryable": False, "error": f"respuesta no parseable: {exc}"}
+    return None
+
+
+def buscar_documentos(expresion: str) -> tuple[Optional[list[dict]], Optional[dict], dict]:
+    """
+    Búsqueda con el CONTRATO REAL del buscador oficial: POST /tesis?page=N&size=100,
+    body con classifiers + searchTerms (keyword en expression sobre
+    localizacionBusqueda/rubro/texto). La paginación va en la URL, no en el body.
+
+    Recorre las páginas hasta reunir el `total` que informa el SJF (tope:
+    MAX_PAGINAS; si se alcanza, meta["truncado"] es True). Devuelve:
+      (docs, None, meta)        la búsqueda se ejecutó completa — docs puede ser [];
+      (None, info_error, meta)  no se pudo consultar, o falló una página posterior:
+                                una búsqueda a medias no acredita ausencia.
+    meta = {"total": int, "recuperados": int, "truncado": bool}.
+    """
+    docs: list[dict] = []
+    vistos: set[str] = set()
+    total: Optional[int] = None
+    truncado = False
+    for pagina in range(MAX_PAGINAS):
+        outcome = _http(
+            "POST", f"{SJF_API}/tesis?page={pagina}&size={TAMANO_PAGINA}", json=_search_body(expresion)
+        )
+        error = _error_busqueda(outcome)
+        if error is None:
+            try:
+                cuerpo = outcome.response.json()
+                lote = cuerpo.get("documents") or []
+                if isinstance(cuerpo.get("total"), int):
+                    total = cuerpo["total"]
+            except (ValueError, TypeError, AttributeError) as exc:
+                error = {"status": PARSER_ERROR, "retryable": False, "error": f"respuesta no parseable: {exc}"}
+        if error is not None:
+            if pagina:
+                error["error"] = f"página {pagina + 1} de la búsqueda: {error['error']} (búsqueda incompleta)"
+            return None, error, {"total": total, "recuperados": len(docs), "truncado": False}
+        for doc in lote:
+            clave = str(doc.get("ius", ""))
+            if clave.isdigit() and clave not in vistos:
+                vistos.add(clave)
+                docs.append(doc)
+        if len(lote) < TAMANO_PAGINA or (total is not None and len(docs) >= total):
+            break
+    else:
+        truncado = True
+    meta = {"total": total if total is not None else len(docs), "recuperados": len(docs), "truncado": truncado}
+    return docs, None, meta
+
+
+def buscar_tesis(expresion: str) -> tuple[Optional[list[int]], Optional[dict]]:
+    """IUS de la búsqueda completa. (ids, None) si se pudo ejecutar — ids puede
+    ser [] si genuinamente no hay resultados —; (None, info_error) si la fuente
+    NO pudo consultarse: None ≠ [] — "no pude preguntar" no es "no hay nada"."""
+    docs, error, _ = buscar_documentos(expresion)
+    if docs is None:
+        return None, error
+    return [int(doc["ius"]) for doc in docs], None
 
 
 def _campo(data: dict, *keys, default: str = "") -> str:
@@ -314,6 +370,67 @@ def _en_ventana(fecha_pub: str) -> bool:
         return datetime.strptime(norm, "%Y-%m-%d").date() >= FECHA_INICIO
     except (ValueError, TypeError):
         return False
+
+
+def hash_documento(doc: dict) -> str:
+    """SHA-256 del documento tal como lo entregó POST /tesis, en JSON canónico
+    (claves ordenadas, separadores compactos, UTF-8). Reproducible: repetir la
+    búsqueda, localizar el documento por su IUS y recalcular
+    hashlib.sha256(json.dumps(doc, ensure_ascii=False, sort_keys=True,
+    separators=(",", ":")).encode("utf-8")).hexdigest(). Cualquier cambio en el
+    documento cambia la huella."""
+    canonico = json.dumps(doc, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def ficha_de_busqueda(doc: dict) -> dict[str, Any]:
+    """Ficha normalizada a partir de un documento de la búsqueda.
+
+    La búsqueda trae la localización (rubro, clave, época, órgano, fecha y texto
+    de publicación, [J]/[TA]) pero no el texto completo ni las formas de
+    integración: esos campos quedan vacíos (⚠️ no disponible) hasta que el
+    detalle los aporte (enriquecer_nuevas). Nunca se completan de memoria.
+    En la búsqueda 'sala' trae el NOMBRE del órgano y 'tipoTesis' un código; en
+    el detalle 'sala' es un código interno: se distingue por si es numérico.
+    """
+    ius = int(doc["ius"])
+    sala = _campo(doc, "sala")
+    organo = sala if sala and not sala.isdigit() else _campo(doc, "instancia", "sInstancia")
+    localizacion = _campo(doc, "localizacion")
+    tipo_texto = _campo(doc, "tipoTesis")
+    if tipo_texto.isdigit():  # código en la búsqueda: se toma la marca [J]/[TA] de la localización
+        tipo_texto = ("Jurisprudencia" if localizacion.startswith("[J]")
+                      else "Tesis aislada" if localizacion.startswith("[TA]") else "")
+    fecha_pub = _campo(doc, "fechaPublicacion")
+    en_ventana = _en_ventana(fecha_pub)
+    return {
+        # — Localización: SOLO del documento de la búsqueda —
+        "ius":               ius,
+        "rubro":             _campo(doc, "rubro"),
+        "clave_tesis":       _campo(doc, "claveTesis"),
+        "epoca":             _campo(doc, "epoca", "epocaAbr"),
+        "sala_codigo":       sala if sala.isdigit() else "",
+        "instancia":         organo,
+        "instancia_abr":     _campo(doc, "instanciaAbr"),
+        "localizacion":      localizacion,
+        "tipo_raw":          tipo_texto,
+        "ta_tj":             doc.get("ta_tj"),
+        "tipo_clasificado":  clasificar(doc.get("ta_tj"), tipo_texto, []),
+        "formas_integracion": [],
+        "fecha_publicacion": fecha_pub,
+        # texto_publicacion trae VERBATIM la publicación (y la obligatoriedad, si es J)
+        "texto_publicacion": _campo(doc, "textoPublicacion"),
+        "en_ventana_semana": en_ventana,
+        # Para el generador de contenido: solo una tesis publicada en la ventana es novedad.
+        "novedad":           en_ventana,
+        "texto":             (_campo(doc, "texto") or "")[:1500],
+        "hash_sha256":       hash_documento(doc),
+        "hash_sobre":        "documento de la respuesta de POST /tesis (JSON canónico)",
+        "origen":            "busqueda",
+        # — Localización auditable —
+        "url_sjf":           f"{SJF_DETAIL_WEB}/{ius}",
+        "url_api":           f"{SJF_API}/tesis/{ius}",
+    }
 
 
 def _diagnostico_no_json(resp) -> tuple[str, bool]:
@@ -398,19 +515,20 @@ def _tema_fallido(status: str, retryable: bool, errores: list[str]) -> dict:
 
 
 def consultar_todos() -> dict[str, dict]:
-    """Flujo completo: búsqueda → IUS → ficha completa para los 5 temas.
+    """Búsqueda completa de los 5 temas; las fichas salen de la búsqueda.
 
-    Cada tema queda con status SUCCESS (búsqueda ejecutada — 'fichas' puede
-    estar vacía si genuinamente no hubo resultados) o con el status/errors que
-    explican por qué NO hay criterio verificado: la búsqueda falló, o devolvió
-    IUS pero ninguna ficha se pudo leer. Ante un bloqueo de política de red los
-    temas restantes no se consultan (fallarían igual) y quedan marcados."""
+    Cada tema queda con status SUCCESS (búsqueda ejecutada completa — 'fichas'
+    puede estar vacía) o con el status/errors que explican por qué no se pudo
+    consultar. Ante un bloqueo de política de red los temas restantes no se
+    consultan (fallarían igual) y quedan marcados. Un tema sin ningún resultado
+    en todo el SJF lleva `sin_resultados_sjf`: señala la expresión, no acredita
+    ausencia de criterios."""
     resultado: dict[str, dict] = {}
     for i, tema in enumerate(TEMAS):
         print(f"    🔎 {tema['label'][:65]}...")
         registrar_evento("source_requested", source="SJF", tema=tema["id"])
-        ids, error_info = buscar_tesis(tema["expresion"])
-        if ids is None:
+        docs, error_info, meta = buscar_documentos(tema["expresion"])
+        if docs is None:
             print(f"       ❌ {error_info['status']} — {error_info['error']}")
             registrar_evento(
                 "source_unavailable", source="SJF", tema=tema["id"],
@@ -431,42 +549,103 @@ def consultar_todos() -> dict[str, dict]:
                     ])
                 break
             continue
-        print(f"       → {len(ids)} IUS obtenidos")
-        registrar_evento("source_success", source="SJF", tema=tema["id"], n_ids=len(ids))
-        fichas = []
-        for ius in ids[:MAX_DETALLE]:
-            print(f"         GET /tesis/{ius}")
-            fichas.append(obtener_detalle(ius))
-        fallidas = [f for f in fichas if f.get("_error")]
-        por_causa: dict[str, list[str]] = {}
-        for f in fallidas:
-            por_causa.setdefault(f["_error"], []).append(str(f["ius"]))
-        errores = [f"detalle IUS {', '.join(ius)}: {causa}" for causa, ius in por_causa.items()]
-        if fichas and len(fallidas) == len(fichas):
-            # Hubo IUS pero ninguna ficha legible: no hay criterio verificado.
-            resultado[tema["label"]] = {
-                "status": SOURCE_UNAVAILABLE,
-                "retryable": any(f.get("_reintentable", True) for f in fallidas),
-                "errors": errores,
-                "fichas": fichas,
-            }
-        else:
-            resultado[tema["label"]] = {
-                "status": SUCCESS, "retryable": False, "errors": errores, "fichas": fichas,
-            }
+        fichas = [ficha_de_busqueda(doc) for doc in docs]
+        nuevas = sum(1 for f in fichas if f["novedad"])
+        print(f"       → {len(fichas)} de {meta['total']} resultados del SJF ({nuevas} nuevos en la ventana)")
+        registrar_evento(
+            "source_success", source="SJF", tema=tema["id"], n_items=len(fichas), total=meta["total"]
+        )
+        resultado[tema["label"]] = {
+            "status": SUCCESS, "retryable": False, "errors": [], "fichas": fichas,
+            "total": meta["total"], "truncado": meta["truncado"],
+            "sin_resultados_sjf": meta["total"] == 0,
+        }
     return resultado
 
 
+def _combinar_detalle(ficha: dict, detalle: dict) -> None:
+    """Suma a la ficha de la búsqueda lo que solo trae el detalle. La
+    localización de la búsqueda se conserva; el detalle solo llena vacíos."""
+    for clave in ("rubro", "clave_tesis", "epoca", "instancia", "fecha_publicacion", "texto_publicacion"):
+        if not ficha.get(clave) and detalle.get(clave):
+            ficha[clave] = detalle[clave]
+    ficha["texto"] = detalle.get("texto", "")
+    ficha["formas_integracion"] = detalle.get("formas_integracion", [])
+    ficha["tipo_clasificado"] = detalle.get("tipo_clasificado") or ficha["tipo_clasificado"]
+    ficha["hash_sha256_detalle"] = detalle.get("hash_sha256", "")
+    ficha["origen"] = "busqueda+detalle"
+
+
+def enriquecer_nuevas(resultados: dict[str, dict]) -> Optional[str]:
+    """Intenta el detalle (texto completo y formas de integración) de las fichas
+    NUEVAS, una vez por IUS y hasta MAX_DETALLE por corrida. Si el SJF responde
+    con el desafío anti-bots (no reintentable), no se insiste en esta corrida:
+    las fichas se quedan con los datos de la búsqueda. Devuelve la nota para el
+    informe y el estado, o None si no faltó nada."""
+    por_ius: dict[int, list[dict]] = {}
+    for tema in resultados.values():
+        if tema["status"] == SUCCESS:
+            for ficha in tema["fichas"]:
+                if ficha.get("novedad"):
+                    por_ius.setdefault(ficha["ius"], []).append(ficha)
+    fallos: list[str] = []
+    for ius in list(por_ius)[:MAX_DETALLE]:
+        print(f"         GET /tesis/{ius} (texto completo)")
+        detalle = obtener_detalle(ius)
+        if detalle.get("_error"):
+            if not detalle.get("_reintentable", True):
+                return f"Texto completo no disponible: {detalle['_error']}."
+            fallos.append(f"IUS {ius}: {detalle['_error']}")
+            continue
+        for ficha in por_ius[ius]:
+            _combinar_detalle(ficha, detalle)
+    notas = []
+    if fallos:
+        notas.append("Texto completo no disponible para " + "; ".join(fallos))
+    if len(por_ius) > MAX_DETALLE:
+        notas.append(f"texto completo solo de {MAX_DETALLE} de {len(por_ius)} tesis nuevas (MAX_DETALLE)")
+    return ". ".join(notas) + "." if notas else None
+
+
 def contrato_tema(label: str, tema: dict) -> ResultadoFuente:
-    """ResultadoFuente del tema: solo las fichas legibles cuentan como hallazgos."""
+    """ResultadoFuente del tema: todas las fichas legibles (cada una con su marca
+    `novedad`) y, como evidencia, el alcance de la búsqueda."""
     validas = [f for f in tema["fichas"] if not f.get("_error")]
+    exito = tema["status"] == SUCCESS
     return ResultadoFuente(
         source=f"SJF:{label}",
         status=tema["status"],
-        items=validas if tema["status"] == SUCCESS else [],
+        items=validas if exito else [],
+        evidence=[{"busqueda": {
+            "total": tema.get("total"), "recuperados": len(validas), "truncado": tema.get("truncado", False),
+        }}] if exito else [],
         errors=tema["errors"],
         retryable=tema["retryable"],
     )
+
+
+def alcance_tema(tema: dict) -> dict:
+    """Lo que el estado de la corrida necesita saber de la búsqueda de un tema."""
+    return {
+        "total_sjf": tema.get("total"),
+        "truncado": tema.get("truncado", False),
+        "sin_resultados_sjf": tema.get("sin_resultados_sjf", False),
+        "nuevas_en_ventana": sum(1 for f in tema["fichas"] if f.get("novedad")),
+    }
+
+
+def advertencias_de(resultados: dict[str, dict]) -> list[str]:
+    """Avisos que no son fallas de la fuente pero limitan lo que el informe acredita."""
+    avisos = []
+    for label, tema in resultados.items():
+        if tema.get("sin_resultados_sjf"):
+            avisos.append(f"{label}: {AVISO_SIN_RESULTADOS}")
+        if tema.get("truncado"):
+            avisos.append(
+                f"{label}: búsqueda truncada — se revisaron {len(tema['fichas'])} de "
+                f"{tema['total']} resultados (orden de relevancia del SJF)"
+            )
+    return avisos
 
 
 # ── Generación del informe ────────────────────────────────────────────────────
@@ -487,28 +666,38 @@ REGLA ABSOLUTA — Protocolo Itosturre (no negociable):
    exactamente "❌ Consulta fallida — no equivale a 'sin criterios'" y NUNCA
    "sin criterios esta semana" (son afirmaciones distintas: la segunda implica
    que sí se consultó).
-7. Solo las fichas con "en_ventana_semana": true son criterios NUEVOS de la
-   semana; las demás son contexto y van en la subsección "Contexto (fuera de
+7. En cada tema, "nuevas" son los criterios publicados en la ventana de la
+   semana y "contexto" son anteriores: van en la subsección "Contexto (fuera de
    ventana)". El órgano emisor es el campo "instancia" (texto); "sala_codigo"
-   es un código interno — nunca lo escribas como "Sala N"."""
+   es un código interno — nunca lo escribas como "Sala N".
+8. Si el campo "texto" viene vacío, la síntesis se basa solo en el rubro: dilo
+   ("síntesis basada en el rubro") y no supongas el contenido del criterio.
+9. Si un tema trae "sin_resultados_sjf": true, escribe que la expresión de
+   búsqueda no devuelve ningún resultado en el SJF y que eso no acredita
+   ausencia de criterios; si trae "truncado": true, di cuántos resultados se
+   revisaron ("recuperados") de cuántos ("total_sjf")."""
 
 
-def redactar_informe_llm(resultados: dict[str, dict]) -> str:
+def redactar_informe_llm(resultados: dict[str, dict], nota_detalle: Optional[str] = None) -> str:
     """
-    Pasa el JSON completo a Claude para redacción del análisis.
+    Pasa a Claude la vista del informe (_vista_informe) para redactar el análisis.
     Todos los campos de localización vienen del JSON — el LLM solo escribe prose.
     """
     try:
         import anthropic
     except ImportError:
-        return _informe_degradado(resultados, motivo="librería anthropic no instalada")
+        return _informe_degradado(resultados, "librería anthropic no instalada", nota_detalle)
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return _informe_degradado(resultados, motivo="ANTHROPIC_API_KEY no configurada")
+        return _informe_degradado(resultados, "ANTHROPIC_API_KEY no configurada", nota_detalle)
 
     client = anthropic.Anthropic(api_key=api_key)
-    datos_str = json.dumps(resultados, ensure_ascii=False, indent=2)
+    datos_str = json.dumps(_vista_informe(resultados), ensure_ascii=False, indent=2)
+    nota_str = (
+        f"\nNOTA SOBRE EL TEXTO COMPLETO (transcríbela en la Trazabilidad): {nota_detalle}\n"
+        if nota_detalle else ""
+    )
     semana_inicio = TODAY - timedelta(days=TODAY.weekday())
     semana_fin = semana_inicio + timedelta(days=6)
 
@@ -519,9 +708,10 @@ Semana: {WEEK_STR}  ({semana_inicio} al {semana_fin})
 Fuente: microservicio oficial sjf2.scjn.gob.mx/services/sjftesismicroservice
 
 JSON CON TODOS LOS TEMAS (única fuente de verdad — no inventes nada; cada tema
-lleva su "status": SUCCESS con 'fichas', o un estado de error con 'errors'):
+lleva su "status": SUCCESS con "nuevas" y "contexto", o un estado de error con
+"errors"):
 {datos_str}
-
+{nota_str}
 Redacta el informe en Markdown con esta estructura exacta:
 
 # Vigilancia Jurisprudencial SJF — {WEEK_STR}
@@ -536,12 +726,14 @@ dilo explícitamente aquí.]
 [Una sección ### por cada uno de los 5 temas.
 - Si status != SUCCESS → escribe únicamente:
   "❌ Consulta fallida — no equivale a 'sin criterios'. Detalle: [errors del JSON]."
-- Si status == SUCCESS y fichas está vacío → "Sin criterios esta semana."
-- Si status == SUCCESS y hay fichas → "Nuevos esta semana" (en_ventana_semana
-  true) y "Contexto (fuera de ventana)" (el resto), un bloque por criterio.]
+- Si sin_resultados_sjf es true → la advertencia de la regla 9, nada más.
+- Si "nuevas" está vacío → "Sin criterios publicados en la ventana."
+- Si hay "nuevas" → "Nuevos esta semana", un bloque completo por criterio.
+- "contexto" → lista breve (IUS, rubro, fecha) bajo "Contexto (fuera de
+  ventana)"; si contexto_omitido > 0, indica cuántos más hay en el .json.]
 
-Por cada criterio (solo temas con status SUCCESS), usa este bloque (copia los
-valores del JSON, sin modificar):
+Por cada criterio nuevo, usa este bloque (copia los valores del JSON, sin
+modificar):
 
 ---
 **Registro IUS:** [del JSON — o ⚠️ no disponible]
@@ -554,7 +746,7 @@ valores del JSON, sin modificar):
 **Publicación (verbatim SJF):** [texto_publicacion del JSON — o ⚠️ no disponible]
 **Hash SHA-256:** [del JSON — o ⚠️ no disponible]
 **URL SJF:** [del JSON]
-**Síntesis:** [2-4 oraciones tuyas basadas en el campo texto del JSON]
+**Síntesis:** [2-4 oraciones basadas en el campo texto; si viene vacío, en el rubro, y dilo]
 ---
 
 ## Impacto estratégico
@@ -577,7 +769,7 @@ ventana de la última semana." Los temas SOURCE_UNAVAILABLE no se analizan.]
         return resp.content[0].text
     except Exception as e:
         print(f"  ⚠️ Error API Claude: {e}")
-        return _informe_degradado(resultados, motivo=str(e))
+        return _informe_degradado(resultados, str(e), nota_detalle)
 
 
 def _marca(valor: str) -> str:
@@ -585,7 +777,7 @@ def _marca(valor: str) -> str:
 
 
 def _bloque_ficha(f: dict) -> list[str]:
-    return [
+    lineas = [
         "---",
         f"**Registro IUS:** {_marca(str(f['ius']))}",
         f"**Rubro:** {_marca(f.get('rubro', '')[:120])}",
@@ -596,13 +788,45 @@ def _bloque_ficha(f: dict) -> list[str]:
         f"**Instancia/Órgano:** {_marca(f.get('instancia', ''))}",
         f"**Fecha publicación:** {_marca(f.get('fecha_publicacion', ''))}",
         f"**Publicación (verbatim SJF):** {_marca(f.get('texto_publicacion', ''))}",
-        f"**Hash SHA-256:** {_marca(f.get('hash_sha256', ''))}",
-        f"**URL SJF:** {f.get('url_sjf', '')}",
-        "",
+        f"**Hash SHA-256 (búsqueda):** {_marca(f.get('hash_sha256', ''))}",
     ]
+    if f.get("hash_sha256_detalle"):
+        lineas.append(f"**Hash SHA-256 (detalle):** {f['hash_sha256_detalle']}")
+    lineas += [f"**URL SJF:** {f.get('url_sjf', '')}", ""]
+    return lineas
 
 
-def _informe_degradado(resultados: dict[str, dict], motivo: str = "") -> str:
+def _orden_reciente(f: dict) -> tuple:
+    return (f.get("fecha_publicacion") or "", f.get("ius") or 0)
+
+
+def _vista_informe(resultados: dict[str, dict]) -> dict[str, dict]:
+    """Lo que ve el informe (y el LLM): por tema, todas las fichas nuevas y solo
+    las MAX_CONTEXTO de contexto más recientes; el resto queda en el .json."""
+    vista: dict[str, dict] = {}
+    for label, tema in resultados.items():
+        if tema["status"] != SUCCESS:
+            vista[label] = {"status": tema["status"], "retryable": tema["retryable"], "errors": tema["errors"]}
+            continue
+        legibles = sorted((f for f in tema["fichas"] if not f.get("_error")), key=_orden_reciente, reverse=True)
+        nuevas = [f for f in legibles if f.get("en_ventana_semana")]
+        contexto = [f for f in legibles if not f.get("en_ventana_semana")]
+        vista[label] = {
+            "status": SUCCESS,
+            "total_sjf": tema.get("total", len(legibles)),
+            "recuperados": len(legibles),
+            "truncado": tema.get("truncado", False),
+            "sin_resultados_sjf": tema.get("sin_resultados_sjf", False),
+            "nuevas": nuevas,
+            "contexto": contexto[:MAX_CONTEXTO],
+            "contexto_omitido": max(0, len(contexto) - MAX_CONTEXTO),
+        }
+    return vista
+
+
+def _informe_degradado(
+    resultados: dict[str, dict], motivo: str = "", nota_detalle: Optional[str] = None,
+) -> str:
     """Modo degradado: datos crudos de la API, sin análisis LLM."""
     semana_inicio = TODAY - timedelta(days=TODAY.weekday())
     semana_fin = semana_inicio + timedelta(days=6)
@@ -614,46 +838,56 @@ def _informe_degradado(resultados: dict[str, dict], motivo: str = "") -> str:
         f"> Semana: {semana_inicio} al {semana_fin}",
         "",
     ]
-    validas = [f for v in resultados.values() for f in v["fichas"] if not f.get("_error")]
-    nuevas = sum(1 for f in validas if f.get("en_ventana_semana"))
-    fallidos = [label for label, v in resultados.items() if v["status"] != SUCCESS]
+    vista = _vista_informe(resultados)
+    exitosos = [v for v in vista.values() if v["status"] == SUCCESS]
+    fallidos = [label for label, v in vista.items() if v["status"] != SUCCESS]
     lines += [
-        f"**Total fichas recuperadas:** {len(validas)} · **Nuevas en la ventana "
-        f"{FECHA_INICIO} a {TODAY}:** {nuevas}",
+        f"**Total fichas recuperadas:** {sum(v['recuperados'] for v in exitosos)} · **Nuevas en la "
+        f"ventana {FECHA_INICIO} a {TODAY}:** {sum(len(v['nuevas']) for v in exitosos)}",
         "",
     ]
     if fallidos:
         lines += [f"> ❌ {len(fallidos)} tema(s) sin consultar — ver cada sección.", ""]
+    if nota_detalle:
+        lines += [
+            f"> ⚠️ {nota_detalle} Las fichas se arman con los datos de la búsqueda; el texto "
+            "completo puede leerse en la URL SJF o con services/itosturre-scraper (vvca_audit.ts).",
+            "",
+        ]
 
-    for label, tema in resultados.items():
+    for label, v in vista.items():
         lines += [f"## {label}", ""]
-        if tema["status"] != SUCCESS:
+        if v["status"] != SUCCESS:
             lines += [
-                f"❌ **Consulta fallida ({tema['status']})** — no equivale a \"sin criterios\".",
-                f"- Reintentable: {'sí' if tema['retryable'] else 'no'}",
-                f"- Detalle: {'; '.join(tema['errors']) or 'sin detalle'}",
+                f"❌ **Consulta fallida ({v['status']})** — no equivale a \"sin criterios\".",
+                f"- Reintentable: {'sí' if v['retryable'] else 'no'}",
+                f"- Detalle: {'; '.join(v['errors']) or 'sin detalle'}",
                 "",
             ]
             continue
-        fichas = tema["fichas"]
-        if not fichas:
+        if v["sin_resultados_sjf"]:
+            lines += [f"⚠️ {AVISO_SIN_RESULTADOS[0].upper()}{AVISO_SIN_RESULTADOS[1:]}.", ""]
+            continue
+        if v["truncado"]:
+            lines += [
+                f"> ⚠️ Búsqueda truncada: se revisaron {v['recuperados']} de {v['total_sjf']} resultados "
+                "(orden de relevancia del SJF); una tesis nueva fuera de ellos no aparecería aquí.",
+                "",
+            ]
+        if not v["nuevas"] and not v["contexto"]:
             lines += ["Sin criterios encontrados (búsqueda ejecutada).", ""]
             continue
-        for f in fichas:
-            if f.get("_error"):
-                lines += [f"- IUS {f['ius']}: ❌ {f['_error']}", ""]
-        legibles = [f for f in fichas if not f.get("_error")]
-        en_ventana = [f for f in legibles if f.get("en_ventana_semana")]
-        fuera = [f for f in legibles if not f.get("en_ventana_semana")]
         lines += ["### Nuevos esta semana", ""]
-        if not en_ventana:
+        if not v["nuevas"]:
             lines += ["Sin criterios publicados en la ventana.", ""]
-        for f in en_ventana:
+        for f in v["nuevas"]:
             lines += _bloque_ficha(f)
-        if fuera:
+        if v["contexto"]:
             lines += ["### Contexto (fuera de ventana)", ""]
-            for f in fuera:
+            for f in v["contexto"]:
                 lines += _bloque_ficha(f)
+            if v["contexto_omitido"]:
+                lines += [f"_… y {v['contexto_omitido']} más en {OUTPUT_FILE.with_suffix('.json').name}._", ""]
 
     lines += [
         "## Trazabilidad",
@@ -696,12 +930,18 @@ def main() -> int:
     registrar_evento("collector_started", watch="sjf_jurisprudencia")
     print("  📥 Consultando microservicio SJF (API REST, sin navegador)...")
     resultados = consultar_todos()
+    nota_detalle = enriquecer_nuevas(resultados)
+    if nota_detalle:
+        print(f"  ⚠️ {nota_detalle}")
     contratos = {label: contrato_tema(label, tema) for label, tema in resultados.items()}
-    temas = {label: r.resumen() for label, r in contratos.items()}
+    temas = {label: {**r.resumen(), **alcance_tema(resultados[label])} for label, r in contratos.items()}
+    advertencias = advertencias_de(resultados)
+    for aviso in advertencias:
+        print(f"  ⚠️ {aviso}")
 
     exitosos = sum(1 for r in contratos.values() if r.ok)
     total_fichas = sum(len(r.items) for r in contratos.values())
-    nuevas = sum(1 for r in contratos.values() for f in r.items if f.get("en_ventana_semana"))
+    nuevas = sum(1 for r in contratos.values() for f in r.items if f.get("novedad"))
     print(f"  📊 {exitosos}/{len(contratos)} temas consultados con éxito "
           f"({total_fichas} fichas, {nuevas} nuevas en la ventana)")
 
@@ -715,7 +955,7 @@ def main() -> int:
         return rutina.EXIT_FUENTE_INACCESIBLE
 
     print("  🤖 Redactando informe...")
-    informe = redactar_informe_llm(resultados)
+    informe = redactar_informe_llm(resultados, nota_detalle)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_FILE.write_text(informe, encoding="utf-8")
@@ -724,6 +964,7 @@ def main() -> int:
     ruta_estado = rutina.registrar_estado(
         OUTPUT_DIR, OUTPUT_FILE.stem, estado,
         informe=OUTPUT_FILE.name, fichas=total_fichas, nuevas_en_ventana=nuevas, temas=temas,
+        advertencias=advertencias, **({"detalle": nota_detalle} if nota_detalle else {}),
     )
     kb = OUTPUT_FILE.stat().st_size // 1024
     print(f"  💾 → {OUTPUT_FILE} ({kb} KB)")

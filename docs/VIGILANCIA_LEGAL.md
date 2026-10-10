@@ -244,6 +244,12 @@ registrados distinto, porque son jurídica y operativamente diferentes):
 - **`SIN_HALLAZGOS`** — las fuentes SÍ se consultaron (status `SUCCESS`) pero no había nada
   noticiable. Esto no es un fallo: simplemente no hay post que escribir hoy.
 
+**Solo cuenta lo noticiable.** Cada hallazgo lleva la marca `novedad`: en el SJF es `true`
+solo para una tesis publicada en la ventana de la semana (las anteriores son contexto); en
+DOF/SAT es `true` (portada del día y comunicados recientes). Un hallazgo con
+`novedad: false` no basta para un post. Sin esta marca, la búsqueda completa del SJF (§11)
+traería cada semana decenas de tesis históricas y la compuerta pasaría siempre.
+
 No se escribe un aviso `NOT_GENERATED` en lugar del borrador: con el nombre del borrador del
 día, ese aviso bloquearía la corrida posterior que sí tuviera insumos.
 
@@ -333,9 +339,11 @@ tarea.
 ## 8. Verificar que la evidencia jurídica es auténtica
 
 - **SJF:** cada ficha de `vigilancia_jurisprudencial.py` lleva `hash_sha256`, calculado sobre
-  los bytes crudos de la respuesta `GET /tesis/{ius}` — reproducible con
-  `hashlib.sha256(requests.get(url, headers=HEADERS).content).hexdigest()` contra el mismo
-  IUS. Es cadena de custodia mínima, no una firma criptográfica de la SCJN.
+  el documento tal como lo entregó la búsqueda (`POST /tesis`), en JSON canónico — claves
+  ordenadas, separadores compactos, UTF-8 (`hash_documento`). Reproducible: repetir la
+  búsqueda, localizar el documento por su IUS y recalcular. Si el detalle (`GET /tesis/{ius}`)
+  responde, la ficha suma `hash_sha256_detalle`, sobre los bytes crudos de esa respuesta. Es
+  cadena de custodia mínima, no una firma criptográfica de la SCJN.
 - **DOF/SAT:** el collector actual NO captura evidencia más allá de la URL y el texto
   extraído (no hay hash ni captura de pantalla). Esta es una limitación documentada, no un
   supuesto de autenticidad — antes de citar un hallazgo de DOF/SAT en un escrito o post,
@@ -382,6 +390,11 @@ Cubren:
     disponibles sin novedades → sin borrador por `SIN_HALLAZGOS`.
   - **E.** Ejecución repetida → no duplica, no vuelve a golpear la red, no pisa el estado.
   - **F.** Una corrida fallida no bloquea el reintento del día o la semana.
+  - SJF: búsqueda completa paginada (tope declarado y página caída que no cuenta como
+    completa), ficha desde la búsqueda con su hash canónico y el órgano tomado de `sala`,
+    detalle opcional con un solo intento ante el anti-bots, aviso de expresión sin
+    resultados, contexto acotado en el informe y la marca `novedad` en la compuerta del
+    borrador.
   - Piezas sueltas: `None` ≠ `[]` en la búsqueda del SJF, corte de reintentos ante bloqueo de
     política, informe degradado con "Nuevos esta semana"/"Contexto" e instancia, briefs viejos
     que no se reciclan, CTA por variable, y la rama con LLM con un `anthropic` falso (modelo
@@ -398,11 +411,28 @@ Cubren:
   watch, y en qué entorno corre) vive fuera de este repositorio. La recomendación de §6 no
   se puede aplicar con un commit aquí.
 - **Detalle del SJF tras un desafío anti-bots (verificado el 10-oct-2026).** El POST de
-  búsqueda del microservicio responde JSON, pero `GET /tesis/{ius}` devuelve la página de
-  Incapsula en lugar de la ficha. El watcher marca esos temas `SOURCE_UNAVAILABLE` (no
-  reintentable) con ese diagnóstico, no escribe informe si ningún tema queda verificable y
-  **no intenta evadir el control**. Leer el detalle requiere la vía con navegador del repo
-  (`services/itosturre-scraper`, `vvca_audit.ts`): decisión de arquitectura pendiente.
+  búsqueda del microservicio responde JSON, pero `GET /tesis/{ius}` —y también el detalle del
+  Repositorio Bicentenario— devuelven la página de Incapsula a un cliente HTTP. Como cada
+  documento de la búsqueda ya trae la localización completa (rubro, clave, época, órgano,
+  fecha y texto de publicación, [J]/[TA]), **las fichas salen de la búsqueda** y el detalle
+  queda como extra (texto completo y formas de integración): se intenta solo para las tesis
+  nuevas y, si responde el anti-bots, no se insiste en esa corrida (un solo intento) y la
+  nota queda en el informe y en el estado (`detalle`). **No se evade el control.** Sin texto
+  completo, la síntesis se basa en el rubro y lo dice. El scraper con navegador del repo
+  (`services/itosturre-scraper`, `vvca_audit.ts`) sí lee el detalle: el primer intento cae en
+  el desafío (hoy lo clasifica como `LAYOUT_CHANGED`) y el segundo pasa.
+- **Búsqueda completa.** Antes se pedían los 10 primeros resultados por relevancia de todas
+  las épocas, así que una tesis de la semana fuera de esos 10 no se veía. Ahora se recorren
+  todas las páginas (100 por página, tope de 5); si se alcanza el tope, el tema se declara
+  "truncado" en el informe y en `advertencias`. El 10-oct-2026 los temas tenían 1, 25, 53, 0
+  y 3 resultados.
+- **Expresiones de búsqueda.** Un tema cuya expresión no devuelve **ningún** resultado en el
+  SJF lo advierte (`sin_resultados_sjf`, `advertencias`) en vez de decir "sin criterios": eso
+  señala la expresión, no acredita ausencia. Con la de "Materialidad de operaciones"
+  (`materialidad operaciones actos jurídicos`, unidas por Y) ocurría siempre: 0 resultados
+  (`materialidad operaciones` da 30; `materialidad`, 119). La de CSD da 1 resultado histórico
+  (`certificado de sello digital`, 21; `sello digital`, 68). Qué vigilar es decisión del
+  abogado: las expresiones no se cambiaron.
 - **DOF sin `www`.** El certificado del portal solo ampara `dof.gob.mx`; con `www` la
   verificación TLS falla por nombre. El collector usa `https://dof.gob.mx` y resuelve los
   enlaces relativos de la portada con `urljoin`. Nunca desactivar la verificación TLS.

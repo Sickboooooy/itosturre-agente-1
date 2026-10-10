@@ -70,10 +70,13 @@ def _contrato_de(directorio: Path, nombre_md: str) -> Optional[Any]:
 
 
 def _items_validados(contrato: Any) -> tuple[int, list[str]]:
-    """Cuenta hallazgos que vienen de una entrada con status SUCCESS y lista las
-    fuentes que NO lo tuvieron. Un contrato ausente o ilegible cuenta 0 — nunca
-    se asume contenido que no se pudo verificar — y una ficha que no se pudo
-    leer (`_error`) tampoco es un hallazgo."""
+    """Cuenta hallazgos NUEVOS de entradas con status SUCCESS y lista las fuentes
+    que NO lo tuvieron. Un contrato ausente o ilegible cuenta 0 — nunca se asume
+    contenido que no se pudo verificar —, una ficha que no se pudo leer
+    (`_error`) no es un hallazgo y uno con `novedad: false` (p. ej. una tesis
+    anterior a la ventana de la semana) no es noticia: no basta para un post.
+    Un item sin la marca cuenta como novedad (DOF/SAT: la portada del día y los
+    comunicados recientes)."""
     if not contrato:
         return 0, []
     entradas = contrato.values() if isinstance(contrato, dict) else contrato
@@ -85,7 +88,7 @@ def _items_validados(contrato: Any) -> tuple[int, list[str]]:
         if entrada.get("status") == SUCCESS:
             total += sum(
                 1 for item in entrada.get("items", [])
-                if not (isinstance(item, dict) and item.get("_error"))
+                if isinstance(item, dict) and not item.get("_error") and item.get("novedad", True)
             )
         else:
             indisponibles.append(f"{entrada.get('source', '?')} ({entrada.get('status', '?')})")

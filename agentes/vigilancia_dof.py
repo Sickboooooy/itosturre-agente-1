@@ -119,6 +119,7 @@ def fetch_dof() -> ResultadoFuente:
                 "url": url,
                 "keywords_detectados": matched,
                 "verificacion": "⚠️ por confirmar — URL requiere validación manual",
+                "novedad": True,  # portada del día
             })
 
     for td in soup.find_all(["td", "li", "p"]):
@@ -135,6 +136,7 @@ def fetch_dof() -> ResultadoFuente:
                     "url": DOF_BASE,
                     "keywords_detectados": matched,
                     "verificacion": "⚠️ por confirmar — sin URL directa",
+                    "novedad": True,  # portada del día
                 })
 
     return ResultadoFuente(source="DOF", status=SUCCESS, items=items)
@@ -166,6 +168,7 @@ def fetch_sat() -> ResultadoFuente:
                 "url": url,
                 "keywords_detectados": matched,
                 "verificacion": "⚠️ por confirmar",
+                "novedad": True,  # comunicados recientes
             })
 
     return ResultadoFuente(source="SAT", status=SUCCESS, items=items)
