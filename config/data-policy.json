@@ -11,7 +11,8 @@
     "corpus/*.pdf",
     "graphify-out/",
     "/memoria/",
-    "*.db"
+    "*.db",
+    "/salidas/"
   ],
   "forbidden_tracked_prefixes": [
     "auditorias/",
@@ -19,7 +20,8 @@
     "chroma_db/",
     "jurisprudencia/",
     "graphify-out/",
-    "memoria/"
+    "memoria/",
+    "salidas/"
   ],
   "forbidden_tracked_files": [
     ".env",

@@ -1,8 +1,12 @@
 # Vigilancia legal automatizada — DOF/SAT + SJF
 
 **Estado:** vigente desde 11-sep-2026 · reparación arquitectónica del watch programado.
+Actualizado el 10-oct-2026 con el contrato de corrida (§3.6): salidas fuera del paquete,
+fecha de la Ciudad de México, códigos de salida y ningún brief cuando la fuente primaria
+no responde.
 **Alcance:** `agentes/vigilancia_dof.py`, `agentes/vigilancia_jurisprudencial.py`,
-`agentes/contenido_linkedin.py`, `itosturre/vigilancia/`.
+`agentes/contenido_linkedin.py`, `itosturre/vigilancia/` (`contrato.py` por fuente,
+`rutina.py` por corrida). Prompts de las rutinas programadas: `docs/RUTINAS.md`.
 
 **Por qué existe:** una tarea programada intentó ejecutar esta vigilancia directamente
 dentro de una sesión cloud de Claude Code cuya política de red bloquea (403 en el proxy
@@ -50,12 +54,16 @@ Collector — agentes/vigilancia_dof.py, vigilancia_jurisprudencial.py
         │  requests HTTP directo a dof.gob.mx / sat.gob.mx / sjf2.scjn.gob.mx
         │  SI el entorno del Collector no tiene egress autorizado → SOURCE_UNAVAILABLE
         ▼
-Evidence — items + contrato .json (itosturre/vigilancia/contrato.py) junto al .md
+Evidence — items + contrato .json (itosturre/vigilancia/contrato.py) junto al .md,
+        │  y el estado de la corrida .estado.json (itosturre/vigilancia/rutina.py)
+        │  SI la fuente primaria no respondió → sin .md, solo .estado.json, salida 2
         ▼
-Validator — agentes/contenido_linkedin.py: validar() antes de generar nada
+Validator — agentes/contenido_linkedin.py: validar() antes de generar nada,
+        solo con briefs vigentes (últimos 7 días)
         ▼
 Content Generator — agentes/contenido_linkedin.py: genera SOLO si hay ≥1 hallazgo
-        con status SUCCESS; si no, escribe LinkedIn: NOT_GENERATED con el motivo.
+        con status SUCCESS; si no, no escribe borrador: deja el motivo en
+        borrador-YYYY-MM-DD.estado.json y sale con código 3.
 ```
 
 - **El Collector necesita, él mismo, acceso de red autorizado** a `dof.gob.mx`, `sat.gob.mx`
@@ -146,24 +154,35 @@ Cada watcher guarda, junto al brief/informe legible en Markdown, un `.json` del 
 con el contrato crudo (`itosturre.vigilancia.contrato.guardar_sidecar`):
 
 ```
-Itosturre/Vigilancia/2026-09-11.md    # para el abogado
-Itosturre/Vigilancia/2026-09-11.json  # para cualquier consumidor automatizado
-Itosturre/Jurisprudencia/semana-2026-W37.md
-Itosturre/Jurisprudencia/semana-2026-W37.json
+salidas/Vigilancia/2026-09-11.md            # para el abogado
+salidas/Vigilancia/2026-09-11.json          # contrato: para cualquier consumidor automatizado
+salidas/Vigilancia/2026-09-11.estado.json   # estado de la corrida (§3.6)
+salidas/Jurisprudencia/semana-2026-W37.md
+salidas/Jurisprudencia/semana-2026-W37.json # fichas crudas con su SHA-256 (cadena de custodia)
+salidas/Jurisprudencia/semana-2026-W37.estado.json
 ```
 
 `contenido_linkedin.py` **lee el `.json`, nunca re-deriva el estado parseando el Markdown**
 — el Markdown está redactado para humanos (puede reformular, resumir, traducir a prosa) y
 no es una fuente confiable para decidir programáticamente si hubo o no un hallazgo real.
 
-`Itosturre/` es la carpeta de salida de estos tres watchers (briefs, contratos, borradores,
-log de eventos). Es contenido generado y regenerable — no código — así que está en
-`.gitignore` (`/Itosturre/`, ver también `docs/POLITICA_DATOS.md`).
+La raíz de salida es `$ITOSTURRE_SALIDA` o, por omisión, `salidas/` en la raíz del repo
+(una ruta relativa se resuelve desde la raíz, no desde el directorio actual). Es contenido
+generado y regenerable — no código — así que está en `.gitignore` (`/salidas/`, ver también
+`docs/POLITICA_DATOS.md`).
+
+**Por qué ya no es `Itosturre/`:** en macOS y Windows (sistemas de archivos sin distinción de
+mayúsculas) `Itosturre/` y el paquete de código `itosturre/` son la misma carpeta: los briefs
+caían dentro del paquete y la regla `/Itosturre/` de `.gitignore` ignoraba también cualquier
+módulo nuevo de `itosturre/`, que nunca habría llegado al repo. `rutina.validar_salida()`
+rechaza, sin distinguir mayúsculas, cualquier salida dentro del paquete, y
+`tests/test_vigilancia_rutina.py` falla si una regla de `.gitignore` vuelve a ignorarlo.
 
 ### 3.5 Observabilidad
 
 `itosturre.vigilancia.contrato.registrar_evento(evento, **datos)` anexa una línea JSON a
-`Itosturre/eventos.jsonl`. Eventos válidos (los únicos que la función acepta):
+`salidas/eventos.jsonl` (junto a las salidas, nunca dentro del paquete). Eventos válidos
+(los únicos que la función acepta):
 
 ```
 watch_started · collector_started · source_requested · source_success ·
@@ -174,6 +193,34 @@ draft_generated · draft_blocked
 Nunca se registran secretos ni credenciales — solo nombre de fuente, estado, y metadatos
 operativos (`n_items`, `retryable`, `motivo`).
 
+### 3.6 Contrato de corrida: estado y código de salida
+
+`itosturre/vigilancia/rutina.py` fija lo que cada corrida deja para quien la orquesta (cron,
+rutina programada, CI). Toda corrida que consulta escribe `<clave>.estado.json` (`clave` =
+nombre del brief sin `.md`) con `estado`, `codigo_salida`, la hora de la Ciudad de México y el
+resumen por fuente (status, errores, reintentable, número de hallazgos, entorno):
+
+| Script | Situación | Brief/borrador | `estado` | Salida |
+|---|---|---|---|---|
+| `vigilancia_dof.py` | DOF y SAT respondieron | sí | `OK` | 0 |
+| | SAT no respondió (secundaria) | sí, con ❌ SAT | `PARCIAL` | 0 |
+| | DOF no respondió (primaria; el SAT ni se consulta) | **no** | `FUENTE_INACCESIBLE` | 2 |
+| `vigilancia_jurisprudencial.py` | los 5 temas respondieron | sí | `OK` | 0 |
+| | alguno no respondió | sí, con ❌ en ese tema | `PARCIAL` | 0 |
+| | ninguno respondió | **no** | `FUENTE_INACCESIBLE` | 2 |
+| `contenido_linkedin.py` | ≥1 hallazgo `SUCCESS` en un brief vigente | sí | `OK` | 0 |
+| | sin briefs vigentes, fuentes caídas o sin novedades | **no** | `SIN_INSUMOS` (+ `motivo`) | 3 |
+
+Una salida 1 es un error no previsto o de configuración (p. ej. `$ITOSTURRE_SALIDA` dentro del
+paquete). Un tema del SJF cuya búsqueda devolvió IUS pero ninguna ficha legible queda
+`SOURCE_UNAVAILABLE`: no hay criterio verificado, y una ficha con `_error` nunca cuenta como
+hallazgo para el generador de contenido.
+
+La **fecha operativa** es la de la Ciudad de México (`rutina.hoy_mx()`), no la del servidor:
+los contenedores de las rutinas corren en UTC. Sin base de zonas IANA (Windows sin el paquete
+`tzdata`) se usa UTC-6 fijo, que da la misma fecha porque la Ciudad de México no tiene horario
+de verano desde octubre de 2022.
+
 ---
 
 ## 4. Regla del bloqueo de contenido (`contenido_linkedin.py`)
@@ -181,17 +228,24 @@ operativos (`n_items`, `retryable`, `motivo`).
 ```python
 es_valido, motivo = validar(contexto)
 if not es_valido:
-    # LinkedIn: NOT_GENERATED — se escribe el motivo, nunca un post genérico
-    ...
+    # Sin borrador: ni post genérico ni aviso en su lugar. El motivo va al estado.
+    rutina.registrar_estado(OUTPUT_DIR, OUTPUT_FILE.stem, rutina.SIN_INSUMOS, motivo=motivo, ...)
+    return rutina.EXIT_SIN_INSUMOS
 ```
 
-`validar()` distingue dos motivos de bloqueo (ambos con el mismo resultado — no se genera
-nada — pero registrados distinto, porque son jurídica y operativamente diferentes):
+`validar()` distingue tres motivos de bloqueo (todos con el mismo resultado — no se escribe
+borrador, el motivo queda en `borrador-YYYY-MM-DD.estado.json` y la salida es 3 — pero
+registrados distinto, porque son jurídica y operativamente diferentes):
 
-- **`SOURCE_UNAVAILABLE`** — ninguna fuente pudo consultarse, o las que respondieron no
-  aportaron ningún hallazgo utilizable.
+- **`SIN_INSUMOS`** — no hay briefs vigentes (últimos 7 días) de ninguna de las dos
+  vigilancias. Un brief viejo no se recicla como si fuera "lo de esta semana".
+- **`SOURCE_UNAVAILABLE`** — las fuentes de los briefs vigentes no pudieron consultarse, o
+  sus contratos `.json` faltan o son ilegibles (no se puede verificar que hubo consulta).
 - **`SIN_HALLAZGOS`** — las fuentes SÍ se consultaron (status `SUCCESS`) pero no había nada
   noticiable. Esto no es un fallo: simplemente no hay post que escribir hoy.
+
+No se escribe un aviso `NOT_GENERATED` en lugar del borrador: con el nombre del borrador del
+día, ese aviso bloquearía la corrida posterior que sí tuviera insumos.
 
 Si **al menos una** fuente aporta ≥1 hallazgo validado (`status == SUCCESS` y `items` no
 vacío), la generación continúa usando **solo** esas fuentes — las marcadas
@@ -202,21 +256,22 @@ prohíbe tratarlas como si fueran un "sin novedades".
 
 ## 5. Idempotencia
 
-Los tres watchers usan el mismo mecanismo, ya existente y suficiente para el caso de uso
-(ejecución diaria/semanal vía cron): si el archivo de salida del día/semana ya existe, el
-script no vuelve a golpear la red ni a regenerar contenido — simplemente termina.
+Los tres scripts usan el mismo mecanismo: si el archivo de salida del día/semana ya existe, el
+script no vuelve a golpear la red ni a regenerar contenido — termina con salida 0 y **no toca
+el `.estado.json`**, que sigue describiendo la corrida que sí consultó.
 
 ```
-Itosturre/Vigilancia/{YYYY-MM-DD}.md          — una vez por día
-Itosturre/Jurisprudencia/semana-{YYYY-Www}.md — una vez por semana
-Itosturre/Contenido/borrador-{YYYY-MM-DD}.md  — una vez por día
+salidas/Vigilancia/{YYYY-MM-DD}.md          — una vez por día
+salidas/Jurisprudencia/semana-{YYYY-Www}.md — una vez por semana
+salidas/Contenido/borrador-{YYYY-MM-DD}.md  — una vez por día
 ```
 
-Esto se conserva incluso cuando el resultado del día fue `SOURCE_UNAVAILABLE` o
-`NOT_GENERATED`: es una decisión deliberada (no ejecutar dos veces el mismo día), documentada
-aquí para quien necesite forzar un reintento manual — borrar el archivo del día antes de
-volver a invocar el script es la vía explícita para eso, no se añadió un flag `--force`
-porque no hacía falta para el caso de uso actual.
+**Una corrida fallida no escribe ese archivo** (fuente primaria caída, ningún tema del SJF,
+ningún insumo para el borrador): así la guarda no bloquea el reintento del mismo día o semana.
+Antes, la guarda junto con "escribir siempre" dejaba el periodo sin vigilancia real y sin
+posibilidad de reintento ("pozo envenenado"). Un resultado `PARCIAL` sí escribe el brief y
+cierra el periodo; para reintentarlo, borrar el `.md` (y su `.json`) antes de volver a invocar
+el script — no se añadió un flag `--force` porque no hacía falta para el caso de uso actual.
 
 ---
 
@@ -233,8 +288,14 @@ python agentes/contenido_linkedin.py
 
 Variables de entorno relevantes:
 
-- `ANTHROPIC_API_KEY` — opcional. Sin ella, los tres scripts corren en modo degradado/
-  placeholder (datos crudos, sin redacción LLM) en vez de fallar.
+- `ANTHROPIC_API_KEY` — opcional. Sin ella (o sin la librería `anthropic`), los tres scripts
+  corren en modo degradado/placeholder (datos crudos, sin redacción LLM) en vez de fallar.
+- `ITOSTURRE_MODELO` — opcional. Modelo para la redacción vía API; una sola definición para
+  los tres scripts (`rutina.modelo()`), ningún agente fija el modelo en su código.
+- `ITOSTURRE_SALIDA` — opcional. Raíz de salidas (por omisión `salidas/`); nunca dentro del
+  paquete `itosturre/` (§3.4).
+- `ITOSTURRE_WHATSAPP` — opcional. Número del CTA del borrador (`wa.me/<número>`); sin ella
+  queda el marcador `[número]`.
 - `ITOSTURRE_EXEC_ENV` — opcional, recomendado en producción. Identifica en qué máquina
   corrió el collector (queda en el contrato `.json` y ayuda a diagnosticar un
   `SOURCE_UNAVAILABLE` sin adivinar). Ejemplo: `ITOSTURRE_EXEC_ENV="oficina-jorge-win11"`.
@@ -250,7 +311,9 @@ tarea.
 
 ## 7. Diagnosticar `SOURCE_UNAVAILABLE`
 
-1. Abrir el `.json` del día/semana en `Itosturre/Vigilancia/` o `Itosturre/Jurisprudencia/`.
+1. Abrir el `.estado.json` del día/semana en `salidas/Vigilancia/` o
+   `salidas/Jurisprudencia/` (existe aunque no se haya escrito brief; el `.json` del contrato
+   solo existe junto a un brief).
 2. Por cada fuente con `status != "SUCCESS"`, leer `errors` y `execution_environment`.
 3. Si `retryable: false` y el mensaje menciona bloqueo de política/proxy/403 en el CONNECT:
    **no reintentar en el mismo entorno.** Ejecutar el watcher en un entorno distinto (ver §2)
@@ -296,28 +359,33 @@ de código que genere el post "por si acaso" cuando la validación falla.
 ## 10. Pruebas
 
 ```bash
-python -m unittest tests.test_vigilancia_contrato tests.test_vigilancia_watch -v
+python -m unittest tests.test_vigilancia_contrato tests.test_vigilancia_rutina tests.test_vigilancia_watch -v
 ```
 
 Cubren:
 
-- El contrato (`ResultadoFuente`, clasificación de excepciones, observabilidad, sidecar
-  `.json`) de forma aislada, sin red.
-- Los 5 escenarios de este encargo, con red simulada (`unittest.mock`) — ninguna prueba
-  depende de acceso real a DOF/SAT/SJF:
-  - **A.** Todas las fuentes disponibles → hay hallazgo → se genera el post de LinkedIn.
-  - **B.** DOF bloqueado, SAT/SJF disponibles → no se inventa DOF; el proceso sigue con lo
-    válido.
-  - **C.** SJF bloqueado → no se afirma ningún criterio jurisprudencial.
-  - **D.** Todas las fuentes bloqueadas → `Watch result: SOURCE_UNAVAILABLE` en ambos
-    watchers y `LinkedIn: NOT_GENERATED` en el generador de contenido. (Se prueba también la
-    variante "fuentes disponibles pero sin hallazgos", que bloquea por `SIN_HALLAZGOS` en
-    vez de `SOURCE_UNAVAILABLE` — son motivos distintos.)
-  - **E.** Ejecución repetida el mismo día/semana → no duplica briefs, informes ni borradores,
-    y no vuelve a golpear la red.
-  - Un caso adicional verifica que un bloqueo de política de red corta los reintentos
-    exponenciales del collector SJF en el primer intento (no gasta 14 s intentando algo que
-    no puede resolverse en el mismo entorno).
+- El contrato por fuente (`ResultadoFuente`, clasificación de excepciones, bloqueo de
+  política frente a timeout, observabilidad, sidecar `.json`) de forma aislada, sin red.
+- El contrato de corrida (`rutina.py`): salida por omisión y por variable, rechazo de rutas
+  dentro del paquete con cualquier mayúscula, que `.gitignore` no ignore módulos nuevos de
+  `itosturre/` (con `core.ignorecase=true` forzado, también en Linux), fecha de la Ciudad de
+  México y su respaldo UTC-6, briefs vigentes, estados y códigos de salida, modelo único.
+- Los escenarios de los watchers con red simulada (`unittest.mock`) — ninguna prueba depende
+  de acceso real a DOF/SAT/SJF ni a la API de Anthropic:
+  - **A.** Todas las fuentes disponibles → brief, informe y borrador.
+  - **B.** DOF caído → sin brief (salida 2) y el SAT ni se consulta; el SJF sigue y sostiene
+    el borrador. **B2.** SAT caído → brief `PARCIAL` que lo dice.
+  - **C.** SJF caído → sin informe (salida 2) y una sola petición; detalle ilegible → el tema
+    no cuenta como criterio. **C2.** Un tema caído → informe `PARCIAL` sin "sin criterios" en
+    ese tema.
+  - **D.** Todo caído → ningún brief, informe ni borrador (salidas 2, 2 y 3). **D2.** Fuentes
+    disponibles sin novedades → sin borrador por `SIN_HALLAZGOS`.
+  - **E.** Ejecución repetida → no duplica, no vuelve a golpear la red, no pisa el estado.
+  - **F.** Una corrida fallida no bloquea el reintento del día o la semana.
+  - Piezas sueltas: `None` ≠ `[]` en la búsqueda del SJF, corte de reintentos ante bloqueo de
+    política, informe degradado con "Nuevos esta semana"/"Contexto" e instancia, briefs viejos
+    que no se reciclan, CTA por variable, y la rama con LLM con un `anthropic` falso (modelo
+    configurado, aviso de fuente caída, caída al modo sin LLM si falta la librería).
 
 ---
 

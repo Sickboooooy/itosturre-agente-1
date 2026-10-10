@@ -30,7 +30,17 @@ Endpoints (microservicio oficial, público, sin WAF ni navegador):
 
 Rate: 1 req/seg + retry exponencial (2 s, 4 s, 8 s) — salvo que el error se
 clasifique como bloqueo de política de red del entorno, en cuyo caso NO se
-reintenta (ver itosturre.vigilancia.contrato.clasificar_excepcion_red).
+reintenta ni se consultan los temas restantes: fallarían igual en el mismo
+entorno (ver itosturre.vigilancia.contrato.es_bloqueo_politica).
+
+Salidas en salidas/Jurisprudencia/ (raíz: $ITOSTURRE_SALIDA): el informe
+semana-YYYY-Www.md, las fichas crudas con su SHA-256 en semana-YYYY-Www.json y
+el estado de la corrida en semana-YYYY-Www.estado.json.
+
+Contrato de salida (itosturre/vigilancia/rutina.py):
+  0 → informe escrito: OK, o PARCIAL si algún tema no se pudo consultar (❌).
+  2 → ningún tema respondió: NO se escribe informe — queda el estado con la
+      causa y una corrida posterior de la misma semana puede reintentar.
 
 Uso:
     python agentes/vigilancia_jurisprudencial.py
@@ -42,7 +52,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -54,17 +64,20 @@ if str(BASE_DIR) not in sys.path:
 
 from itosturre.vigilancia import (  # noqa: E402
     PARSER_ERROR,
+    SOURCE_UNAVAILABLE,
     SUCCESS,
     ResultadoFuente,
     clasificar_excepcion_red,
+    es_bloqueo_politica,
     guardar_sidecar,
     registrar_evento,
+    rutina,
 )
 
 # ── Rutas ─────────────────────────────────────────────────────────────────────
 
-OUTPUT_DIR = BASE_DIR / "Itosturre" / "Jurisprudencia"
-TODAY = date.today()
+OUTPUT_DIR = rutina.SALIDA_DIR / "Jurisprudencia"
+TODAY = rutina.hoy_mx()
 FECHA_INICIO = TODAY - timedelta(days=7)   # ventana "última semana" (criterios nuevos)
 YEAR, WEEK_NUM, _ = TODAY.isocalendar()
 WEEK_STR = f"{YEAR}-W{WEEK_NUM:02d}"
@@ -151,6 +164,7 @@ class _HttpOutcome:
     status: str = SUCCESS
     retryable: bool = False
     error: str = ""
+    bloqueo_politica: bool = False
 
 
 def _http(method: str, url: str, **kwargs) -> _HttpOutcome:
@@ -177,7 +191,10 @@ def _http(method: str, url: str, **kwargs) -> _HttpOutcome:
         except requests.RequestException as exc:
             status, retryable, mensaje = clasificar_excepcion_red(exc)
             print(f"      ⚠ conexión: {mensaje}")
-            ultimo = _HttpOutcome(response=None, status=status, retryable=retryable, error=mensaje)
+            ultimo = _HttpOutcome(
+                response=None, status=status, retryable=retryable, error=mensaje,
+                bloqueo_politica=es_bloqueo_politica(exc),
+            )
             if not retryable:
                 break
     return ultimo
@@ -213,31 +230,34 @@ def _search_body(expresion: str) -> dict:
     }
 
 
-def buscar_tesis(expresion: str) -> tuple[list[int], Optional[dict]]:
+def buscar_tesis(expresion: str) -> tuple[Optional[list[int]], Optional[dict]]:
     """
     Búsqueda con el CONTRATO REAL del buscador oficial: POST /tesis?page=0&size=N,
     body con classifiers + searchTerms (keyword en expression sobre
     localizacionBusqueda/rubro/texto). La paginación va en la URL, no en el body.
 
     Devuelve (ids, None) si la búsqueda se pudo ejecutar (ids puede ser [] si
-    genuinamente no hay resultados). Devuelve ([], info_error) si la fuente NO
-    pudo consultarse — info_error nunca se confunde con "sin resultados".
+    genuinamente no hay resultados). Devuelve (None, info_error) si la fuente NO
+    pudo consultarse: None ≠ [] — "no pude preguntar" no es "no hay nada".
     """
     outcome = _http("POST", f"{SJF_API}/tesis?page=0&size={TAMANO_PAGINA}", json=_search_body(expresion))
     if outcome.response is None:
-        return [], {"status": outcome.status, "retryable": outcome.retryable, "error": outcome.error}
+        return None, {
+            "status": outcome.status, "retryable": outcome.retryable, "error": outcome.error,
+            "bloqueo_politica": outcome.bloqueo_politica,
+        }
     if not outcome.response.ok:
-        return [], {
-            "status": "SOURCE_UNAVAILABLE",
+        return None, {
+            "status": SOURCE_UNAVAILABLE,
             "retryable": outcome.response.status_code >= 500,
-            "error": f"HTTP {outcome.response.status_code}",
+            "error": f"HTTP {outcome.response.status_code} en POST /tesis",
         }
     try:
         docs = outcome.response.json().get("documents", [])
         ids = [int(d["ius"]) for d in docs if str(d.get("ius", "")).isdigit()][:TAMANO_PAGINA]
         return ids, None
     except (ValueError, TypeError, AttributeError) as exc:
-        return [], {"status": PARSER_ERROR, "retryable": False, "error": f"respuesta no parseable: {exc}"}
+        return None, {"status": PARSER_ERROR, "retryable": False, "error": f"respuesta no parseable: {exc}"}
 
 
 def _campo(data: dict, *keys, default: str = "") -> str:
@@ -353,29 +373,43 @@ def obtener_detalle(ius: int) -> dict[str, Any]:
 
 # ── Orquestación ──────────────────────────────────────────────────────────────
 
+def _tema_fallido(status: str, retryable: bool, errores: list[str]) -> dict:
+    return {"status": status, "retryable": retryable, "errors": errores, "fichas": []}
+
+
 def consultar_todos() -> dict[str, dict]:
     """Flujo completo: búsqueda → IUS → ficha completa para los 5 temas.
 
     Cada tema queda con status SUCCESS (búsqueda ejecutada — 'fichas' puede
-    estar vacía si genuinamente no hubo resultados) o con el status/():error
-    que clasificó la búsqueda cuando NO pudo ejecutarse."""
+    estar vacía si genuinamente no hubo resultados) o con el status/errors que
+    explican por qué NO hay criterio verificado: la búsqueda falló, o devolvió
+    IUS pero ninguna ficha se pudo leer. Ante un bloqueo de política de red los
+    temas restantes no se consultan (fallarían igual) y quedan marcados."""
     resultado: dict[str, dict] = {}
-    for tema in TEMAS:
+    for i, tema in enumerate(TEMAS):
         print(f"    🔎 {tema['label'][:65]}...")
         registrar_evento("source_requested", source="SJF", tema=tema["id"])
         ids, error_info = buscar_tesis(tema["expresion"])
-        if error_info is not None:
+        if ids is None:
             print(f"       ❌ {error_info['status']} — {error_info['error']}")
             registrar_evento(
                 "source_unavailable", source="SJF", tema=tema["id"],
                 status=error_info["status"], retryable=error_info["retryable"],
             )
-            resultado[tema["label"]] = {
-                "status": error_info["status"],
-                "retryable": error_info["retryable"],
-                "errors": [error_info["error"]],
-                "fichas": [],
-            }
+            resultado[tema["label"]] = _tema_fallido(
+                error_info["status"], error_info["retryable"], [error_info["error"]]
+            )
+            if error_info.get("bloqueo_politica"):
+                for resto in TEMAS[i + 1:]:
+                    registrar_evento(
+                        "source_unavailable", source="SJF", tema=resto["id"],
+                        status=error_info["status"], retryable=False, omitido=True,
+                    )
+                    resultado[resto["label"]] = _tema_fallido(error_info["status"], False, [
+                        f"no consultado: bloqueo de política de red detectado en el tema "
+                        f"'{tema['id']}' (mismo entorno)"
+                    ])
+                break
             continue
         print(f"       → {len(ids)} IUS obtenidos")
         registrar_evento("source_success", source="SJF", tema=tema["id"], n_ids=len(ids))
@@ -383,8 +417,29 @@ def consultar_todos() -> dict[str, dict]:
         for ius in ids[:MAX_DETALLE]:
             print(f"         GET /tesis/{ius}")
             fichas.append(obtener_detalle(ius))
-        resultado[tema["label"]] = {"status": SUCCESS, "retryable": False, "errors": [], "fichas": fichas}
+        errores = [f"detalle IUS {f['ius']}: {f['_error']}" for f in fichas if f.get("_error")]
+        if fichas and len(errores) == len(fichas):
+            # Hubo IUS pero ninguna ficha legible: no hay criterio verificado.
+            resultado[tema["label"]] = {
+                "status": SOURCE_UNAVAILABLE, "retryable": True, "errors": errores, "fichas": fichas,
+            }
+        else:
+            resultado[tema["label"]] = {
+                "status": SUCCESS, "retryable": False, "errors": errores, "fichas": fichas,
+            }
     return resultado
+
+
+def contrato_tema(label: str, tema: dict) -> ResultadoFuente:
+    """ResultadoFuente del tema: solo las fichas legibles cuentan como hallazgos."""
+    validas = [f for f in tema["fichas"] if not f.get("_error")]
+    return ResultadoFuente(
+        source=f"SJF:{label}",
+        status=tema["status"],
+        items=validas if tema["status"] == SUCCESS else [],
+        errors=tema["errors"],
+        retryable=tema["retryable"],
+    )
 
 
 # ── Generación del informe ────────────────────────────────────────────────────
@@ -402,9 +457,13 @@ REGLA ABSOLUTA — Protocolo Itosturre (no negociable):
 5. Copia los valores de IUS, época, sala, fecha y hash textualmente del JSON.
    No los reformules ni los inventes.
 6. Un tema cuyo "status" no sea "SUCCESS" NO tuvo búsqueda válida: escribe
-   exactamente "❌ SOURCE_UNAVAILABLE — no se pudo consultar el microservicio
-   SJF para este tema" y NUNCA "sin criterios esta semana" (son afirmaciones
-   distintas: la segunda implica que sí se consultó)."""
+   exactamente "❌ Consulta fallida — no equivale a 'sin criterios'" y NUNCA
+   "sin criterios esta semana" (son afirmaciones distintas: la segunda implica
+   que sí se consultó).
+7. Solo las fichas con "en_ventana_semana": true son criterios NUEVOS de la
+   semana; las demás son contexto y van en la subsección "Contexto (fuera de
+   ventana)". El órgano emisor es el campo "instancia" (texto); "sala_codigo"
+   es un código interno — nunca lo escribas como "Sala N"."""
 
 
 def redactar_informe_llm(resultados: dict[str, dict]) -> str:
@@ -449,10 +508,10 @@ dilo explícitamente aquí.]
 
 [Una sección ### por cada uno de los 5 temas.
 - Si status != SUCCESS → escribe únicamente:
-  "❌ SOURCE_UNAVAILABLE — no se pudo consultar el microservicio SJF para
-  este tema. Detalle: [errors del JSON]."
+  "❌ Consulta fallida — no equivale a 'sin criterios'. Detalle: [errors del JSON]."
 - Si status == SUCCESS y fichas está vacío → "Sin criterios esta semana."
-- Si status == SUCCESS y hay fichas → un bloque por criterio, ver abajo.]
+- Si status == SUCCESS y hay fichas → "Nuevos esta semana" (en_ventana_semana
+  true) y "Contexto (fuera de ventana)" (el resto), un bloque por criterio.]
 
 Por cada criterio (solo temas con status SUCCESS), usa este bloque (copia los
 valores del JSON, sin modificar):
@@ -460,10 +519,12 @@ valores del JSON, sin modificar):
 ---
 **Registro IUS:** [del JSON — o ⚠️ no disponible]
 **Rubro:** [del JSON — o ⚠️ no disponible]
+**Clave:** [clave_tesis del JSON — o ⚠️ no disponible]
 **Tipo:** [del JSON — Jurisprudencia obligatoria / Tesis aislada / Criterio orientador]
 **Época:** [del JSON — o ⚠️ no disponible]
-**Sala/Órgano:** [del JSON — o ⚠️ no disponible]
+**Instancia/Órgano:** [instancia del JSON — o ⚠️ no disponible]
 **Fecha publicación:** [del JSON — o ⚠️ no disponible]
+**Publicación (verbatim SJF):** [texto_publicacion del JSON — o ⚠️ no disponible]
 **Hash SHA-256:** [del JSON — o ⚠️ no disponible]
 **URL SJF:** [del JSON]
 **Síntesis:** [2-4 oraciones tuyas basadas en el campo texto del JSON]
@@ -482,7 +543,7 @@ ventana de la última semana." Los temas SOURCE_UNAVAILABLE no se analizan.]
 
     try:
         resp = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=rutina.modelo(),
             max_tokens=3000,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -494,6 +555,24 @@ ventana de la última semana." Los temas SOURCE_UNAVAILABLE no se analizan.]
 
 def _marca(valor: str) -> str:
     return valor if valor else "⚠️ no disponible"
+
+
+def _bloque_ficha(f: dict) -> list[str]:
+    return [
+        "---",
+        f"**Registro IUS:** {_marca(str(f['ius']))}",
+        f"**Rubro:** {_marca(f.get('rubro', '')[:120])}",
+        f"**Clave:** {_marca(f.get('clave_tesis', ''))}",
+        f"**Tipo:** {_marca(f.get('tipo_clasificado', ''))}",
+        f"**Época:** {_marca(f.get('epoca', ''))}",
+        # 'sala_codigo' es un código interno (p. ej. 7 = TCC): el órgano es 'instancia'.
+        f"**Instancia/Órgano:** {_marca(f.get('instancia', ''))}",
+        f"**Fecha publicación:** {_marca(f.get('fecha_publicacion', ''))}",
+        f"**Publicación (verbatim SJF):** {_marca(f.get('texto_publicacion', ''))}",
+        f"**Hash SHA-256:** {_marca(f.get('hash_sha256', ''))}",
+        f"**URL SJF:** {f.get('url_sjf', '')}",
+        "",
+    ]
 
 
 def _informe_degradado(resultados: dict[str, dict], motivo: str = "") -> str:
@@ -508,15 +587,22 @@ def _informe_degradado(resultados: dict[str, dict], motivo: str = "") -> str:
         f"> Semana: {semana_inicio} al {semana_fin}",
         "",
     ]
-    total = sum(len(v["fichas"]) for v in resultados.values())
-    lines += [f"**Total fichas recuperadas:** {total}", ""]
+    validas = [f for v in resultados.values() for f in v["fichas"] if not f.get("_error")]
+    nuevas = sum(1 for f in validas if f.get("en_ventana_semana"))
+    fallidos = [label for label, v in resultados.items() if v["status"] != SUCCESS]
+    lines += [
+        f"**Total fichas recuperadas:** {len(validas)} · **Nuevas en la ventana "
+        f"{FECHA_INICIO} a {TODAY}:** {nuevas}",
+        "",
+    ]
+    if fallidos:
+        lines += [f"> ❌ {len(fallidos)} tema(s) sin consultar — ver cada sección.", ""]
 
     for label, tema in resultados.items():
         lines += [f"## {label}", ""]
         if tema["status"] != SUCCESS:
             lines += [
-                f"❌ **SOURCE_UNAVAILABLE** — no se pudo consultar el microservicio SJF para este tema.",
-                f"- Estado: {tema['status']}",
+                f"❌ **Consulta fallida ({tema['status']})** — no equivale a \"sin criterios\".",
                 f"- Reintentable: {'sí' if tema['retryable'] else 'no'}",
                 f"- Detalle: {'; '.join(tema['errors']) or 'sin detalle'}",
                 "",
@@ -524,59 +610,29 @@ def _informe_degradado(resultados: dict[str, dict], motivo: str = "") -> str:
             continue
         fichas = tema["fichas"]
         if not fichas:
-            lines += ["Sin criterios encontrados.", ""]
+            lines += ["Sin criterios encontrados (búsqueda ejecutada).", ""]
             continue
         for f in fichas:
             if f.get("_error"):
                 lines += [f"- IUS {f['ius']}: ❌ {f['_error']}", ""]
-                continue
-            lines += [
-                "---",
-                f"**Registro IUS:** {_marca(str(f['ius']))}",
-                f"**Rubro:** {_marca(f.get('rubro', '')[:120])}",
-                f"**Tipo:** {_marca(f.get('tipo_clasificado', ''))}",
-                f"**Época:** {_marca(f.get('epoca', ''))}",
-                f"**Sala/Órgano:** {_marca(f.get('sala_codigo', ''))}",
-                f"**Fecha publicación:** {_marca(f.get('fecha_publicacion', ''))}",
-                f"**Hash SHA-256:** {_marca(f.get('hash_sha256', ''))}",
-                f"**URL SJF:** {f.get('url_sjf', '')}",
-                "",
-            ]
+        legibles = [f for f in fichas if not f.get("_error")]
+        en_ventana = [f for f in legibles if f.get("en_ventana_semana")]
+        fuera = [f for f in legibles if not f.get("en_ventana_semana")]
+        lines += ["### Nuevos esta semana", ""]
+        if not en_ventana:
+            lines += ["Sin criterios publicados en la ventana.", ""]
+        for f in en_ventana:
+            lines += _bloque_ficha(f)
+        if fuera:
+            lines += ["### Contexto (fuera de ventana)", ""]
+            for f in fuera:
+                lines += _bloque_ficha(f)
 
     lines += [
         "## Trazabilidad",
         f"- Microservicio: {SJF_API}",
         f"- Filtro: ventana de publicación {FECHA_INICIO} a {TODAY} (todas las épocas)",
         f"- Fecha de consulta: {TODAY}",
-    ]
-    return "\n".join(lines)
-
-
-def _informe_todos_indisponibles(resultados: dict[str, dict]) -> str:
-    """Los 5 temas fallaron: NO se genera ningún análisis jurisprudencial."""
-    lines = [
-        f"# Vigilancia Jurisprudencial SJF — {WEEK_STR}",
-        "",
-        "## Watch result: SOURCE_UNAVAILABLE",
-        "",
-        "El microservicio del SJF no pudo consultarse para ninguno de los 5 temas.",
-        "No se generó ningún análisis jurisprudencial — hacerlo sin datos verificados",
-        "violaría el protocolo anti-alucinación de Itosturre.",
-        "",
-    ]
-    for label, tema in resultados.items():
-        lines += [
-            f"### {label}",
-            f"- Estado: {tema['status']}",
-            f"- Reintentable: {'sí' if tema['retryable'] else 'no'}",
-            f"- Detalle: {'; '.join(tema['errors']) or 'sin detalle'}",
-            "",
-        ]
-    lines += [
-        "## Siguiente paso",
-        f"Ejecutar este watch en un entorno con egress autorizado hacia {SJF_API}",
-        "(ver docs/VIGILANCIA_LEGAL.md). Reintentar en el mismo entorno no resuelve",
-        "un bloqueo de política de red.",
     ]
     return "\n".join(lines)
 
@@ -602,46 +658,51 @@ def main() -> int:
     if "--dump-raw" in sys.argv:
         return dump_raw()
     print(f"⚖️  Vigilancia Jurisprudencial SJF — {WEEK_STR}")
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    rutina.validar_salida(OUTPUT_DIR)
     registrar_evento("watch_started", watch="sjf_jurisprudencia", semana=WEEK_STR)
 
     if OUTPUT_FILE.exists():
-        print(f"  ✅ Informe de la semana ya existe: {OUTPUT_FILE.name}")
-        return 0
+        # El estado de la corrida que escribió el informe se conserva tal cual.
+        print(f"  ✅ Informe de la semana ya existe: {OUTPUT_FILE.name} — no se vuelve a consultar")
+        return rutina.EXIT_OK
 
     registrar_evento("collector_started", watch="sjf_jurisprudencia")
     print("  📥 Consultando microservicio SJF (API REST, sin navegador)...")
     resultados = consultar_todos()
+    contratos = {label: contrato_tema(label, tema) for label, tema in resultados.items()}
+    temas = {label: r.resumen() for label, r in contratos.items()}
 
-    exitosos = sum(1 for t in resultados.values() if t["status"] == SUCCESS)
-    total_fichas = sum(len(t["fichas"]) for t in resultados.values())
-    print(f"  📊 {exitosos}/{len(resultados)} temas consultados con éxito ({total_fichas} fichas)")
+    exitosos = sum(1 for r in contratos.values() if r.ok)
+    total_fichas = sum(len(r.items) for r in contratos.values())
+    nuevas = sum(1 for r in contratos.values() for f in r.items if f.get("en_ventana_semana"))
+    print(f"  📊 {exitosos}/{len(contratos)} temas consultados con éxito "
+          f"({total_fichas} fichas, {nuevas} nuevas en la ventana)")
 
     if exitosos == 0:
-        print("  ❌ Ningún tema pudo consultarse — no se generará análisis jurisprudencial.")
-        informe = _informe_todos_indisponibles(resultados)
-    else:
-        print("  🤖 Redactando informe...")
-        informe = redactar_informe_llm(resultados)
+        # Sin informe: uno escrito se leería como "sin criterios" y la guarda de
+        # arriba bloquearía el reintento de la semana.
+        ruta = rutina.registrar_estado(
+            OUTPUT_DIR, OUTPUT_FILE.stem, rutina.FUENTE_INACCESIBLE, fuente="SJF", temas=temas,
+        )
+        print(f"  🛑 Sin informe: ningún tema del SJF pudo consultarse. Estado → {ruta}")
+        return rutina.EXIT_FUENTE_INACCESIBLE
 
+    print("  🤖 Redactando informe...")
+    informe = redactar_informe_llm(resultados)
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_FILE.write_text(informe, encoding="utf-8")
-    ruta_json = guardar_sidecar(
-        OUTPUT_FILE,
-        {
-            label: ResultadoFuente(
-                source=f"SJF:{label}",
-                status=tema["status"],
-                items=tema["fichas"] if tema["status"] == SUCCESS else [],
-                errors=tema["errors"],
-                retryable=tema["retryable"],
-            )
-            for label, tema in resultados.items()
-        },
+    ruta_json = guardar_sidecar(OUTPUT_FILE, contratos)
+    estado = rutina.OK if exitosos == len(contratos) else rutina.PARCIAL
+    ruta_estado = rutina.registrar_estado(
+        OUTPUT_DIR, OUTPUT_FILE.stem, estado,
+        informe=OUTPUT_FILE.name, fichas=total_fichas, nuevas_en_ventana=nuevas, temas=temas,
     )
     kb = OUTPUT_FILE.stat().st_size // 1024
-    print(f"  💾 → Itosturre/Jurisprudencia/{OUTPUT_FILE.name} ({kb} KB)")
-    print(f"  💾 Contrato guardado → {ruta_json}")
-    return 0
+    print(f"  💾 → {OUTPUT_FILE} ({kb} KB)")
+    print(f"  💾 Fichas y contrato → {ruta_json}")
+    print(f"  📋 Estado {estado} → {ruta_estado}")
+    return rutina.codigo_salida(estado)
 
 
 if __name__ == "__main__":

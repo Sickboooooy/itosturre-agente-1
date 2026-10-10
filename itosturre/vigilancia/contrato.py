@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from itosturre.vigilancia.rutina import salida_dir, validar_salida
+
 # ── Estados mínimos del contrato (item 4 del encargo de reparación) ───────────
 
 SUCCESS = "SUCCESS"
@@ -87,6 +89,33 @@ class ResultadoFuente:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    def resumen(self) -> dict:
+        """Estado de la fuente sin los hallazgos, para el estado de la corrida."""
+        return {
+            "status": self.status,
+            "retryable": self.retryable,
+            "errors": list(self.errors),
+            "n_items": len(self.items),
+            "retrieved_at": self.retrieved_at,
+            "execution_environment": self.execution_environment,
+        }
+
+
+def es_bloqueo_politica(exc: BaseException) -> bool:
+    """True si la excepción delata el bloqueo de política de egress del entorno:
+    un ProxyError, o un ConnectionError cuyo mensaje muestra el rechazo del
+    CONNECT (403) por el proxy. Un timeout nunca lo es, aunque mencione el
+    proxy (ConnectTimeout hereda de ConnectionError y de Timeout)."""
+    import requests
+
+    if isinstance(exc, requests.exceptions.Timeout):
+        return False
+    if isinstance(exc, requests.exceptions.ProxyError):
+        return True
+    return isinstance(exc, requests.exceptions.ConnectionError) and any(
+        s in str(exc).lower() for s in ("403", "proxy", "connect_rejected", "policy")
+    )
+
 
 def clasificar_excepcion_red(exc: Exception) -> tuple[str, bool, str]:
     """Clasifica una excepción de red en (status, retryable, mensaje).
@@ -95,10 +124,12 @@ def clasificar_excepcion_red(exc: Exception) -> tuple[str, bool, str]:
     (visible como un ProxyError, o un ConnectionError cuyo mensaje delata un
     rechazo de CONNECT/403 del proxy) de una falla transitoria genuina:
 
-    - Bloqueo de política -> SOURCE_UNAVAILABLE, retryable=False. Reintentar en
-      el MISMO entorno nunca lo resuelve: hace falta correr el collector donde
-      exista acceso autorizado (ver docs/VIGILANCIA_LEGAL.md).
-    - Timeout -> TIMEOUT, retryable=True.
+    - Timeout -> TIMEOUT, retryable=True (se evalúa primero: un timeout hacia
+      el proxy es transitorio, no un bloqueo).
+    - Bloqueo de política (es_bloqueo_politica) -> SOURCE_UNAVAILABLE,
+      retryable=False. Reintentar en el MISMO entorno nunca lo resuelve: hace
+      falta autorizar el dominio en la política de red del entorno o correr el
+      collector donde exista acceso autorizado (ver docs/VIGILANCIA_LEGAL.md).
     - Cualquier otro error de requests -> SOURCE_UNAVAILABLE, retryable=True
       (conservador: puede ser transitorio, no se asume bloqueo de política sin
       evidencia).
@@ -106,20 +137,17 @@ def clasificar_excepcion_red(exc: Exception) -> tuple[str, bool, str]:
     import requests
 
     texto = str(exc)
-    es_bloqueo_politica = isinstance(exc, requests.exceptions.ProxyError) or (
-        isinstance(exc, requests.exceptions.ConnectionError)
-        and any(s in texto.lower() for s in ("403", "proxy", "connect_rejected", "policy"))
-    )
-    if es_bloqueo_politica:
+    if isinstance(exc, requests.exceptions.Timeout):
+        return TIMEOUT, True, f"Timeout de conexión: {texto}"
+    if es_bloqueo_politica(exc):
         return (
             SOURCE_UNAVAILABLE,
             False,
             "Bloqueo de política de red del entorno de ejecución (egress denegado a la "
-            "fuente). No reintentar en este mismo entorno — ejecutar el collector donde "
-            "exista acceso autorizado (ver docs/VIGILANCIA_LEGAL.md). Detalle: " + texto,
+            "fuente). No reintentar en este mismo entorno: autorizar el dominio en la "
+            "política de red del entorno o ejecutar el collector donde exista acceso "
+            "autorizado (ver docs/VIGILANCIA_LEGAL.md). Detalle: " + texto,
         )
-    if isinstance(exc, requests.exceptions.Timeout):
-        return TIMEOUT, True, f"Timeout de conexión: {texto}"
     if isinstance(exc, requests.exceptions.RequestException):
         return SOURCE_UNAVAILABLE, True, f"Error de red: {texto}"
     return UNKNOWN_ERROR, True, f"Error no clasificado: {texto}"
@@ -163,8 +191,9 @@ def leer_sidecar(ruta_json: Path) -> Any:
 
 # ── Observabilidad (item 11 del encargo) ───────────────────────────────────────
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-EVENTOS_LOG = _REPO_ROOT / "Itosturre" / "eventos.jsonl"
+# Junto a las salidas de las rutinas ($ITOSTURRE_SALIDA o salidas/), nunca
+# dentro del paquete: <repo>/Itosturre/ ES itosturre/ en macOS y Windows.
+EVENTOS_LOG = salida_dir() / "eventos.jsonl"
 
 EVENTOS_VALIDOS = {
     "watch_started",
@@ -181,13 +210,14 @@ EVENTOS_VALIDOS = {
 
 
 def registrar_evento(evento: str, **datos: Any) -> None:
-    """Anexa un evento JSONL a Itosturre/eventos.jsonl para diagnóstico posterior.
+    """Anexa un evento JSONL a EVENTOS_LOG (salidas/eventos.jsonl) para diagnóstico.
 
     Nunca recibe ni escribe secretos/credenciales — solo identificadores de
     fuente, estado y metadatos operativos (ver docs/VIGILANCIA_LEGAL.md).
     """
     if evento not in EVENTOS_VALIDOS:
         raise ValueError(f"evento no reconocido: {evento!r} (usar uno de {sorted(EVENTOS_VALIDOS)})")
+    validar_salida(EVENTOS_LOG.parent)
     EVENTOS_LOG.parent.mkdir(parents=True, exist_ok=True)
     registro = {"ts": datetime.now(timezone.utc).isoformat(), "evento": evento, **datos}
     with EVENTOS_LOG.open("a", encoding="utf-8") as f:

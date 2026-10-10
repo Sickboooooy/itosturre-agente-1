@@ -5,6 +5,7 @@ Ver docs/VIGILANCIA_LEGAL.md — Legal Data Availability Contract.
 from __future__ import annotations
 
 import json
+import shutil
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -69,6 +70,39 @@ class TestClasificarExcepcionRed(unittest.TestCase):
         self.assertEqual(status, c.TIMEOUT)
         self.assertTrue(retryable)
 
+    def test_timeout_de_conexion_al_proxy_no_es_bloqueo_de_politica(self):
+        """ConnectTimeout hereda de ConnectionError Y de Timeout: que el mensaje
+        mencione el proxy no lo vuelve un bloqueo — es transitorio."""
+        exc = requests.exceptions.ConnectTimeout("Connection to proxy timed out")
+        self.assertFalse(c.es_bloqueo_politica(exc))
+        status, retryable, _ = c.clasificar_excepcion_red(exc)
+        self.assertEqual(status, c.TIMEOUT)
+        self.assertTrue(retryable)
+
+    def test_es_bloqueo_politica(self):
+        self.assertTrue(c.es_bloqueo_politica(requests.exceptions.ProxyError("403 to CONNECT")))
+        self.assertTrue(c.es_bloqueo_politica(
+            requests.exceptions.ConnectionError("Tunnel connection failed: 403 Forbidden")))
+        self.assertFalse(c.es_bloqueo_politica(
+            requests.exceptions.ConnectionError("Name or service not known")))
+        self.assertFalse(c.es_bloqueo_politica(ValueError("403")))
+
+    def test_mensaje_de_bloqueo_dice_como_resolverlo(self):
+        _, _, mensaje = c.clasificar_excepcion_red(requests.exceptions.ProxyError("403 to CONNECT"))
+        self.assertIn("autorizar el dominio", mensaje)
+
+
+class TestResumenFuente(unittest.TestCase):
+    def test_resumen_sin_items_para_el_estado_de_corrida(self):
+        r = c.ResultadoFuente(source="DOF", status=c.SUCCESS, items=[{"a": 1}, {"b": 2}])
+        resumen = r.resumen()
+        self.assertEqual(resumen["status"], c.SUCCESS)
+        self.assertEqual(resumen["n_items"], 2)
+        self.assertNotIn("items", resumen)
+        for clave in ("retryable", "errors", "retrieved_at", "execution_environment"):
+            self.assertIn(clave, resumen)
+        json.dumps(resumen)  # serializable
+
 
 class TestObservabilidad(unittest.TestCase):
     def setUp(self):
@@ -94,6 +128,27 @@ class TestObservabilidad(unittest.TestCase):
         self.assertEqual(primero["evento"], "watch_started")
         self.assertEqual(primero["watch"], "dof_sat")
         self.assertIn("ts", primero)
+
+
+class TestEventosFueraDelPaquete(unittest.TestCase):
+    """El log de eventos vivía en <repo>/Itosturre/eventos.jsonl, que en macOS y
+    Windows es el paquete itosturre/ (mismo directorio sin distinguir mayúsculas)."""
+
+    def test_log_por_omision_no_esta_dentro_del_paquete(self):
+        from itosturre.vigilancia import rutina
+
+        rutina.validar_salida(c.EVENTOS_LOG.parent)  # no debe lanzar
+
+    def test_registrar_evento_se_niega_a_escribir_dentro_del_paquete(self):
+        repo = Path(__file__).resolve().parent.parent
+        destino = repo / "Itosturre" / "_prueba_no_debe_existir"
+        try:
+            with mock.patch.object(c, "EVENTOS_LOG", destino / "eventos.jsonl"), \
+                 self.assertRaises(ValueError):
+                c.registrar_evento("watch_started", watch="dof_sat")
+            self.assertFalse(destino.exists())
+        finally:
+            shutil.rmtree(destino, ignore_errors=True)
 
 
 class TestSidecar(unittest.TestCase):
