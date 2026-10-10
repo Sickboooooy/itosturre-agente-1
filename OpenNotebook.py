@@ -519,6 +519,10 @@ LAW_SOURCE_MAP = {
     # catálogo y del índice: citarla queda 🟡 (ley no identificada), nunca contra la nueva.
     "ley de movilidad, seguridad vial y transporte del estado de jalisco": "Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf",
     "ley de movilidad seguridad vial y transporte del estado de jalisco": "Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf",
+    # Su reglamento (orden del responsable, 10-oct-2026): fuente propia. El «Reglamento General de
+    # la Ley de Movilidad y Transporte», que reglamentaba la ley abrogada, salió del índice.
+    "reglamento de la ley de movilidad, seguridad vial y transporte del estado de jalisco": "Reglamento de la Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf",
+    "reglamento de la ley de movilidad seguridad vial y transporte del estado de jalisco": "Reglamento de la Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf",
     "ley del impuesto al valor agregado": "Ley del Impuesto al Valor Agregado 2026.pdf",
     "ley del impuesto sobre la renta": "Ley del Impuesto sobre la Renta 2026.pdf",
     "ley del notariado del estado de jalisco": "Ley del Notariado del Estado de Jalisco 2026.pdf",

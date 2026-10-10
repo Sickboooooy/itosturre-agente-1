@@ -2620,6 +2620,18 @@ class VinculoSintacticoTests(AuditoriaBase):
         (ref,) = ON.extract_references(
             "El artículo 12 de la Ley de Movilidad y Transporte del Estado de Jalisco dispone.")
         self.assertIsNone(ref["source_file"])
+        # Su reglamento, también fuente propia: la clave de la ley contenida en la del reglamento
+        # no desvía la cita, y el reglamento de la ley abrogada ya no se resuelve.
+        (ref,) = ON.extract_references(
+            "El artículo 5 del Reglamento de la Ley de Movilidad, Seguridad Vial y Transporte del "
+            "Estado de Jalisco dispone.")
+        self.assertEqual(
+            ref["source_file"],
+            "Reglamento de la Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf")
+        (ref,) = ON.extract_references(
+            "El artículo 5 del Reglamento General de la Ley de Movilidad y Transporte del Estado de "
+            "Jalisco dispone.")
+        self.assertIsNone(ref["source_file"])
 
     # ── Punto 6 ────────────────────────────────────────────────────────────────────────
     def test_p6_rango_largo_audita_extremos_y_deja_cobertura_incompleta(self) -> None:
