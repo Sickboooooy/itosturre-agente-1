@@ -103,10 +103,12 @@ _LATINES = r"(?:Bis|BIS|Ter|TER|Quater|QUATER|Quintus|QUINTUS|Quinquies|QUINQUIE
 # Encabezado de artículo sobre el texto sin acentos. "Artículo" con mayúscula inicial
 # (una remisión partida en la línea, "artículo 167. …", no cuenta) y un terminador
 # (". ", ".-", "-", ":") tras el identificador: "Artículo 73 de la Constitución" no es
-# encabezado.
+# encabezado. Subnúmero pegado con guion ("ARTÍCULO 58-1.-", LFPCA): misma regla que
+# ``itosturre.audit.referencias`` — designación si M < N; con M ≥ N es un rango y la línea
+# no es encabezado (lo comprueba ``encabezado_articulo``: la expresión no compara números).
 _ENCABEZADO_RE = re.compile(
     r"^\s*(?:Articulo|ARTICULO|Art\.|ART\.)\s+"
-    r"(?P<id>\d+\s*[oOº°]?"
+    r"(?P<id>(?P<num>\d+)(?:[-–—](?P<sub>\d{1,3})(?!\d))?\s*[oOº°]?"
     r"(?:\s*(?:\.\s*)?-\s*[A-Z]\b|\s+" + _LATINES + r"(?:\s+\d+)?|-" + _LATINES + r")*"
     r"|(?i:" + _ORDINAL + r"))"
     r"\s*(?:\.\s*-|\.|-|:)(?=\s|$)"
@@ -507,11 +509,14 @@ def identificador_canonico(articulo: str) -> str:
 
     Sin acentos, ``casefold``, sin espacios, puntos ni guiones, y "º"/"°" como "o":
     ``"4o.-A"`` y ``"4o-A"`` → ``"4oa"``; ``"Décimo Primero"`` → ``"decimoprimero"``.
-    "1" y "1o" siguen siendo distintos: la comparación es exacta salvo separadores.
+    "1" y "1o" siguen siendo distintos: la comparación es exacta salvo separadores. El
+    guion entre dos números (subnúmero) se conserva: ``"58-2"`` → ``"58-2"``, nunca
+    ``"582"``, que es otro artículo.
     """
     texto = _PREFIJO_ARTICULO.sub("", articulo)
     texto = sin_acentos(texto).replace("º", "o").replace("°", "o").casefold()
-    return re.sub(r"[\s.\-]", "", texto)
+    partes = re.split(r"(?<=\d)\s*[-–—]\s*(?=\d)", texto)
+    return "-".join(re.sub(r"[\s.\-–—]", "", parte) for parte in partes)
 
 
 def encabezado_articulo(linea: str) -> str | None:
@@ -524,6 +529,8 @@ def encabezado_articulo(linea: str) -> str | None:
     cotejo = sin_acentos(original)
     coincidencia = _ENCABEZADO_RE.match(cotejo)
     if not coincidencia:
+        return None
+    if coincidencia.group("sub") and int(coincidencia.group("sub")) >= int(coincidencia.group("num")):
         return None
     if len(cotejo) != len(original):
         # Caracteres que no se alinean 1:1 (raro en texto NFC): se devuelve la forma

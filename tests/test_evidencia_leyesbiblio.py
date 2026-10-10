@@ -436,11 +436,47 @@ class UbicacionArticulosTests(unittest.TestCase):
             with self.subTest(linea=linea):
                 self.assertEqual(encabezado_articulo(linea), esperado)
 
+    def test_encabezados_con_subnumero(self) -> None:
+        # Subnúmero pegado con guion, como "ARTÍCULO 58-1.-" de la LFPCA: misma regla que
+        # ``itosturre.audit.referencias`` (designación si M < N; con M ≥ N es un rango).
+        casos = {
+            "ARTÍCULO 9999-1.- Encabezado sintético": "9999-1",
+            "Artículo 9999-12. Encabezado sintético": "9999-12",
+            "ARTÍCULO 9999-2 Bis.- Encabezado sintético": "9999-2 Bis",
+            "Artículo 14-16. Rango sintético": None,
+        }
+        for linea, esperado in casos.items():
+            with self.subTest(linea=linea):
+                self.assertEqual(encabezado_articulo(linea), esperado)
+
+    def test_subnumero_no_se_confunde_con_otro_articulo(self) -> None:
+        doc = limpiar_documento(
+            [
+                "ARTÍCULO 9998.- Texto sintético.\n"
+                "ARTÍCULO 9998-1.- Texto sintético.\n"
+                "ARTÍCULO 9998-2.- Texto sintético.\n"
+                "ARTÍCULO 99982.- Texto sintético.\n"
+                "TRANSITORIOS\n"
+            ]
+        )
+        for buscado, indice in (("9998", 0), ("9998-1", 1), ("9998-2", 2), ("9998 - 2", 2), ("99982", 3)):
+            with self.subTest(buscado=buscado):
+                ubicacion = ubicar_articulo(doc, buscado)
+                self.assertIsNotNone(ubicacion.unica)
+                self.assertEqual(ubicacion.unica.indice, indice)
+        sin_exacto = ubicar_articulo(doc, "9998-3")
+        self.assertIsNone(sin_exacto.unica)
+        self.assertEqual(
+            sorted(c.identificador for c in sin_exacto.variantes_cercanas), ["9998", "9998-1", "9998-2"]
+        )
+
     def test_identificador_canonico(self) -> None:
         self.assertEqual(identificador_canonico("4o.-A"), identificador_canonico("4o-A"))
         self.assertEqual(identificador_canonico("1°"), "1o")
         self.assertEqual(identificador_canonico("Décimo Primero"), identificador_canonico("DECIMOPRIMERO"))
         self.assertNotEqual(identificador_canonico("1"), identificador_canonico("1o"))
+        self.assertNotEqual(identificador_canonico("58-2"), identificador_canonico("582"))
+        self.assertEqual(identificador_canonico("58-2"), identificador_canonico("58 - 2"))
         with self.assertRaises(ValueError):
             ubicar_articulo(documento("LAmp"), "  ")
 
