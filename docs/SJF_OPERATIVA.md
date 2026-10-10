@@ -20,6 +20,12 @@ turno aunque no hubiera ninguna búsqueda jurisprudencial en curso.
   (`sjf2.scjn.gob.mx/services/sjftesismicroservice/api/public/`) suele seguir viva aunque el
   front se caiga — si en algún momento se integra, intentar API primero y scraping como
   respaldo. *(Roadmap: hoy el scraper solo navega el front con Playwright.)*
+  Verificado el 10-oct-2026: la **búsqueda** del API (`POST /tesis`) responde y cada documento
+  trae la localización completa; el **detalle** (`GET /tesis/{ius}`) y el del Repositorio
+  Bicentenario devuelven el desafío anti-bots de Incapsula a un cliente HTTP. El watcher
+  `agentes/vigilancia_jurisprudencial.py` arma las fichas con la búsqueda y no evade el
+  desafío; el scraper con navegador lo pasa en el segundo intento (el primero se clasifica
+  hoy como `LAYOUT_CHANGED`, ver `docs/VIGILANCIA_LEGAL.md` §11).
 - Al buscar: marca "Todas las semanas", usa comillas para frase exacta, ordena por registro
   descendente (lo más reciente primero).
 - El sitio usa JS intensivo — espera 2-3s tras cada navegación/clic antes de leer/capturar.

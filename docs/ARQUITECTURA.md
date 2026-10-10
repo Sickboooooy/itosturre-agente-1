@@ -43,7 +43,8 @@ del producto.
 | `capturar_rag.py` | Evidencia visual de fuentes recuperadas | Código padre |
 | `router_competencia.py` | Enrutamiento determinista de competencia orgánica | Código padre |
 | `scripts/` | Bootstrap, cobertura, promoción y regresión | Código padre |
-| `agentes/` | Automatizaciones auxiliares de vigilancia y contenido | Código padre |
+| `agentes/` | Automatizaciones auxiliares de vigilancia y contenido (prompts de las rutinas programadas: `docs/RUTINAS.md`) | Código padre |
+| `itosturre/vigilancia/` | Contrato de datos por fuente (SUCCESS/SOURCE_UNAVAILABLE/...) y observabilidad (`contrato.py`); contrato de corrida — salidas fuera del paquete, fecha de la Ciudad de México, estado y códigos de salida (`rutina.py`) — para los watchers DOF/SAT/SJF — ver `docs/VIGILANCIA_LEGAL.md` | Código padre |
 | `itosturre/audit/` | Políticas VVCA puras y trazabilidad, sin dependencias RAG. `referencias.py` (R4b): extracción de artículos (sufijos, enumeraciones, rangos) y resolución del ordenamiento por oración y palabra completa; `evidence.py`: encabezado exacto del precepto y definición única del encabezado auténtico; `inexistencia.py` (D10): prueba positiva de inexistencia de un artículo en el cuerpo de la ley indexada (se abstiene ante cualquier ambigüedad); `fragmentacion.py` (4-oct-2026): corte y etiqueta de los fragmentos de la ingesta con esa misma definición, y métricas de cobertura para `ingest --simular` | Código padre |
 | `itosturre/leads/` | Normalización, deduplicación, ICP y supresión de prospectos; sin recolección ni envíos | Código padre |
 | `itosturre/memoria/` | Memoria contextual: eventos, índice FTS5, ranking y snapshots; sin dependencias externas | Código padre |
@@ -724,6 +725,7 @@ variantes con sufijo, la prueba de inexistencia y la ingesta:
 | Corte de la ingesta y re-ingesta por fuente | `python -m unittest -v tests.test_ingesta_fragmentacion` | Cada push/PR (dentro de la suite); encabezados que cortan y que no (MAYÚSCULAS, tratados, remisiones, citas, apartados), etiquetas compatibles con las anteriores y con `_article_candidates`, misma definición que la auditoría, `fragmentar`/`medir`, y `reingestar_fuentes` con `ColeccionEscribible`: se niega sin fuente, borra solo la pedida, IDs y metadatos coherentes, nunca mezcla, `--simular` sin escrituras, restauración ante fallo, CLI |
 | Regresión VVCA | `python scripts/run_regression.py` | Gate local antes de merge; requiere corpus |
 | Política de datos | `python scripts/check_sensitive_paths.py` | Cada push/PR |
+| Watchers DOF/SAT/SJF (offline, red simulada) | `python -m unittest tests.test_vigilancia_contrato tests.test_vigilancia_rutina tests.test_vigilancia_watch` | Cada push/PR (dentro de la suite); fuente caída ≠ "sin novedades", sin brief ni borrador cuando no hay insumo (salidas 2 y 3) y reintento posible, SJF con búsqueda completa y fichas desde la búsqueda (el detalle es un extra tras un anti-bots que no se evade), solo las novedades sostienen un borrador, salidas fuera del paquete y `.gitignore` que no oculte módulos de `itosturre/`, fecha de la Ciudad de México, modelo único |
 
 La regresión VVCA no se ejecuta en CI compartido porque requiere el corpus local y el modelo
 de embeddings. Un resultado verde de CI no reemplaza ese gate local: desde R4a el CI ejerce
@@ -746,3 +748,12 @@ la lógica del núcleo con dobles, pero no la recuperación real.
 - `vvca_full.py` falla cerrado ante errores de RAG, SJF o evidencia. La degradación solo se
   permite mediante flags explícitos y queda registrada como `status: partial`.
 - Ninguna automatización debe enviar mensajes o publicar contenido sin aprobación humana.
+- Los watchers de `agentes/` (`vigilancia_dof.py`, `vigilancia_jurisprudencial.py`) requieren
+  que SU PROPIO proceso corra en un entorno con egress autorizado hacia dof.gob.mx, sat.gob.mx
+  y sjf2.scjn.gob.mx — no asumen que el orquestador que los invoca lo tiene. Si una fuente no
+  puede consultarse, el resultado queda en `SOURCE_UNAVAILABLE` (nunca en un "sin novedades"
+  fabricado); si es la fuente primaria, no se escribe brief y la salida es 2, para que el
+  reintento sea posible. `contenido_linkedin.py` no escribe borrador (salida 3) cuando no hay
+  ningún hallazgo validado en briefs de los últimos 7 días. Las salidas van a `salidas/` (o
+  `$ITOSTURRE_SALIDA`), nunca a `Itosturre/`: en macOS y Windows es el paquete `itosturre/`.
+  Ver `docs/VIGILANCIA_LEGAL.md`.

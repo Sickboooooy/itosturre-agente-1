@@ -39,6 +39,10 @@ profesional, privilegio, protección de datos o instrucciones particulares del c
 - `corpus/*.pdf`: fuente jurídica local; se distribuye fuera de Git.
 - `chroma_db/` y `jurisprudencia/`: índices y datos promovidos, reconstruibles.
 - `graphify-out/`: mapa regenerable que puede revelar estructura o nombres locales.
+- `salidas/` (o `$ITOSTURRE_SALIDA`): briefs, estados de corrida y borradores de las rutinas
+  de vigilancia (`agentes/`); regenerables y con borradores pendientes de revisión. Nunca
+  `Itosturre/`: en macOS y Windows es el paquete de código `itosturre/` (ver
+  `docs/VIGILANCIA_LEGAL.md`).
 - `.env`, `.env.local`, `.claude/settings.local.json`: secretos o configuración individual.
 - `casos_de_prueba/`: solo fixtures expresamente permitidos en `config/data-policy.json`.
 

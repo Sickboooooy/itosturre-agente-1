@@ -77,6 +77,15 @@ auditorias/
 # Prospectos B2B reales, consentimientos y listas de exclusión — sólo local
 leads_data/
 
+# Salida de los watchers de vigilancia normativa (agentes/vigilancia_dof.py,
+# vigilancia_jurisprudencial.py, contenido_linkedin.py): briefs, contratos .json,
+# estados de corrida y el log de eventos. Regenerable y con borradores de
+# contenido pendientes de revisión — no es código, no se versiona. Ver
+# docs/VIGILANCIA_LEGAL.md. NUNCA ignorar aquí "Itosturre/": en macOS y Windows
+# (core.ignorecase=true) esa regla también ignora el paquete itosturre/ y todo
+# módulo nuevo quedaría fuera del repo (tests/test_vigilancia_rutina.py lo vigila).
+/salidas/
+
 # Memoria contextual: por defecto vive FUERA del repo (~/.itosturre/memoria/).
 # Estas reglas son red de seguridad por si ITOSTURRE_MEMORIA_DIR se reapunta
 # hacia dentro del árbol: contiene decisiones y notas del despacho.
