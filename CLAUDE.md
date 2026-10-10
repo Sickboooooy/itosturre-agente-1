@@ -334,12 +334,14 @@ no para verificar las citas del documento.
 **Regla 4 — Semáforo obligatorio en cualquier cita:**
 ```
 🟢 Verificada en SJF/corpus (score ≥ 85)        → segura para usar (sujeta a Capa 2)
-🟡 Parcial / no localizada sin prueba / ley no indexada
+🟡 Parcial / no localizada sin prueba / ley no indexada / versión indexada
+   no vigente según el reporte de vigencia
    (score 60-84, o NO VERIFICABLE)               → revisar / re-indexar antes de usar
 🔴 Cita refutada (score < 60)                    → NO usar
    · tesis: rubro discrepante, o tesis superada / interrumpida / sustituida
    · normas: inexistencia ACREDITADA (vecinos en el mismo fragmento, o número
-     muy superior al último artículo del cuerpo de la versión indexada)
+     muy superior al último artículo del cuerpo de la versión indexada), salvo
+     que el reporte de vigencia dé esa versión por no vigente (entonces 🟡)
 ```
 > Umbrales reales del auditor (`OpenNotebook.py`), **provisionales** — pendientes de
 > recalibrar con un Gold set del operador. Un criterio **no verificable** (fuera del
@@ -365,9 +367,12 @@ parcial"; ante ese aviso, elige una vía y decláralo al usuario:
 (b) continúa con `--force` y deja la advertencia de corpus parcial visible en el veredicto.
 
 **Regla 8 — Estar en el corpus no es estar vigente.** El RAG guarda la versión que se indexó,
-no la que rige hoy. Si la ley del artículo no está 🟢 en el último reporte de
-`scripts/vigencia_corpus.py` (`reportes/vigencia_corpus/`), coteja el artículo contra el PDF
-oficial antes de citar su texto: `python scripts/cotejo_manual.py articulo <ley> <art…>`.
+no la que rige hoy. `audit` y `query` leen el último reporte de `scripts/vigencia_corpus.py`
+hecho sobre el mismo índice (`reportes/vigencia_corpus/`): si da por no vigente la versión
+indexada de la ley, la cita no sale 🟢 y una inexistencia probada solo en esa versión no sale
+🔴 (🟡 VERSIÓN INDEXADA NO VIGENTE / INEXISTENTE EN UNA VERSIÓN NO VIGENTE). Si la ley del
+artículo no está 🟢 en ese reporte, coteja el artículo contra el PDF oficial antes de citar su
+texto: `python scripts/cotejo_manual.py articulo <ley> <art…>`.
 🔴 DIFIERE → cita el texto oficial de la ficha, nunca el del RAG · 🟡 NO LOCALIZADO →
 `[VERIFICAR EN DOF: dof.gob.mx]`. La ficha es Capa 1; si la diferencia importa al asunto es
 Capa 2 (revisa los transitorios). Un cotejo sin fuente oficial nunca da 🟢.

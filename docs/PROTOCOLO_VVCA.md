@@ -760,6 +760,39 @@ la <tratado>" para todos los artículos de cada tratado):
 | Artículo inexistente de un tratado (90 CADH, 60 CDN, 99 PIDCP): 🟡 | Igual (sin frontera TRANSITORIOS, D10 se abstiene; nunca 🔴) |
 | Código Civil de Jalisco 1–60; CPEUM, CNPP, CFF y Ley de Amparo 1–60; 30 de la LFPC y 30 del CFPC | Sin cambios (0 🟢 nuevos, 0 🟢 perdidos, 0 🔴 nuevos) |
 
+### Qué cambia para el abogado (vigencia del corpus y ruta `query`, 9-oct-2026)
+
+El 🟢 normativo acredita existencia y ubicación en la **versión indexada**. `audit` y `query`
+leen ahora el último reporte de `scripts/vigencia_corpus.py` (`ITOS_VIGENCIA_REPORTE` o el más
+reciente de `reportes/vigencia_corpus/`) y lo aplican solo si se hizo sobre el mismo índice
+(`CHROMA_PATH`) y la ley conserva los fragmentos que el reporte registró. Si la da por
+DESACTUALIZADA o ABROGADA (`itosturre.audit.vigencia`): tope 84 (traza `partial`) y, para una
+inexistencia probada sobre esa versión, 🟡 (traza `not_verifiable`). Nunca 🔴 por vigencia. Cada
+cita trae `vigencia_fuente`; el resumen, `vigencia_corpus` (estado del reporte y cuántas citas
+toca), y la razón del 🟡, "(N por versión indexada no vigente)".
+
+La ruta `query` (`consultar_corpus`) ya no da semáforo por parecido a un artículo nombrado: le
+pide el veredicto a `audit` (`match: articulo_citado`) y los pasajes cercanos van como
+`contexto` con ⚪. Sin artículo nombrado (`semantico`), el semáforo mide el parecido, nunca es 🔴
+(⚪) y no es 🟢 en una ley no vigente. El respaldo literal (`literal`) exige encabezado auténtico
+y es 🟡.
+
+Medido con el corpus real de este equipo (49 fuentes; `feat/vigencia-corpus-v2`@fd41ca5 frente a
+este cambio, copias idénticas del índice y el reporte de vigencia de la copia: CPEUM, LFT y CFF
+desactualizadas; Ley de Amparo, CPF, CCF y CNPP vigentes):
+
+| Antes | Después |
+|---|---|
+| `audit` "artículo 16 / 19 de la CPEUM", "artículo 15 de la LFT" (versión indexada de 2015): 🟢 85 | 🟡 84 VERSIÓN INDEXADA NO VIGENTE (versión indexada, oficial y comando de cotejo) |
+| `query` "artículo 750 de la Ley de Amparo" (inexistente): 🟢 87 con el «Artículo 5o» | 🔴 0, el veredicto de `audit` (inexistencia acreditada) |
+| `query` "artículo 9999 del Código Civil Federal": 🟢 86 con el «Artículo 2699» | 🔴 0 (inexistencia acreditada) |
+| `query` "artículo 57 del Código Penal Federal" (derogado): 🟢 100 «literal» | 🟡 84 PRECEPTO DEROGADO |
+| `query` "artículo 16 de la CPEUM", "artículo 15 de la LFT": 🟢 100 «literal» | 🟡 84 (versión no vigente) |
+| `query` "artículo 873-K de la LFT" (adicionado DOF 01-05-2019; no está en la versión indexada): 🟢 87 con un pasaje que remite al art. 879 | ⚪ contexto: el artículo no se ubicó y el pasaje no se presenta como veredicto |
+| Prueba de inexistencia (D10) sobre una versión que el reporte da por no vigente: 🔴 | 🟡 INEXISTENTE EN UNA VERSIÓN NO VIGENTE (prueba sintética; en este índice los 9 artículos de la LFT adicionados en 2019 que se probaron ya salían 🟡 NO VERIFICABLE) |
+| `audit` "artículo 750 LA", "9999 CCF" (leyes vigentes) y "57 CPF" (derogado) | Igual: 🔴, 🔴 y 🟡 |
+| Sin reporte, reporte de otro índice o anterior a la re-ingesta de la ley | Sin cambio de semáforo; `vigencia_corpus.estado` dice por qué |
+
 > El guard 🟡 NO VERIFICABLE para una ley ausente solo se ejerce con `--force`; sin `--force`
 > la auditoría se **detiene** antes con `status: corpus_incomplete` (ver §5).
 

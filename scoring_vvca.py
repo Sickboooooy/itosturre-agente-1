@@ -45,6 +45,7 @@ def veredicto_global(
     normativa_no_verificable: int = 0,
     articulos_total: Optional[int] = None,
     tesis_parciales: int = 0,
+    normativa_no_vigente: int = 0,
 ) -> dict:
     """
     Veredicto binario con razón explícita. No promedia los dos scores.
@@ -86,6 +87,10 @@ def veredicto_global(
                                 se distingue "sin artículos" de "artículos con 0 puntos".
         tesis_parciales:        tesis localizadas cuya traza quedó ``partial`` (puntaje < 85,
                                 p. ej. aislada). Default 0 (llamadas anteriores a la ronda 2).
+        normativa_no_vigente:   de las normativas no verificables, las que lo son porque el
+                                reporte de vigencia dice que la versión indexada de su ley ya no
+                                es la vigente (``itosturre.audit.vigencia``). Solo precisa la
+                                razón y la acción de la regla 5; default 0.
 
     Returns:
         dict con apto, semaforo, razon, accion
@@ -148,14 +153,21 @@ def veredicto_global(
         }
 
     if normativa_no_verificable > 0:
+        razon = (
+            f"{normativa_no_verificable} cita(s) normativa(s) con evidencia "
+            "parcial o no verificable"
+        )
+        accion = "Cotejar el precepto en la fuente oficial antes de uso procesal"
+        if normativa_no_vigente > 0:
+            # Vigencia del corpus: la versión indexada de la ley ya no es la vigente.
+            razon += f" ({normativa_no_vigente} por versión indexada no vigente)"
+            accion += (" (Regla 8: python scripts/cotejo_manual.py articulo <ley> "
+                       "<artículo>)")
         return {
             "apto": False,
             "semaforo": "🟡",
-            "razon": (
-                f"{normativa_no_verificable} cita(s) normativa(s) con evidencia "
-                "parcial o no verificable"
-            ),
-            "accion": "Cotejar el precepto en la fuente oficial antes de uso procesal",
+            "razon": razon,
+            "accion": accion,
         }
 
     # R4c (R4-D12): sin artículos citados la dimensión normativa no tiene nada que verificar;
