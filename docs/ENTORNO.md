@@ -140,6 +140,12 @@ Qué hace la re-ingesta por fuente (`reingestar_fuentes` en `OpenNotebook.py`), 
    contiguos desde 0) y verifica. Si algo falla, restaura los fragmentos previos y sale con
    código 1 (el mensaje da el respaldo durable).
 
+Para **sacar del índice** una fuente que el catálogo ya no resuelve (p. ej. una ley abrogada cuya
+sucesora se indexó como fuente propia; primero se quita de `LAW_SOURCE_MAP` y el manifiesto la
+marca `descartado`): `OpenNotebook.py ingest --retirar "<pdf>"` (repetible, sin `--directory`).
+Valida todas antes de escribir, respalda cada una de forma durable, borra solo esa fuente,
+verifica y, si algo falla, restaura; se repone con `ingest --restaurar` (desde el 10-oct-2026).
+
 Tiempo de referencia en este equipo (CPU, e5-large): ~0.45 s por fragmento (CFPC, 726
 fragmentos: 331 s). `--restaurar` no recalcula vectores (segundos). Nunca dos procesos sobre
 el mismo `chroma_db`.

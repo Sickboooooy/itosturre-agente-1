@@ -822,8 +822,94 @@ class IngestaSinMezclaTests(ReingestaBase):
         self.assertLess(guion.index('if [ "$MIGRACION_PENDIENTE" -eq 1 ]; then'), listo)
 
 
+class RetiroTests(ReingestaBase):
+    """``ingest --retirar`` (orden del responsable, 10-oct-2026): saca del índice una fuente que el
+    catálogo ya no resuelve (p. ej. una ley abrogada que se indexó como fuente nueva), con
+    respaldo durable y reposición por ``--restaurar``."""
+
+    def retirar(self, fuentes, **kwargs):
+        opciones = {"collection": self.coleccion, "respaldos_dir": str(self.respaldos)}
+        opciones.update(kwargs)
+        return ON.retirar_fuentes(fuentes, **opciones)
+
+    def test_retira_solo_esa_fuente_y_se_puede_reponer(self) -> None:
+        previos = self.filas_de(LEY_B)
+        (informe,) = self.retirar([LEY_B])
+        self.assertEqual((informe["fuente"], informe["fragmentos"]), (LEY_B, 3))
+        self.assertEqual(self.filas_de(LEY_B), [])
+        self.assertEqual(self.filas_de(LEY_A), [f for f in self.original if f[2]["source"] == LEY_A])
+        self.assertTrue(Path(informe["respaldo"]).is_file())
+        ON.restaurar_respaldo(informe["respaldo"], collection=self.coleccion,
+                              respaldos_dir=str(self.respaldos))
+        repuestos = self.filas_de(LEY_B)
+        self.assertEqual([f[:3] for f in repuestos], [f[:3] for f in previos])
+        self.assertEqual([_float32(f[3]) for f in repuestos], [_float32(f[3]) for f in previos])
+
+    def test_nada_se_toca_si_alguna_no_se_puede_retirar(self) -> None:
+        for fuentes, mensaje in (([], "al menos una"), ([LEY_B, LEY_B], "repetida"),
+                                 (["no_indexada.pdf"], "no tiene fragmentos"),
+                                 (["../LEY B.pdf"], "solo el nombre")):
+            with self.subTest(fuentes=fuentes), self.assertRaisesRegex(ValueError, mensaje):
+                self.retirar(fuentes)
+        # Lo que el catálogo aún resuelve no se saca del índice (se quedaría sin fuente).
+        with mock.patch.dict(ON.LAW_SOURCE_MAP, {"ley sintética b": LEY_B}), \
+                self.assertRaisesRegex(ValueError, "sigue en LAW_SOURCE_MAP"):
+            self.retirar([LEY_A, LEY_B])
+        self.assertEqual(self.escrituras(), [])
+        self.assertEqual(self.coleccion.filas(), self.original)
+        self.assertFalse(self.respaldos.exists())
+
+    def test_fallo_al_borrar_restaura(self) -> None:
+        borrar = self.coleccion.delete
+        llamadas: list[dict] = []
+
+        def delete(**kwargs):
+            llamadas.append(kwargs)
+            if len(llamadas) == 1:
+                raise RuntimeError("fallo sintético de escritura")
+            return borrar(**kwargs)
+
+        with mock.patch.object(self.coleccion, "delete", side_effect=delete), \
+                self.assertRaisesRegex(ON.ReingestaFallida, "se restauraron los 3 fragmentos"):
+            self.retirar([LEY_B])
+        self.assertEqual([f[:3] for f in self.filas_de(LEY_B)],
+                         [f[:3] for f in self.original if f[2]["source"] == LEY_B])
+
+
 class CliTests(ReingestaBase):
     """``ingest --fuente/--simular/--restaurar``: validación de flags y despacho."""
+
+    def test_retirar(self) -> None:
+        informe = {"fuente": LEY_B, "fragmentos": 3, "respaldo": "r.json"}
+        with mock.patch.object(ON, "retirar_fuentes", return_value=[informe]) as retirar, \
+                mock.patch.object(ON, "reingestar_fuentes") as reingestar, \
+                mock.patch.object(ON, "ingest") as ingestar:
+            codigo, salida, _ = self._main("--retirar", LEY_B, directorio=False)
+        self.assertEqual(codigo, 0)
+        retirar.assert_called_once_with([LEY_B], respaldos_dir=None)
+        reingestar.assert_not_called()
+        ingestar.assert_not_called()
+        self.assertIn(f"{LEY_B}: 3 fragmentos retirados del índice", salida)
+        for argumentos in (("--retirar", LEY_B, "--fuente", LEY_A),
+                           ("--retirar", LEY_B, "--simular"),
+                           ("--retirar", LEY_B, "--restaurar", "r.json"),
+                           ("--retirar", LEY_B, "--reingest")):
+            with self.subTest(argumentos=argumentos), \
+                    mock.patch.object(ON, "retirar_fuentes") as retirar, \
+                    mock.patch.object(ON, "reingestar_fuentes") as reingestar, \
+                    mock.patch.object(ON, "restaurar_respaldo") as restaurar, \
+                    mock.patch.object(ON, "ingest") as ingestar:
+                codigo, _, _ = self._main(*argumentos, directorio=False)
+                self.assertEqual(codigo, 2)
+                for llamado in (retirar, reingestar, restaurar, ingestar):
+                    llamado.assert_not_called()
+        for error, esperado in ((ValueError("no tiene fragmentos"), 2),
+                                (ON.ReingestaFallida("restaurado"), 1)):
+            with self.subTest(error=error), \
+                    mock.patch.object(ON, "retirar_fuentes", side_effect=error):
+                codigo, _, errores = self._main("--retirar", LEY_B, directorio=False)
+                self.assertEqual(codigo, esperado)
+                self.assertIn(str(error), errores)
 
     def _main(self, *argumentos: str, directorio: bool = True):
         salida, errores = io.StringIO(), io.StringIO()

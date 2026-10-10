@@ -13,6 +13,12 @@ itosturre/audit/vigencia.py):
      los pasajes cercanos son contexto (⚪), nunca 🟢 por parecido ni 🔴 por poco parecido
      (antes: "art. 750 LA" 🟢 87 con el art. 5o; un derogado 🟢 100 «literal»).
 
+Cambios Movilidad y retiro de fuentes (orden del responsable, 10-oct-2026):
+  ✅ La «Ley de Movilidad, Seguridad Vial y Transporte del Estado de Jalisco» es fuente propia;
+     la que abrogó («Ley de Movilidad y Transporte…», decreto 24451/LX/13) ya no se resuelve.
+  ✅ ``ingest --retirar ARCHIVO.pdf``: saca del índice una fuente que el catálogo ya no
+     resuelve, con respaldo durable, verificación y restauración ante fallo (``--restaurar``).
+
 Cambios identidad confirmada (orden del responsable, 10-oct-2026):
   ✅ ``ingest --fuente X.pdf --identidad-confirmada X.pdf``: el operador confirma que X es el
      mismo ordenamiento aunque el título de su primera página difiera del indexado (los PDF
@@ -507,7 +513,12 @@ LAW_SOURCE_MAP = {
     # reconocido (🟡 ley no identificada) ahora que la ley se resuelve por palabra completa.
     "ley orgánica del poder judicial de la federación": "Ley Orgánica del Poder Judicial Federal 2026.pdf",
     "ley de hacienda del estado de jalisco": "Ley de Hacienda del Estado de Jalisco -160424 2026.pdf",
-    "ley de movilidad y transporte del estado de jalisco": "Ley de Movilidad y Transporte del Estado de Jalisco_2 2026.pdf",
+    # Movilidad (orden del responsable, 10-oct-2026): la «Ley de Movilidad, Seguridad Vial y
+    # Transporte del Estado de Jalisco» es ley nueva, con fuente propia; sus transitorios abrogan
+    # la «Ley de Movilidad y Transporte del Estado de Jalisco» (decreto 24451/LX/13), que salió del
+    # catálogo y del índice: citarla queda 🟡 (ley no identificada), nunca contra la nueva.
+    "ley de movilidad, seguridad vial y transporte del estado de jalisco": "Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf",
+    "ley de movilidad seguridad vial y transporte del estado de jalisco": "Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf",
     "ley del impuesto al valor agregado": "Ley del Impuesto al Valor Agregado 2026.pdf",
     "ley del impuesto sobre la renta": "Ley del Impuesto sobre la Renta 2026.pdf",
     "ley del notariado del estado de jalisco": "Ley del Notariado del Estado de Jalisco 2026.pdf",
@@ -1455,6 +1466,73 @@ def restaurar_respaldo(
                 )
     logger.info(f"     ✅ {fuente}: {cuerpo['fragmentos']} fragmentos restaurados desde {archivo}")
     return {"fuente": fuente, "fragmentos": cuerpo["fragmentos"], "respaldo_previo": str(previo)}
+
+
+def retirar_fuentes(
+    fuentes: Sequence[str], *, collection=None, respaldos_dir: Optional[str] = None
+) -> List[Dict]:
+    """Saca del índice TODOS los fragmentos de cada fuente (``ingest --retirar``; orden del
+    responsable, 10-oct-2026): p. ej. una ley abrogada cuya sucesora ya se indexó como fuente
+    propia. Antes de escribir valida todas: nombre exacto sin ruta, sin repetir, con fragmentos
+    en el índice y fuera de ``LAW_SOURCE_MAP`` (lo que el catálogo aún resuelve no se retira:
+    la cita quedaría sin fuente). Luego, por fuente: respaldo durable, borrado y verificación;
+    ante un fallo restaura el respaldo y lanza ``ReingestaFallida``. Se repone con
+    ``ingest --restaurar <respaldo>``."""
+    if not fuentes:
+        raise ValueError("--retirar exige al menos una fuente (nombre exacto del PDF)")
+    repetidas = sorted(f for f, n in Counter(fuentes).items() if n > 1)
+    if repetidas:
+        raise ValueError(f"Fuente repetida: {', '.join(repetidas)}")
+    for fuente in fuentes:
+        if not fuente or Path(fuente).name != fuente or fuente in (".", ".."):
+            raise ValueError(f"--retirar debe ser solo el nombre del archivo: {fuente!r}")
+    catalogadas = set(LAW_SOURCE_MAP.values())
+    en_catalogo = sorted(f for f in fuentes if f in catalogadas)
+    if en_catalogo:
+        raise ValueError(
+            f"{', '.join(en_catalogo)} sigue en LAW_SOURCE_MAP: retírala del catálogo antes de "
+            f"sacarla del índice"
+        )
+    if collection is None:
+        _cargar_dependencias()
+        collection = get_collection(None)   # solo se borra: no hace falta el modelo
+    sin_fragmentos = sorted(
+        f for f in fuentes if not collection.get(where={"source": f}, include=[]).get("ids")
+    )
+    if sin_fragmentos:
+        raise ValueError(f"{', '.join(sin_fragmentos)} no tiene fragmentos en el índice")
+    respaldos = _directorio_respaldos(respaldos_dir)
+
+    informes: List[Dict] = []
+    for fuente in fuentes:
+        respaldo = collection.get(
+            where={"source": fuente}, include=["documents", "metadatas", "embeddings"]
+        )
+        ruta_respaldo = _escribir_respaldo(respaldos, fuente, respaldo)
+        logger.info(f"     💾 Respaldo de la fuente: {ruta_respaldo}")
+        try:
+            collection.delete(where={"source": fuente})
+            if collection.get(where={"source": fuente}, include=[]).get("ids"):
+                raise ReingestaFallida("quedaron fragmentos de la fuente tras el borrado")
+        except BaseException as exc:
+            try:
+                restaurados = _restaurar(collection, fuente, respaldo)
+            except Exception as error_restauracion:
+                raise ReingestaFallida(
+                    f"{fuente}: el retiro falló ({exc}) y la RESTAURACIÓN en memoria también "
+                    f"({error_restauracion}). Repón la fuente con: python OpenNotebook.py ingest "
+                    f"--restaurar \"{ruta_respaldo}\""
+                ) from exc
+            if not isinstance(exc, Exception):
+                raise  # interrupción (Ctrl+C): ya restaurado, se propaga
+            raise ReingestaFallida(
+                f"{fuente}: el retiro falló ({exc}); se restauraron los {restaurados} "
+                f"fragmentos (respaldo durable: {ruta_respaldo})."
+            ) from exc
+        fragmentos = len(respaldo.get("ids") or [])
+        logger.info(f"     ✅ {fuente}: {fragmentos} fragmentos retirados del índice")
+        informes.append({"fuente": fuente, "fragmentos": fragmentos, "respaldo": str(ruta_respaldo)})
+    return informes
 
 
 def formato_informe_reingesta(informes: List[Dict]) -> str:
@@ -4221,6 +4299,12 @@ Ejemplos:
              "~/.itosturre/respaldos_reingesta)"
     )
     ingest_parser.add_argument(
+        "--retirar", action="append", metavar="ARCHIVO.pdf",
+        help="Sacar del índice TODOS los fragmentos de esta fuente (repetible), con respaldo "
+             "durable (se repone con --restaurar). Solo fuentes que LAW_SOURCE_MAP ya no "
+             "resuelve, p. ej. una ley abrogada; no exige --directory"
+    )
+    ingest_parser.add_argument(
         "--restaurar", metavar="RESPALDO.json",
         help="Reponer en el índice la fuente de un respaldo durable (lo valida, respalda el "
              "estado actual de la fuente y verifica textos, metadatos y vectores)"
@@ -4366,9 +4450,27 @@ Ejemplos:
 
     elif args.command == "ingest":
         setup_logging(args.verbose)
-        if not args.restaurar and not args.directory:
-            parser.error("ingest exige --directory (salvo con --restaurar)")
-        if args.restaurar:
+        if not args.restaurar and not args.retirar and not args.directory:
+            parser.error("ingest exige --directory (salvo con --restaurar o --retirar)")
+        if args.retirar:
+            # Retiro de fuentes (10-oct-2026): operación propia, nunca junto con otras.
+            if (args.fuente or args.simular or args.json or args.clear or args.reingest
+                    or args.restaurar or args.identidad_confirmada):
+                parser.error("--retirar no se combina con --fuente, --simular, --json, "
+                             "--restaurar, --clear, --reingest ni --identidad-confirmada")
+            try:
+                informes = retirar_fuentes(args.retirar, respaldos_dir=args.respaldos)
+            except ValueError as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                sys.exit(2)
+            except ReingestaFallida as exc:
+                print(f"❌ {exc}", file=sys.stderr)
+                sys.exit(1)
+            for informe in informes:
+                print(f"✅ {informe['fuente']}: {informe['fragmentos']} fragmentos retirados del "
+                      f"índice; respaldo durable: {informe['respaldo']} (se repone con "
+                      f"--restaurar)")
+        elif args.restaurar:
             if (args.fuente or args.simular or args.clear or args.reingest
                     or args.identidad_confirmada):
                 parser.error("--restaurar no se combina con --fuente, --simular, --clear, "

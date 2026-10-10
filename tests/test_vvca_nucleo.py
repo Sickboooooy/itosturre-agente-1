@@ -2607,6 +2607,20 @@ class VinculoSintacticoTests(AuditoriaBase):
                 with self.subTest(clave=clave):
                     self.assertIn("jalisco", clave)
 
+    def test_ley_abrogada_no_se_resuelve_con_su_sucesora(self) -> None:
+        # Movilidad (orden del responsable, 10-oct-2026): la ley nueva tiene fuente propia y la
+        # abrogada no se resuelve (🟡 ley no identificada); sus artículos no se cotejan contra la
+        # nueva, que se reestructuró.
+        sucesora = ("El artículo 12 de la Ley de Movilidad, Seguridad Vial y Transporte del "
+                    "Estado de Jalisco dispone.")
+        (ref,) = ON.extract_references(sucesora)
+        self.assertEqual(
+            ref["source_file"],
+            "Ley de Movilidad Seguridad Vial y Transporte del Estado de Jalisco 2026.pdf")
+        (ref,) = ON.extract_references(
+            "El artículo 12 de la Ley de Movilidad y Transporte del Estado de Jalisco dispone.")
+        self.assertIsNone(ref["source_file"])
+
     # ── Punto 6 ────────────────────────────────────────────────────────────────────────
     def test_p6_rango_largo_audita_extremos_y_deja_cobertura_incompleta(self) -> None:
         texto = "Arts. 14-40 CPEUM."
