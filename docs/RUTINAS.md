@@ -20,6 +20,8 @@ El contrato de datos y de corrida completo vive en `docs/VIGILANCIA_LEGAL.md`
 | La fecha era la del servidor (UTC) | Fecha de la Ciudad de México |
 | Las salidas iban a `Itosturre/`, que en macOS/Windows es el paquete `itosturre/` (y su regla de `.gitignore` ocultaba módulos nuevos) | Salidas en `salidas/` o `$ITOSTURRE_SALIDA`; nunca dentro del paquete |
 | `beautifulsoup4` no estaba en `requirements.txt` | Agregado |
+| `https://www.dof.gob.mx` falla la verificación TLS: el certificado solo ampara `dof.gob.mx` (corrida real del 10-oct-2026) | El collector consulta `https://dof.gob.mx` |
+| Los enlaces relativos del DOF se pegaban sin `/` (`…gob.mxnota_detalle.php?…`) | URLs absolutas válidas en cada hallazgo |
 
 ## Requisito previo: red del entorno
 
@@ -103,6 +105,9 @@ Eres el módulo de inteligencia jurisprudencial de Itosturre.
    código de salida, salidas/Jurisprudencia/semana-<AAAA-Www>.estado.json y
    el .json de fichas.
 3. Si el código es 2: NO redactes informe. Notifícame la causa y termina.
+   (Desde el 10-oct-2026 el detalle de las tesis devuelve un desafío anti-bots:
+   hasta resolver la vía con navegador, lo esperado es 2 o PARCIAL con temas ❌.
+   Ver docs/VIGILANCIA_LEGAL.md §11; no intentes evadirlo.)
 4. Si es 0: trabaja SOLO sobre las fichas del .json. Temas: cancelación /
    restricción de CSD (arts. 17-H y 17-H Bis CFF), operaciones inexistentes
    (69-B), suspensión en amparo fiscal, materialidad y facultades de

@@ -27,6 +27,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -73,9 +74,11 @@ HEADERS = {
     "Accept-Language": "es-MX,es;q=0.9",
 }
 
-DOF_BASE = "https://www.dof.gob.mx"
+# Sin "www": el certificado del portal solo ampara dof.gob.mx (verificado el
+# 10-oct-2026; con www la verificación TLS falla por nombre). Nunca desactivar
+# la verificación TLS para "arreglarlo".
+DOF_BASE = "https://dof.gob.mx"
 SAT_NOTICIAS_URL = "https://www.sat.gob.mx/articulo/87284/comunicados-y-noticias"
-SAT_BASE = "https://www.sat.gob.mx"
 
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
@@ -109,8 +112,7 @@ def fetch_dof() -> ResultadoFuente:
             continue
         matched = _match_keywords(text)
         if matched:
-            href = a["href"]
-            url = href if href.startswith("http") else f"{DOF_BASE}{href}"
+            url = urljoin(f"{DOF_BASE}/", a["href"])
             items.append({
                 "fuente": "DOF",
                 "titulo": text[:200],
@@ -157,8 +159,7 @@ def fetch_sat() -> ResultadoFuente:
             continue
         matched = _match_keywords(text)
         if matched:
-            href = a["href"]
-            url = href if href.startswith("http") else f"{SAT_BASE}{href}"
+            url = urljoin(SAT_NOTICIAS_URL, a["href"])
             items.append({
                 "fuente": "SAT",
                 "titulo": text[:200],

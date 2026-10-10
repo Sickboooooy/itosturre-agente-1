@@ -22,7 +22,11 @@ Protocolo Itosturre (innegociable):
     Confundir "no hubo novedades" con "no pude consultar la fuente" es el
     error de fondo que este módulo existe para evitar (docs/SJF_OPERATIVA.md).
 
-Endpoints (microservicio oficial, público, sin WAF ni navegador):
+Endpoints (microservicio oficial, público). Verificado el 10-oct-2026: el POST
+de búsqueda responde JSON, pero GET /tesis/{ius} devuelve el desafío anti-bots
+de Incapsula (HTML) en lugar de la ficha. El watcher marca esos temas
+SOURCE_UNAVAILABLE con ese diagnóstico y no intenta evadirlo; la vía con
+navegador del repo es services/itosturre-scraper (vvca_audit.ts).
   BASE: https://sjf2.scjn.gob.mx/services/sjftesismicroservice/api/public
   POST /tesis           — búsqueda (body JSON)
   POST /tesis/ids       — solo IUS para iterar
@@ -312,6 +316,20 @@ def _en_ventana(fecha_pub: str) -> bool:
         return False
 
 
+def _diagnostico_no_json(resp) -> tuple[str, bool]:
+    """Por qué la ficha no llegó como JSON, dicho de forma accionable, y si
+    reintentar por HTTP en el mismo entorno podría resolverlo."""
+    tipo = (getattr(resp, "headers", None) or {}).get("content-type", "sin content-type")
+    if "_Incapsula_Resource" in (resp.text or ""):
+        return (
+            f"desafío anti-bots (Incapsula) en lugar de la ficha JSON (HTTP {resp.status_code}, "
+            f"{tipo}): el detalle no se puede leer por HTTP directo y no se evade; la vía con "
+            "navegador es services/itosturre-scraper (vvca_audit.ts)",
+            False,
+        )
+    return f"respuesta no JSON (HTTP {resp.status_code}, {tipo})", True
+
+
 def obtener_detalle(ius: int) -> dict[str, Any]:
     """
     GET /tesis/{ius} → ficha completa en JSON.
@@ -319,14 +337,16 @@ def obtener_detalle(ius: int) -> dict[str, Any]:
     """
     outcome = _http("GET", f"{SJF_API}/tesis/{ius}")
     resp = outcome.response
-    if resp is None or not resp.ok:
-        detalle = outcome.error if resp is None else f"HTTP {resp.status_code}"
-        return {"ius": ius, "_error": detalle}
+    if resp is None:
+        return {"ius": ius, "_error": outcome.error, "_reintentable": outcome.retryable}
+    if not resp.ok:
+        return {"ius": ius, "_error": f"HTTP {resp.status_code}", "_reintentable": resp.status_code >= 500}
     body_bytes = resp.content  # cuerpo crudo de la respuesta HTTP (para custodia)
     try:
         raw: dict = resp.json()
     except ValueError:
-        return {"ius": ius, "_error": "JSON inválido"}
+        diagnostico, reintentable = _diagnostico_no_json(resp)
+        return {"ius": ius, "_error": diagnostico, "_reintentable": reintentable}
 
     # CADENA DE CUSTODIA: el API NO devuelve campo de hash (verificado contra las
     # 37 claves reales de la ficha). Se COMPUTA SHA-256 sobre los bytes crudos del
@@ -417,11 +437,18 @@ def consultar_todos() -> dict[str, dict]:
         for ius in ids[:MAX_DETALLE]:
             print(f"         GET /tesis/{ius}")
             fichas.append(obtener_detalle(ius))
-        errores = [f"detalle IUS {f['ius']}: {f['_error']}" for f in fichas if f.get("_error")]
-        if fichas and len(errores) == len(fichas):
+        fallidas = [f for f in fichas if f.get("_error")]
+        por_causa: dict[str, list[str]] = {}
+        for f in fallidas:
+            por_causa.setdefault(f["_error"], []).append(str(f["ius"]))
+        errores = [f"detalle IUS {', '.join(ius)}: {causa}" for causa, ius in por_causa.items()]
+        if fichas and len(fallidas) == len(fichas):
             # Hubo IUS pero ninguna ficha legible: no hay criterio verificado.
             resultado[tema["label"]] = {
-                "status": SOURCE_UNAVAILABLE, "retryable": True, "errors": errores, "fichas": fichas,
+                "status": SOURCE_UNAVAILABLE,
+                "retryable": any(f.get("_reintentable", True) for f in fallidas),
+                "errors": errores,
+                "fichas": fichas,
             }
         else:
             resultado[tema["label"]] = {

@@ -26,6 +26,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
+from urllib.parse import urlparse
 
 import requests
 
@@ -39,8 +40,9 @@ from itosturre.vigilancia import rutina as r
 class FakeResponse:
     """Doble mínimo de requests.Response para las pruebas."""
 
-    def __init__(self, status_code=200, json_data=None, text=None, ok=None):
+    def __init__(self, status_code=200, json_data=None, text=None, ok=None, headers=None):
         self.status_code = status_code
+        self.headers = headers or {}
         self._json = json_data
         if text is None:
             text = json.dumps(json_data) if json_data is not None else ""
@@ -68,6 +70,10 @@ HTML_SAT_CON_HALLAZGO = (
     '<html><body><a href="/com/1">Nuevo criterio SAT sobre cancelación de CSD</a></body></html>'
 )
 HTML_SIN_HALLAZGO = "<html><body><p>Contenido sin relevancia fiscal.</p></body></html>"
+HTML_INCAPSULA = (
+    '<html style="height:100%"><head><META NAME="ROBOTS" CONTENT="NOINDEX, NOFOLLOW">'
+    '<script type="text/javascript" src="/_Incapsula_Resource?SWJIYLWA=x"></script></head></html>'
+)
 
 
 class RedDofSat:
@@ -105,7 +111,8 @@ FICHA_SJF = {
 class RedSjf:
     """Doble de requests.request para el microservicio del SJF.
 
-    busqueda: 'hallazgo' | 'vacia' | 'bloqueado'; detalle: 'ok' | '500';
+    busqueda: 'hallazgo' | 'vacia' | 'bloqueado'; detalle: 'ok' | '500' |
+    'incapsula' (desafío anti-bots en HTML, como el observado el 10-oct-2026);
     temas_caidos: expresiones cuya búsqueda responde HTTP 500."""
 
     def __init__(self, busqueda="hallazgo", detalle="ok", temas_caidos=()):
@@ -126,6 +133,8 @@ class RedSjf:
         if method == "GET":
             if self.detalle == "500":
                 return FakeResponse(status_code=500, text="error interno")
+            if self.detalle == "incapsula":
+                return FakeResponse(text=HTML_INCAPSULA, headers={"content-type": "text/html"})
             return FakeResponse(json_data=FICHA_SJF)
         raise AssertionError(f"método inesperado: {method}")
 
@@ -291,6 +300,7 @@ class TestCasoC_SjfCaido(_AislaSalidaMixin, unittest.TestCase):
         self.assertFalse(vjur.OUTPUT_FILE.exists())
         for tema in self._estado(vjur.OUTPUT_FILE)["temas"].values():
             self.assertEqual(tema["status"], c.SOURCE_UNAVAILABLE)
+            self.assertTrue(tema["retryable"], "un HTTP 500 del detalle puede ser transitorio")
             self.assertTrue(any("2028888" in e for e in tema["errors"]))
 
 
@@ -416,6 +426,73 @@ class TestSjfNoReintentaBloqueoDePolitica(_AislaSalidaMixin, unittest.TestCase):
         self.assertEqual(outcome.status, c.SOURCE_UNAVAILABLE)
         self.assertFalse(outcome.retryable)
         self.assertTrue(outcome.bloqueo_politica)
+
+
+class TestHallazgosDeLaCorridaReal(_AislaSalidaMixin, unittest.TestCase):
+    """Defectos que aparecieron al correr los scripts contra las fuentes reales
+    (10-oct-2026) y que la red simulada no mostraba."""
+
+    def test_el_dof_se_consulta_en_el_host_que_ampara_su_certificado(self):
+        """El certificado del portal solo cubre dof.gob.mx: con www la
+        verificación TLS falla por nombre (nunca se desactiva la verificación)."""
+        self.assertEqual(urlparse(vdof.DOF_BASE).hostname, "dof.gob.mx")
+
+    def test_enlaces_relativos_del_dof_quedan_absolutos(self):
+        html = (
+            '<html><body>'
+            '<a href="nota_detalle.php?codigo=5712345&fecha=10/10/2026">Listado de contribuyentes '
+            '69-B definitivos publicado hoy</a>'
+            '<a href="http://dof.gob.mx/index.php">Resolución Miscelánea Fiscal para 2027</a>'
+            '</body></html>'
+        )
+        with mock.patch.object(vdof.requests, "get", lambda url, headers=None, timeout=None: FakeResponse(text=html)):
+            resultado = vdof.fetch_dof()
+        urls = [item["url"] for item in resultado.items[:2]]
+        self.assertEqual(urls, [
+            "https://dof.gob.mx/nota_detalle.php?codigo=5712345&fecha=10/10/2026",
+            "http://dof.gob.mx/index.php",
+        ])
+
+    def test_enlaces_relativos_del_sat_se_resuelven_contra_la_pagina(self):
+        html = ('<html><body><a href="/com/1">Nuevo criterio SAT sobre cancelación de CSD</a>'
+                '<a href="regla-miscelanea">Acuerdo SAT: regla miscelánea modificada</a></body></html>')
+        with mock.patch.object(vdof.requests, "get", lambda url, headers=None, timeout=None: FakeResponse(text=html)):
+            resultado = vdof.fetch_sat()
+        self.assertEqual([item["url"] for item in resultado.items], [
+            "https://www.sat.gob.mx/com/1",
+            "https://www.sat.gob.mx/articulo/87284/regla-miscelanea",
+        ])
+
+    def test_detalle_tras_anti_bots_se_diagnostica_y_no_cuenta(self):
+        self.assertEqual(self._correr_sjf(RedSjf(detalle="incapsula")), r.EXIT_FUENTE_INACCESIBLE)
+        self.assertFalse(vjur.OUTPUT_FILE.exists())
+        for tema in self._estado(vjur.OUTPUT_FILE)["temas"].values():
+            self.assertEqual(tema["status"], c.SOURCE_UNAVAILABLE)
+            self.assertFalse(tema["retryable"], "reintentar por HTTP no resuelve el anti-bots")
+            self.assertTrue(all("Incapsula" in e for e in tema["errors"]), tema["errors"])
+
+    def test_el_mismo_diagnostico_se_agrupa_por_causa(self):
+        temas = {"ius": ["101", "102", "103"]}
+
+        class _Red(RedSjf):
+            def __call__(self, method, url, headers=None, timeout=None, json=None, **kw):
+                if method == "POST":
+                    return FakeResponse(json_data={"documents": [{"ius": i} for i in temas["ius"]]})
+                return FakeResponse(text=HTML_INCAPSULA, headers={"content-type": "text/html"})
+
+        self._correr_sjf(_Red())
+        errores = next(iter(self._estado(vjur.OUTPUT_FILE)["temas"].values()))["errors"]
+        self.assertEqual(len(errores), 1, errores)
+        self.assertIn("101, 102, 103", errores[0])
+
+    def test_respuesta_no_json_sin_anti_bots_dice_que_llego(self):
+        with mock.patch.object(vjur.requests, "request",
+                               lambda *a, **k: FakeResponse(text="<html>mantenimiento</html>",
+                                                            headers={"content-type": "text/html"})):
+            ficha = vjur.obtener_detalle(2027452)
+        self.assertIn("no JSON", ficha["_error"])
+        self.assertIn("text/html", ficha["_error"])
+        self.assertNotIn("Incapsula", ficha["_error"])
 
 
 class TestInformeDegradadoSjf(unittest.TestCase):

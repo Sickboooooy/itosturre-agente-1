@@ -397,6 +397,17 @@ Cubren:
 - **La configuración de la tarea programada de la cuenta** (qué prompt/comando dispara este
   watch, y en qué entorno corre) vive fuera de este repositorio. La recomendación de §6 no
   se puede aplicar con un commit aquí.
+- **Detalle del SJF tras un desafío anti-bots (verificado el 10-oct-2026).** El POST de
+  búsqueda del microservicio responde JSON, pero `GET /tesis/{ius}` devuelve la página de
+  Incapsula en lugar de la ficha. El watcher marca esos temas `SOURCE_UNAVAILABLE` (no
+  reintentable) con ese diagnóstico, no escribe informe si ningún tema queda verificable y
+  **no intenta evadir el control**. Leer el detalle requiere la vía con navegador del repo
+  (`services/itosturre-scraper`, `vvca_audit.ts`): decisión de arquitectura pendiente.
+- **DOF sin `www`.** El certificado del portal solo ampara `dof.gob.mx`; con `www` la
+  verificación TLS falla por nombre. El collector usa `https://dof.gob.mx` y resuelve los
+  enlaces relativos de la portada con `urljoin`. Nunca desactivar la verificación TLS.
+- **SAT lento.** En la corrida real del 10-oct-2026 `www.sat.gob.mx` no respondió en 20 s
+  (`TIMEOUT`): el brief salió `PARCIAL` con el aviso, como dicta el contrato.
 - **DOF/SAT no tienen captura de evidencia forense** (a diferencia del SJF, que sí tiene
   hash SHA-256 por ficha). Añadir eso — por ejemplo, guardar el HTML crudo o una captura,
   siguiendo el patrón de `capturar_rag.py`/`vvca_audit.ts` — es una extensión futura, fuera
