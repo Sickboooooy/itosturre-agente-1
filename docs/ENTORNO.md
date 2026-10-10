@@ -140,6 +140,31 @@ Tiempo de referencia en este equipo (CPU, e5-large): ~0.45 s por fragmento (CFPC
 fragmentos: 331 s). `--restaurar` no recalcula vectores (segundos). Nunca dos procesos sobre
 el mismo `chroma_db`.
 
+### Vigencia del corpus (desde el 9-oct-2026)
+
+Estar indexada no es estar vigente. `scripts/vigencia_corpus.py` coteja la versión de cada
+fuente del índice (sello "Última Reforma DOF" de LeyesBiblio; en Jalisco, la tabla de reformas
+y el decreto citado) contra el listado oficial de hoy y da un semáforo por fuente, sin
+promediar. Es solo lectura: no descarga leyes ni re-indexa, y solo consulta URL https de hosts
+oficiales. La fuente oficial de cada PDF vive en `scripts/fuentes_oficiales.json`.
+
+```bash
+python scripts/vigencia_corpus.py               # reporte en reportes/vigencia_corpus/ (no se versiona)
+bash scripts/instalar_vigencia_corpus.sh        # agenda bimestral, solo macOS (launchd): --estado · --ahora · --desinstalar
+```
+
+Mientras una ley no esté 🟢, sus artículos se cotejan contra el PDF oficial antes de citarlos
+(Regla 8 de `CLAUDE.md`). Las descargas y las fichas quedan fuera del repo, en
+`~/itosturre-data/cotejo/<fecha>/`:
+
+```bash
+./venv/Scripts/python.exe scripts/cotejo_manual.py preparar    # baja y valida los PDF oficiales (PyMuPDF)
+python scripts/cotejo_manual.py articulo LFT 47 48             # ficha por artículo (solo librería estándar)
+```
+
+Para actualizar una ley 🔴, el reporte trae los comandos de la re-ingesta por fuente de arriba,
+con las rutas del índice auditado.
+
 
 ---
 

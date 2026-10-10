@@ -482,9 +482,10 @@ LAW_SOURCE_MAP = {
     # Título del PDF municipal: "Reglamento de Movilidad, Transporte y Seguridad Vial de
     # Guadalajara" (antes bastaba "reglamento de movilidad", de cualquier municipio).
     "reglamento de movilidad, transporte y seguridad vial de guadalajara": "RegMovilidadTransporteSeguridadVialGuadalajara 2026.pdf",
-    # Ojo: el texto indexado de este PDF es la Ley Orgánica del Poder Judicial de la
-    # Federación (verificado en el corpus el 1-oct-2026); la clave exige "de la federación".
-    "reglamento orgánico del poder judicial de la federación": "Reglamento organico poder judicial de la federación 2026.pdf",
+    # Sin clave para el "Reglamento Orgánico del Poder Judicial de la Federación": su PDF era una
+    # copia de la LOPJF (mismo sha256, verificado el 1-oct-2026) y el responsable lo descartó el
+    # 9-oct-2026 (scripts/fuentes_oficiales.json). Mapearlo cotejaba esa cita contra la LOPJF;
+    # sin clave queda 🟡 NO VERIFICABLE.
     # Abreviaciones
     "cfpc": "Código Federal de Procedimientos Civiles 2026.pdf",
     "cnpcf": "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf",

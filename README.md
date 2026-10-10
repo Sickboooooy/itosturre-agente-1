@@ -255,6 +255,8 @@ itosturre-agente/
 ├── scripts/
 │   ├── bootstrap_corpus.sh   # Descarga el corpus del Drive + ingest + verifica (onboarding)
 │   ├── check_corpus.py       # Verificador de cobertura del corpus
+│   ├── vigencia_corpus.py    # ¿El corpus indexado sigue vigente? Semáforo vs. fuente oficial
+│   ├── cotejo_manual.py      # Ficha por artículo: texto del RAG vs. PDF oficial vigente
 │   ├── run_regression.py     # Suite de regresión VVCA (gate pre-merge)
 │   ├── check_agent_surfaces.py # Evita divergencia CLAUDE/AGENTS y skills
 │   ├── check_sensitive_paths.py # Evita versionar datos y artefactos locales

@@ -160,7 +160,9 @@ Pendientes derivados de R4b:
   "infonavit", "prodecon" y el alias "Ejecución Penal" (sin fuente). El PDF
   `Reglamento organico poder judicial de la federación 2026.pdf` contiene el texto de la
   Ley Orgánica del Poder Judicial de la Federación (duplicado del de la LOPJF). Ampliar o
-  depurar `LAW_SOURCE_MAP` es decisión del responsable.
+  depurar `LAW_SOURCE_MAP` es decisión del responsable: **9-oct-2026, descartado** — se
+  retiró su clave (la cita del reglamento queda 🟡) y `scripts/fuentes_oficiales.json` lo
+  marca `descartado`.
 - La fracción conserva la expresión anterior (`fr`/`frac` + palabra): "artículo 5 frente
   a…" se lee como fracción "ente" y "fracc. III" como "acc.". No afecta la ley ni el
   semáforo; queda para un PR menor.
