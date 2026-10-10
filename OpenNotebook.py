@@ -2,6 +2,17 @@
 OpenNotebook.py v4.0 — RAG Legal Itosturre
 Motor de auditoría anti-alucinaciones con semáforo VVCA.
 
+Cambios vigencia del corpus y ruta query (rama fix/vvca-query-vigencia, 9-oct-2026;
+itosturre/audit/vigencia.py):
+  ✅ ``audit`` lee el último reporte de scripts/vigencia_corpus.py hecho sobre este índice. Si
+     da por no vigente la versión indexada de la ley (DESACTUALIZADA o ABROGADA): la cita no
+     sale 🟢 ("🟡 VERSIÓN INDEXADA NO VIGENTE", tope 84) y la inexistencia probada solo en esa
+     versión no sale 🔴 ("🟡 INEXISTENTE EN UNA VERSIÓN NO VIGENTE"). Nunca 🔴 por vigencia;
+     sin reporte aplicable nada cambia (``vigencia_corpus`` del resumen dice por qué).
+  ✅ ``query`` (``consultar_corpus``): un artículo nombrado recibe el veredicto de ``audit``;
+     los pasajes cercanos son contexto (⚪), nunca 🟢 por parecido ni 🔴 por poco parecido
+     (antes: "art. 750 LA" 🟢 87 con el art. 5o; un derogado 🟢 100 «literal»).
+
 Cambios re-ingesta por fuente (orden del responsable jurídico, 4-oct-2026):
   ✅ Corte y etiqueta de "ley" como funciones puras (itosturre/audit/fragmentacion.py) con la
      misma definición de encabezado AUTÉNTICO que la auditoría (evidence._es_autentico): cortan
@@ -139,6 +150,7 @@ from itosturre.audit.evidence import (
     DEROGADO,
     cotejar_precepto,
     describir_unidad,
+    encabezado_autentico,
     select_article_evidence,
 )
 from itosturre.audit.referencias import (
@@ -187,6 +199,18 @@ from itosturre.audit.jurisprudence import (
     extraer_rubro_invocado,
     extraer_rubro_posterior,
     normalizar_vigencia,
+)
+from itosturre.audit.vigencia import (
+    FUENTE_NO_VIGENTE,
+    REPORTE_APLICADO,
+    REPORTE_AUSENTE,
+    REPORTE_ILEGIBLE,
+    REPORTE_OTRO_INDICE,
+    ReporteVigencia,
+    cargar_reporte,
+    fila_de,
+    instruccion_cotejo,
+    vigencia_de_fuente,
 )
 from itosturre.audit.policy import (
     ALCANCE_JURISPRUDENCIA,
@@ -292,6 +316,11 @@ JURISPRUDENCIA_PATH = os.getenv("JURISPRUDENCIA_PATH", str(_BASE_DIR / "jurispru
 # Base permitida para ingest — más amplia que JURISPRUDENCIA_PATH para aceptar OneDrive y otras rutas
 INGEST_ALLOWED_BASE = os.getenv("INGEST_ALLOWED_BASE", str(_BASE_DIR))
 CORRECTIONS_FILE = os.getenv("CORRECTIONS_FILE", str(_BASE_DIR / "jurisprudencia" / "vvca_corrections.json"))
+# Vigencia del corpus (rama fix/vvca-query-vigencia): reporte de scripts/vigencia_corpus.py. Por
+# omisión, el más reciente de su carpeta de salida; solo se aplica el hecho sobre este índice
+# (``itosturre.audit.vigencia``).
+VIGENCIA_REPORTE = os.getenv("ITOS_VIGENCIA_REPORTE", "")
+VIGENCIA_REPORTES_DIR = os.getenv("ITOS_VIGENCIA_SALIDA", str(_BASE_DIR / "reportes" / "vigencia_corpus"))
 COLLECTION_NAME = "corpus_legal_itosturre"
 EMBED_MODEL = "intfloat/multilingual-e5-large"
 
@@ -1832,6 +1861,7 @@ def build_vvca(
     encabezado_autentico: bool = True,
     ubicacion_no_acreditada: Optional[str] = None,
     encabezado_fin_de_linea: bool = False,
+    version_no_vigente: Optional[str] = None,
 ) -> Dict:
     """Score, semáforo y explicación VVCA de una cita normativa con evidencia.
 
@@ -1870,6 +1900,12 @@ def build_vvca(
     ("Artículo 8º" solo en su línea). Con metadata no cambia nada (dato informativo,
     ``explicabilidad["encabezado_fin_de_linea"]``); sin metadata limita a 84, como la
     equivalencia ordinal: el 🟢 de la ruta semántica no se amplía a esa forma.
+
+    Vigencia del corpus (rama fix/vvca-query-vigencia): ``version_no_vigente`` (motivo) dice que
+    el reporte de vigencia, hecho sobre este índice, da por no vigente la versión indexada de la
+    ley (``itosturre.audit.vigencia``). Limita a 84 en cualquier ruta: el precepto existe en esa
+    versión (el verde determinista queda como dato), pero el texto cotejado puede no ser el que
+    rige. Nunca baja de 🟡 por este motivo.
     """
     # Desde R4c ``source_match`` compara de verdad la fuente recuperada con la esperada
     # (R4-D09): la penalización −15 de ``vvca_score`` deja de ser inalcanzable.
@@ -1935,6 +1971,9 @@ def build_vvca(
     # desambigüe, o el único tras la frontera TRANSITORIOS): nunca 🟢, en ninguna ruta.
     solo_remision = bool(article_heading_verified) and not encabezado_autentico
     if solo_remision or ubicacion_no_acreditada:
+        score = min(score, 84)
+    # Vigencia del corpus: la versión indexada ya no es la vigente según el reporte: nunca 🟢.
+    if version_no_vigente:
         score = min(score, 84)
     semaforo = vvca_semaforo(score)
     law = ref.get("law", "desconocido")
@@ -2030,6 +2069,8 @@ def build_vvca(
             f"{v_verificacion}; encabezado de tratado sin cierre en un fragmento sin metadata "
             f"del artículo: no acredita el precepto"
         )
+    if version_no_vigente:
+        v_verificacion = f"{v_verificacion}; {version_no_vigente}"
     c_contextualizacion = vvca_contextualizacion(source_file)
     a_auditabilidad = f"{art_label} · {law} · pág. {page} · corpus: {source_file}"
 
@@ -2072,6 +2113,9 @@ def build_vvca(
         explicabilidad["encabezado_autentico"] = False
     if ubicacion_no_acreditada:
         explicabilidad["ubicacion_no_acreditada"] = ubicacion_no_acreditada
+    if version_no_vigente:
+        # Vigencia del corpus (campo añadido): por qué el 🟢 no se concede.
+        explicabilidad["version_no_vigente"] = version_no_vigente
     if verde_determinista:
         # Verde determinista (campos añadidos): la regla que dio el 🟢 y el puntaje por
         # similitud (informativo) que habría dado la distancia sola.
@@ -2559,23 +2603,37 @@ def _registrar_inexistencia(
     alerts: List[str],
     verification_traces: List[Dict],
     retrieved_sources: List[Dict],
+    vigencia: Optional[Dict] = None,
 ) -> None:
     """🔴 ARTÍCULO INEXISTENTE ACREDITADO (traza ``refuted``, puntaje 0). Bloquea el
     documento como toda cita normativa refutada. La evidencia es la de la prueba (los
-    encabezados vecinos o el final del cuerpo), no el fragmento semántico más cercano."""
+    encabezados vecinos o el final del cuerpo), no el fragmento semántico más cercano.
+
+    Vigencia del corpus: si el reporte de vigencia (``vigencia``) da por no vigente la versión
+    indexada, la prueba solo acredita que el artículo no está en ESA versión: 🟡 INEXISTENTE EN
+    UNA VERSIÓN NO VIGENTE (traza ``not_verifiable``, puntaje 60). Una reforma posterior pudo
+    adicionarlo; nunca 🔴 sin prueba sobre la ley vigente (criterio C)."""
     fuente = ref["source_file"]
     descripcion = describir_prueba(prueba, f"'{fuente}'")
     evidencia, pagina = _evidencia_de_la_prueba(prueba, originales)
-    alerts.append(
-        f"🔴 ARTÍCULO INEXISTENTE ACREDITADO: '{ref['raw']}' — {descripcion}. Corregir o "
-        f"sustituir la cita antes de cualquier uso procesal; si el escrito invoca una reforma "
-        f"posterior a esa versión, cotejarla en la fuente oficial."
-    )
+    no_vigente = bool(vigencia and vigencia.get("estado") == FUENTE_NO_VIGENTE)
     art = ref.get("article", "?")
+    if no_vigente:
+        alerts.append(
+            f"🟡 INEXISTENTE EN UNA VERSIÓN NO VIGENTE (score 60): '{ref['raw']}' — "
+            f"{descripcion}; pero {vigencia['motivo']}: no acredita que el artículo no exista en "
+            f"la ley vigente; {instruccion_cotejo(vigencia, art)}"
+        )
+    else:
+        alerts.append(
+            f"🔴 ARTÍCULO INEXISTENTE ACREDITADO: '{ref['raw']}' — {descripcion}. Corregir o "
+            f"sustituir la cita antes de cualquier uso procesal; si el escrito invoca una reforma "
+            f"posterior a esa versión, cotejarla en la fuente oficial."
+        )
     frac = ref.get("fraction", "")
     art_label = f"Art. {art}" + (f" fr. {frac}" if frac else "")
     explicabilidad = {
-        "inexistencia_acreditada": prueba,
+        ("inexistencia_version_indexada" if no_vigente else "inexistencia_acreditada"): prueba,
         "coseno": round(selected["distance"], 4) if selected else None,
         "umbral": COSINE_THRESHOLD,
         "encabezado_articulo": False,
@@ -2584,10 +2642,17 @@ def _registrar_inexistencia(
         "fuente_esperada": fuente,
         "ley_inferida": bool(ref.get("law_inferred")),
     }
+    if no_vigente:
+        explicabilidad["version_no_vigente"] = vigencia["motivo"]
+    puntaje, semaforo = (60, "🟡") if no_vigente else (0, "🔴")
     vvca = {
-        "score": 0,
-        "semaforo": "🔴",
-        "V_verificacion": f"Artículo inexistente acreditado: {descripcion}",
+        "score": puntaje,
+        "semaforo": semaforo,
+        "V_verificacion": (
+            f"Inexistente en la versión indexada, que no es la vigente: {descripcion}; "
+            f"{vigencia['motivo']}" if no_vigente
+            else f"Artículo inexistente acreditado: {descripcion}"
+        ),
         "V_validacion": f"Fuente correcta: {fuente}",
         "C_contextualizacion": vvca_contextualizacion(fuente),
         "A_auditabilidad": f"{art_label} · {ref.get('law', 'desconocido')} · pág. {pagina} · corpus: {fuente}",
@@ -2596,11 +2661,11 @@ def _registrar_inexistencia(
     trace = build_trace_record(
         reference=ref["raw"],
         ref_type="normativa",
-        status="refuted",
+        status="not_verifiable" if no_vigente else "refuted",
         method="corpus_estructura",
         reason=vvca["V_verificacion"],
-        score=0,
-        semaforo="🔴",
+        score=puntaje,
+        semaforo=semaforo,
         source_file=fuente,
         locator=f"página {pagina} · artículo {art}",
         evidence_text=evidencia,
@@ -2608,7 +2673,7 @@ def _registrar_inexistencia(
     )
     verification_traces.append(trace)
     unidades = _unidades_de(ref)
-    retrieved_sources.append({
+    entrada = {
         "reference": ref["raw"],
         "law": ref["law"],
         "article": art,
@@ -2634,7 +2699,59 @@ def _registrar_inexistencia(
         # R4-D10 (campo añadido): la prueba positiva de inexistencia.
         "inexistencia_acreditada": prueba,
         "trace_id": trace["trace_id"],
-    })
+    }
+    if vigencia is not None:
+        # Vigencia del corpus (campos añadidos): estado de la ley según el reporte; con versión
+        # no vigente la prueba solo vale para la versión indexada.
+        entrada["vigencia_fuente"] = vigencia
+        if no_vigente:
+            entrada["inexistencia_version_indexada"] = entrada.pop("inexistencia_acreditada")
+    retrieved_sources.append(entrada)
+
+
+# ─────────────────────────────────────────
+# VIGENCIA DEL CORPUS (rama fix/vvca-query-vigencia)
+# ─────────────────────────────────────────
+
+def _ultimo_reporte_vigencia(carpeta: Path) -> Optional[Path]:
+    """El reporte ``vigencia_AAAA-MM-DD.json`` más reciente de ``carpeta`` (o None)."""
+    try:
+        reportes = sorted(carpeta.glob("vigencia_*.json"))
+    except OSError:
+        return None
+    return reportes[-1] if reportes else None
+
+
+def _reporte_vigencia() -> Tuple[Optional[ReporteVigencia], Dict]:
+    """El reporte de vigencia aplicable a ESTE índice y lo que de él va al resumen.
+
+    Solo se aplica el reporte hecho sobre ``CHROMA_PATH``: el de otro índice (otra copia, otro
+    equipo) no describe estas versiones. Sin reporte, ilegible o de otro índice, el semáforo no
+    cambia y el resumen dice por qué."""
+    ruta = (Path(VIGENCIA_REPORTE).expanduser() if VIGENCIA_REPORTE
+            else _ultimo_reporte_vigencia(Path(VIGENCIA_REPORTES_DIR).expanduser()))
+    if ruta is None or not ruta.is_file():
+        return None, {"estado": REPORTE_AUSENTE, "reporte": None, "ruta": None}
+    try:
+        reporte = cargar_reporte(json.loads(ruta.read_text(encoding="utf-8")), str(ruta))
+    except (OSError, ValueError) as exc:
+        logger.warning(f"⚠️  Reporte de vigencia ilegible ({ruta}): {exc}")
+        return None, {"estado": REPORTE_ILEGIBLE, "reporte": None, "ruta": str(ruta)}
+    if Path(reporte.chroma).expanduser().resolve() != Path(CHROMA_PATH).expanduser().resolve():
+        return None, {"estado": REPORTE_OTRO_INDICE, "reporte": reporte.fecha, "ruta": str(ruta)}
+    return reporte, {"estado": REPORTE_APLICADO, "reporte": reporte.fecha, "ruta": str(ruta)}
+
+
+def _fragmentos_de(fuente: str, collection, cache: Dict) -> Optional[int]:
+    """Fragmentos que ``fuente`` tiene hoy en el índice (None si no se pudieron contar)."""
+    if fuente not in cache:
+        try:
+            cache[fuente] = len(
+                collection.get(where={"source": fuente}, include=[]).get("ids") or []
+            )
+        except Exception:
+            cache[fuente] = None
+    return cache[fuente]
 
 
 def audit(
@@ -2704,6 +2821,17 @@ def audit(
     # —``(LeyPreparada, textos originales por chunk_index)``— y solo si algún artículo suyo
     # no se localiza.
     leyes_preparadas: Dict[str, Optional[Tuple[object, Dict[int, str]]]] = {}
+    # Vigencia del corpus (rama fix/vvca-query-vigencia): el reporte aplicable a este índice,
+    # leído una sola vez; los fragmentos de una fuente se cuentan solo si el reporte la registra.
+    reporte_vigencia, resumen_vigencia = _reporte_vigencia()
+    fragmentos_por_fuente: Dict[str, Optional[int]] = {}
+
+    def vigencia_de(fuente: str) -> Optional[Dict]:
+        if reporte_vigencia is None:
+            return None
+        fragmentos = (_fragmentos_de(fuente, collection, fragmentos_por_fuente)
+                      if fila_de(reporte_vigencia, fuente) else None)
+        return vigencia_de_fuente(reporte_vigencia, fuente, fragmentos)
 
     if verbose:
         logger.debug(f"🔍 Auditoría: {len(refs)} referencias detectadas")
@@ -2989,6 +3117,7 @@ def audit(
                         _registrar_inexistencia(
                             ref, evaluacion["prueba"], leyes_preparadas[expected_source][1],
                             selected, alerts, verification_traces, retrieved_sources,
+                            vigencia_de(expected_source),
                         )
                         continue
                     posterior = evaluacion.get("posterior_al_ultimo")
@@ -3047,6 +3176,12 @@ def audit(
                 elif unidades and source_match and not article_heading_verified:
                     unidad_no_cotejada = "sin el encabezado exacto del artículo no se coteja la unidad"
 
+                # Vigencia del corpus: estado de la ley de la evidencia (solo si es la citada).
+                vigencia = vigencia_de(best_source) if source_match else None
+                version_no_vigente = (
+                    vigencia["motivo"]
+                    if vigencia and vigencia["estado"] == FUENTE_NO_VIGENTE else None
+                )
                 vvca = build_vvca(
                     ref=ref,
                     distance=best_distance,
@@ -3069,6 +3204,7 @@ def audit(
                     encabezado_autentico=encabezado_autentico or not article_heading_verified,
                     ubicacion_no_acreditada=ubicacion_no_acreditada,
                     encabezado_fin_de_linea=encabezado_fin_de_linea,
+                    version_no_vigente=version_no_vigente,
                 )
                 if ubicacion and metadata_hit:
                     # Ronda 2 (campo añadido): cómo se acreditó (o no) la pertenencia al cuerpo.
@@ -3120,6 +3256,9 @@ def audit(
                     "derogacion_ambigua": derogacion_ambigua,
                     "evidencia_incompleta": evidencia_incompleta,
                 }
+                if vigencia is not None:
+                    # Vigencia del corpus (campo añadido): estado de la ley según el reporte.
+                    entry["vigencia_fuente"] = vigencia
 
                 if not source_match:
                     # R4c (R4-D09): la evidencia es de otro ordenamiento: no acredita ni
@@ -3319,6 +3458,12 @@ def audit(
                         f"{describir_unidad(unidades[0]) if len(unidades) == 1 else 'unidad citada'}. "
                         f"Cotejarla en la fuente oficial antes de citar."
                     )
+                if version_no_vigente:
+                    # Vigencia del corpus: aviso que se suma a los anteriores.
+                    alerts.append(
+                        f"🟡 VERSIÓN INDEXADA NO VIGENTE (score {vvca['score']}): '{ref['raw']}' "
+                        f"— {version_no_vigente}; {instruccion_cotejo(vigencia, ref['article'])}"
+                    )
             elif ref.get("law_requires_confirmation"):
                 # Ley inferida de otro párrafo: no localizar el precepto en una ley supuesta
                 # no acredita nada (🟡, nunca 🔴).
@@ -3347,6 +3492,7 @@ def audit(
                     _registrar_inexistencia(
                         ref, evaluacion["prueba"], leyes_preparadas[expected_source][1],
                         None, alerts, verification_traces, retrieved_sources,
+                        vigencia_de(expected_source),
                     )
                     continue
                 posterior = evaluacion.get("posterior_al_ultimo")
@@ -3590,12 +3736,20 @@ def audit(
     # R4c: con ``articulos_total`` el veredicto distingue "sin artículos" de "artículos con
     # verificación insuficiente" (R4-D12) y la razón del 🟢 enuncia solo lo verificado (D11).
     articulos_total = len(trazas_normativas)
+    # Vigencia del corpus: citas que no son verdes (o rojas) porque la versión indexada de su ley
+    # ya no es la vigente según el reporte.
+    normativa_no_vigente = sum(
+        1 for s in retrieved_sources
+        if s.get("ref_type") == "normativa"
+        and s.get("vvca", {}).get("explicabilidad", {}).get("version_no_vigente")
+    )
     veredicto = veredicto_global(
         score_rag, score_sjf, tesis_mismatch, tesis_no_encontradas,
         tesis_total_invocadas, tesis_superadas,
         normativa_refutada, normativa_no_verificable,
         articulos_total=articulos_total,
         tesis_parciales=tesis_parciales,
+        normativa_no_vigente=normativa_no_vigente,
     )
     # Semáforo por dimensión (R4-D12): neutro sin citas; sin puntaje, 🟡 (o 🔴 si hay
     # refutadas); con puntaje, el del promedio de siempre.
@@ -3664,6 +3818,10 @@ def audit(
             # R4d (campos añadidos): tesis localizadas por cotejo del rubro y por vigencia.
             "tesis_por_cotejo_rubro": tesis_por_cotejo_rubro,
             "tesis_por_vigencia": tesis_por_vigencia,
+            # Vigencia del corpus (campo añadido): si se aplicó un reporte de vigencia a este
+            # índice y cuántas citas normativas toca.
+            "vigencia_corpus": {**resumen_vigencia,
+                                "normativa_version_no_vigente": normativa_no_vigente},
         },
         "alerts": alerts,
         "retrieved_sources": retrieved_sources,
@@ -3681,6 +3839,156 @@ def audit(
     if corpus_warning:
         result["corpus_warning"] = corpus_warning
     return result
+
+
+# ─────────────────────────────────────────
+# CONSULTA (ruta ``query``) — rama fix/vvca-query-vigencia
+# ─────────────────────────────────────────
+
+# ⚪ en una consulta: pasaje de contexto o poco parecido; no es un veredicto (ni 🟢 ni 🔴).
+SEMAFORO_CONTEXTO = "⚪"
+
+
+def _texto_de_cita(texto: str, law: Optional[str], ley_resuelta: Optional[str]) -> str:
+    """El texto que se audita por los artículos nombrados en una consulta: el mismo o, si no
+    nombra ley y se pidió ``--law``, con esa ley al lado ("Art. 109" + "cnpp")."""
+    if not ley_resuelta or not law:
+        return texto
+    if any(ref.get("source_file") for ref in extract_references(texto)):
+        return texto
+    return f"{texto.rstrip().rstrip('.')} {law.strip()}"
+
+
+def _encabezados_literales(collection, fuente: str, articulos: List[str],
+                           citados: List[Dict]) -> List[Dict]:
+    """Respaldo de la consulta (caso art. 294 CPCJ, 07-jul-2026): el encabezado AUTÉNTICO de un
+    artículo nombrado que ``audit`` no ubicó ni acreditó inexistente, hallado por escaneo
+    literal de la ley. 🟡: falta la verificación completa (derogación, ubicación, vigencia)."""
+    hallados: List[Dict] = []
+    for articulo in articulos:
+        resuelto = any(
+            c["source"] == fuente and c.get("articulo") == articulo and (
+                c["semaforo"] == "🔴"
+                or c.get("vvca", {}).get("explicabilidad", {}).get("encabezado_articulo")
+            )
+            for c in citados
+        )
+        if resuelto:
+            continue
+        for hit in exact_article_chunks(collection, fuente, articulo):
+            if encabezado_autentico(hit["snippet"], articulo):
+                hallados.append({
+                    "score": None,
+                    "semaforo": "🟡",
+                    "source": hit["source"],
+                    "page": hit["page"],
+                    "snippet": hit["snippet"],
+                    "match": "literal",
+                    "articulo": articulo,
+                    "detalle": (
+                        "encabezado auténtico del artículo hallado por escaneo literal del "
+                        "índice; la auditoría no lo ubicó: cotéjalo (derogación, vigencia) antes "
+                        "de citarlo"
+                    ),
+                })
+    return hallados
+
+
+def consultar_corpus(texto: str, n: int = 5, law: Optional[str] = None, *, collection,
+                     encode: Callable[[str], List[float]]) -> List[Dict]:
+    """Búsqueda en el corpus sin 🟢 por similitud (rama fix/vvca-query-vigencia).
+
+    Antes cada pasaje llevaba el semáforo de su PARECIDO con la consulta y el respaldo literal
+    daba 🟢 100 a cualquier encabezado hallado: "artículo 750 de la Ley de Amparo" (inexistente)
+    salía 🟢 87 con el «Artículo 5o», un artículo derogado 🟢 100 y una ley desactualizada 🟢.
+
+    - ``articulo_citado``: cada artículo nombrado recibe el veredicto de ``audit`` (misma cita,
+      mismo semáforo y su explicación en ``detalle``).
+    - ``contexto``: con artículos nombrados, los pasajes semánticos van con ⚪: se parecen a la
+      consulta, no son el artículo citado (el pasaje que ``audit`` ya mostró no se repite).
+    - ``semantico``: sin artículo nombrado, el semáforo mide el parecido (🟢 ≥ 85), nunca 🔴
+      (poco parecido no refuta nada: ⚪), y el pasaje de una ley cuya versión indexada no es la
+      vigente no sale 🟢.
+    - ``literal``: ver ``_encabezados_literales``.
+
+    Costuras de prueba como las de ``audit``: ``collection`` y ``encode`` inyectados.
+    """
+    ley_resuelta = resolve_law_alias(law) if law else None
+    resultados = collection.query(
+        query_embeddings=[encode(normalize_legal_text(texto))],
+        n_results=n,
+        where={"source": ley_resuelta} if ley_resuelta else None,
+        include=["documents", "metadatas", "distances"],
+    )
+    reporte, _ = _reporte_vigencia()
+    fragmentos_por_fuente: Dict[str, Optional[int]] = {}
+
+    def vigencia_de(fuente: str) -> Optional[Dict]:
+        if reporte is None or not fila_de(reporte, fuente):
+            return None
+        return vigencia_de_fuente(
+            reporte, fuente, _fragmentos_de(fuente, collection, fragmentos_por_fuente)
+        )
+
+    articulos = extract_article_numbers(texto)
+    citados: List[Dict] = []
+    if articulos:
+        auditoria = audit(_texto_de_cita(texto, law, ley_resuelta), allow_incomplete_corpus=True,
+                          collection=collection, encode=encode)
+        for fuente_auditada in auditoria.get("retrieved_sources", []):
+            if fuente_auditada.get("ref_type") != "normativa":
+                continue
+            vvca = fuente_auditada.get("vvca", {})
+            citados.append({
+                "score": vvca.get("score"),
+                "semaforo": vvca.get("semaforo"),
+                "source": fuente_auditada.get("source_file"),
+                "page": fuente_auditada.get("page"),
+                "snippet": (fuente_auditada.get("retrieved_text_full") or "").strip(),
+                "match": "articulo_citado",
+                "referencia": fuente_auditada.get("reference"),
+                "articulo": fuente_auditada.get("article"),
+                "detalle": vvca.get("V_verificacion", ""),
+                "vvca": vvca,
+            })
+        if ley_resuelta:
+            citados += _encabezados_literales(collection, ley_resuelta, articulos, citados)
+
+    vistos = {c["snippet"] for c in citados}
+    pasajes: List[Dict] = []
+    for documento, metadata, distancia in zip(
+        (resultados.get("documents") or [[]])[0] or [],
+        (resultados.get("metadatas") or [[]])[0] or [],
+        (resultados.get("distances") or [[]])[0] or [],
+    ):
+        snippet = (documento or "").strip()
+        if snippet in vistos:
+            continue
+        metadata = metadata or {}
+        fuente = metadata.get("source", "?")
+        score = round((1 - distancia) * 100)
+        if articulos:
+            semaforo, match = SEMAFORO_CONTEXTO, "contexto"
+            detalle = "pasaje parecido a la consulta; no es el artículo citado"
+        else:
+            semaforo, match = vvca_semaforo(score), "semantico"
+            detalle = f"parecido con la consulta: {score} (no es un veredicto)"
+            if semaforo == "🔴":
+                semaforo = SEMAFORO_CONTEXTO
+            vigencia = vigencia_de(fuente)
+            if vigencia and vigencia["estado"] == FUENTE_NO_VIGENTE:
+                semaforo = "🟡" if semaforo == "🟢" else semaforo
+                detalle = f"{detalle}; {vigencia['motivo']}"
+        pasajes.append({
+            "score": score,
+            "semaforo": semaforo,
+            "source": fuente,
+            "page": metadata.get("page", "?"),
+            "snippet": snippet,
+            "match": match,
+            "detalle": detalle,
+        })
+    return citados + pasajes
 
 
 # ─────────────────────────────────────────
@@ -3722,52 +4030,14 @@ class OpenNotebook:
         self._collection = None
 
     def query(self, text: str, n: int = 5, law: Optional[str] = None, json_output: bool = False, verbose: bool = False) -> List[Dict]:
-        """Perform a semantic search over the corpus.
+        """Búsqueda en el corpus (``consultar_corpus``): un artículo nombrado recibe el veredicto
+        de ``audit``; los demás pasajes son contexto, no veredictos.
 
         Returns a list of result dictionaries. If json_output is True, prints JSON.
         """
         self._ensure_loaded()
-        embedder = get_embedder()
-        col = get_collection(embedder)
-        query_norm = normalize_legal_text(text)
-        resolved_law = resolve_law_alias(law) if law else None
-        where_filter = {"source": resolved_law} if resolved_law else None
-        results = col.query(
-            query_embeddings=[encode_query(query_norm)],
-            n_results=n,
-            where=where_filter,
-            include=["documents", "metadatas", "distances"]
-        )
-        result_list = []
-        for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
-            score = round((1 - dist) * 100)
-            sem = vvca_semaforo(score)
-            source = meta.get('source', '?')
-            page = meta.get('page', '?')
-            result_list.append({
-                "score": score,
-                "semaforo": sem,
-                "source": source,
-                "page": page,
-                "snippet": doc.strip()
-            })
-        # Fallback literal: si el texto nombra un artículo explícito, garantizar su
-        # chunk exacto aunque no haya rankeado en el top-N semántico (ver docstring
-        # de exact_article_chunks).
-        if resolved_law:
-            for art_num in extract_article_numbers(text):
-                already = any(f"artículo {art_num}." in r["snippet"].lower() for r in result_list)
-                if already:
-                    continue
-                for hit in exact_article_chunks(col, resolved_law, art_num):
-                    result_list.insert(0, {
-                        "score": 100,
-                        "semaforo": vvca_semaforo(100),
-                        "source": hit["source"],
-                        "page": hit["page"],
-                        "snippet": hit["snippet"],
-                        "match": "literal",
-                    })
+        result_list = consultar_corpus(text, n=n, law=law, collection=self._collection,
+                                       encode=encode_query)
         if json_output:
             print(json.dumps(result_list, ensure_ascii=False, indent=2))
         return result_list
@@ -4044,12 +4314,23 @@ Ejemplos:
         # por separado aquí y en el método de clase, y solo uno de los dos se corregía).
         notebook = OpenNotebook()
         result_list = notebook.query(args.texto, n=args.n, law=getattr(args, "law", None))
-        print(f"\n🔍 Búsqueda: \"{args.texto}\" — top {len(result_list)} resultados")
+        print(f"\n🔍 Búsqueda: \"{args.texto}\" — {len(result_list)} resultados")
+        etiquetas = {
+            "articulo_citado": " [artículo citado · veredicto VVCA]",
+            "literal": " [encabezado por escaneo literal · sin verificación completa]",
+            "contexto": " [contexto · no es el artículo citado]",
+        }
         for r in result_list:
-            etiqueta = " [coincidencia literal]" if r.get("match") == "literal" else ""
-            print(f"{r['semaforo']} Score {r['score']} | {r['source']} pág.{r['page']}{etiqueta}")
+            puntaje = f"Score {r['score']} | " if r.get("score") is not None else ""
+            print(f"{r['semaforo']} {puntaje}{r['source']} pág.{r['page']}"
+                  f"{etiquetas.get(r.get('match'), '')}")
+            if r.get("match") in ("articulo_citado", "literal") or (
+                    r.get("match") == "semantico" and "; " in r.get("detalle", "")):
+                print(f"   ↳ {r['detalle']}")
             print(f"   {r['snippet'][:200]}")
             print()
+        print("Semáforo: 🟢🟡🔴 = veredicto VVCA del artículo citado (o parecido con la consulta en "
+              "una búsqueda por tema) · ⚪ = contexto, no es un veredicto")
         # Output JSON if requested
         if getattr(args, "json", False):
             print(json.dumps(result_list, ensure_ascii=False, indent=2))

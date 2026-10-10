@@ -1748,6 +1748,8 @@ class AuditoriaTests(AuditoriaBase):
             "tesis_por_vigencia",
             "tesis_rojas", "tesis_superadas", "tesis_total", "verdes",
             "veredicto",
+            # Vigencia del corpus (campo añadido; tests/test_vvca_vigencia.py).
+            "vigencia_corpus",
         ])
         self.assertEqual((resumen["verdes"], resumen["amarillos"], resumen["rojos"]), (1, 0, 0))
         # R4-D11 (corregido en R4c): la razón enuncia solo lo verificado.
