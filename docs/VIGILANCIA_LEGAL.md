@@ -429,10 +429,12 @@ Cubren:
 - **Expresiones de búsqueda.** Un tema cuya expresión no devuelve **ningún** resultado en el
   SJF lo advierte (`sin_resultados_sjf`, `advertencias`) en vez de decir "sin criterios": eso
   señala la expresión, no acredita ausencia. Con la de "Materialidad de operaciones"
-  (`materialidad operaciones actos jurídicos`, unidas por Y) ocurría siempre: 0 resultados
-  (`materialidad operaciones` da 30; `materialidad`, 119). La de CSD da 1 resultado histórico
-  (`certificado de sello digital`, 21; `sello digital`, 68). Qué vigilar es decisión del
-  abogado: las expresiones no se cambiaron.
+  (`materialidad operaciones actos jurídicos`, unidas por Y) ocurría siempre: 0 resultados; la
+  de CSD (`cancelación restricción certificado sello digital 17-H`) daba 1 resultado histórico.
+  Qué vigilar es decisión del abogado: el 10-oct-2026 el operador las cambió por
+  `materialidad operaciones` (30 resultados) y `certificado de sello digital` (21), medidas en
+  vivo (otras medidas: `materialidad`, 119; `sello digital`, 68). Cambiar una expresión exige
+  volver a medirla contra el SJF; `tests/test_vigilancia_watch.py` fija las decididas.
 - **DOF sin `www`.** El certificado del portal solo ampara `dof.gob.mx`; con `www` la
   verificación TLS falla por nombre. El collector usa `https://dof.gob.mx` y resuelve los
   enlaces relativos de la portada con `urljoin`. Nunca desactivar la verificación TLS.

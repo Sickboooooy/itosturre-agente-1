@@ -132,7 +132,9 @@ TEMAS = [
     {
         "id": "csd",
         "label": "Arts. 17-H / 17-H Bis CFF — Cancelación y restricción de CSD",
-        "expresion": "cancelación restricción certificado sello digital 17-H",
+        # Decisión del operador (10-oct-2026): la expresión anterior, de 6 palabras
+        # unidas por Y, daba 1 resultado en todo el SJF; esta da 21.
+        "expresion": "certificado de sello digital",
     },
     {
         "id": "69b",
@@ -147,7 +149,9 @@ TEMAS = [
     {
         "id": "materialidad",
         "label": "Materialidad de operaciones",
-        "expresion": "materialidad operaciones actos jurídicos",
+        # Decisión del operador (10-oct-2026): "materialidad operaciones actos
+        # jurídicos" daba 0 resultados en todo el SJF; esta da 30.
+        "expresion": "materialidad operaciones",
     },
     {
         "id": "facultades",

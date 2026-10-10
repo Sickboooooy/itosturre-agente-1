@@ -628,6 +628,27 @@ class TestExpresionSinResultados(_AislaSalidaMixin, unittest.TestCase):
         self.assertTrue(all(t["sin_resultados_sjf"] for t in estado["temas"].values()))
 
 
+class TestExpresionesDeLosTemas(unittest.TestCase):
+    """Qué vigilar lo decide el abogado. Decisión del operador (10-oct-2026), con
+    totales medidos en vivo en el SJF: materialidad pasó de 'materialidad
+    operaciones actos jurídicos' (0 resultados, siempre) a 'materialidad
+    operaciones' (30); CSD, de 'cancelación restricción certificado sello digital
+    17-H' (1) a 'certificado de sello digital' (21). Cambiar una expresión exige
+    volver a medirla contra el SJF."""
+
+    def test_expresiones_decididas_por_el_operador(self):
+        expresiones = {t["id"]: t["expresion"] for t in vjur.TEMAS}
+        self.assertEqual(expresiones["materialidad"], "materialidad operaciones")
+        self.assertEqual(expresiones["csd"], "certificado de sello digital")
+
+    def test_temas_bien_formados(self):
+        ids = [t["id"] for t in vjur.TEMAS]
+        labels = [t["label"] for t in vjur.TEMAS]
+        self.assertEqual(len(set(ids)), len(ids))
+        self.assertEqual(len(set(labels)), len(labels))
+        self.assertTrue(all(t["expresion"].strip() for t in vjur.TEMAS))
+
+
 class TestNovedadParaElBorrador(unittest.TestCase):
     def test_solo_las_novedades_cuentan_como_hallazgo(self):
         contrato = {"SJF:x": {"source": "SJF:x", "status": c.SUCCESS, "items": [
