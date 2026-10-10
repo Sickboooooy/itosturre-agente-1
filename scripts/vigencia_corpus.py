@@ -797,7 +797,10 @@ def reporte_md(r: dict) -> str:
                 "y guarda el anterior fuera del repo.",
                 "2. Respalda el índice completo, sin ningún proceso abierto sobre él:"] + bloque(p["respaldar"]) + [
                 "3. Simula (no escribe): fragmentos, etiquetas, cobertura antes → después e identidad con lo "
-                "indexado. Si una fuente sale ⛔, corrígela antes de seguir:"] + bloque(p["simular"]) + [
+                "indexado. Si una fuente sale ⛔, corrígela antes de seguir. Si el rechazo es solo por el "
+                "título de la primera página (p. ej. el PDF oficial antepone el preámbulo del decreto) y "
+                "confirmas que es el mismo ordenamiento, agrega `--identidad-confirmada \"<pdf>\"`: "
+                "decide el contenido, con el mismo umbral:"] + bloque(p["simular"]) + [
                 "4. Re-ingesta (~0.45 s por fragmento en CPU) y anota la ruta del respaldo durable de cada fuente:"
                 ] + bloque(p["reingestar"]) + [
                 f"5. Verifica: 0 fuentes ausentes y las actualizadas en {VERDE}:"] + bloque(p["verificar"]) + [
