@@ -69,6 +69,11 @@ corpus/*.pdf
 # Auditorías: work product con datos personales/de cliente — NO versionar
 auditorias/
 
+# Reportes de vigencia del corpus (scripts/vigencia_corpus.py): estado local de la agenda
+# bimestral, se regeneran en cada corrida. Las descargas del cotejo viven fuera del repo
+# (~/itosturre-data/cotejo/).
+/reportes/
+
 # Prospectos B2B reales, consentimientos y listas de exclusión — sólo local
 leads_data/
 

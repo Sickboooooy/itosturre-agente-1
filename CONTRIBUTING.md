@@ -81,8 +81,11 @@ Si tocaste el motor (`OpenNotebook.py` / `scoring_vvca.py`), corre la regresión
 2. Cópialo a la base de ingesta (`INGEST_ALLOWED_BASE` del `.env`).
 3. Si tiene alias/abreviatura, añádelo a `LAW_ALIASES`, `LAW_SOURCE_MAP` y `_LEGAL_NORMALIZER`
    en `OpenNotebook.py` (las tres tablas, con el **nombre exacto del archivo**).
-4. Re-indexa: `python OpenNotebook.py ingest --directory "<carpeta>"`.
-5. Verifica con `python scripts/check_corpus.py` que ya no aparece como ausente.
+4. Agrega su entrada a `scripts/fuentes_oficiales.json` (federal: clave del PDF en LeyesBiblio;
+   Jalisco: nombre exacto del listado del Congreso) para que `scripts/vigencia_corpus.py` coteje
+   su vigencia; sin entrada queda 🟡 NO VERIFICABLE.
+5. Re-indexa: `python OpenNotebook.py ingest --directory "<carpeta>"`.
+6. Verifica con `python scripts/check_corpus.py` que ya no aparece como ausente.
 
 > Las **compilaciones de tesis** (`*_Tesis_Completas`, `listado-de-tesis`) van por la ruta
 > de jurisprudencia, **no** al corpus estatutario — están en `EXCLUDE_PATTERNS`. No las

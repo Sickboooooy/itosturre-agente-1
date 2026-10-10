@@ -364,6 +364,14 @@ parcial"; ante ese aviso, elige una vía y decláralo al usuario:
 (a) pide completar el corpus (indica exactamente qué ordenamiento falta), o
 (b) continúa con `--force` y deja la advertencia de corpus parcial visible en el veredicto.
 
+**Regla 8 — Estar en el corpus no es estar vigente.** El RAG guarda la versión que se indexó,
+no la que rige hoy. Si la ley del artículo no está 🟢 en el último reporte de
+`scripts/vigencia_corpus.py` (`reportes/vigencia_corpus/`), coteja el artículo contra el PDF
+oficial antes de citar su texto: `python scripts/cotejo_manual.py articulo <ley> <art…>`.
+🔴 DIFIERE → cita el texto oficial de la ficha, nunca el del RAG · 🟡 NO LOCALIZADO →
+`[VERIFICAR EN DOF: dof.gob.mx]`. La ficha es Capa 1; si la diferencia importa al asunto es
+Capa 2 (revisa los transitorios). Un cotejo sin fuente oficial nunca da 🟢.
+
 ---
 
 ---
@@ -410,6 +418,12 @@ python OpenNotebook.py query "<consulta>" --n 5
 
 # Verificar integridad/cobertura del corpus (health check real)
 python scripts/check_corpus.py
+
+# Vigencia del corpus frente a la fuente oficial (solo lectura: no descarga leyes ni re-indexa)
+python scripts/vigencia_corpus.py                       # reporte en reportes/vigencia_corpus/
+bash scripts/instalar_vigencia_corpus.sh --estado       # agenda bimestral (macOS); instalarla solo si el operador lo pide
+python scripts/cotejo_manual.py preparar                # PDF oficiales de las leyes no-🟢 (requiere PyMuPDF)
+python scripts/cotejo_manual.py articulo <ley> <art…>   # ficha Regla 8: texto del RAG vs. texto vigente
 
 # Router de competencia orgánica (MENÚ 8) — evita mandar a la SCJN lo que no le toca
 python -c "import router_competencia as rc; print(rc.formato_menu8(rc.resolver('amparo_directo','penal')))"
