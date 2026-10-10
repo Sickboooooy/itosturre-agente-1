@@ -24,8 +24,10 @@ turno aunque no hubiera ninguna búsqueda jurisprudencial en curso.
   trae la localización completa; el **detalle** (`GET /tesis/{ius}`) y el del Repositorio
   Bicentenario devuelven el desafío anti-bots de Incapsula a un cliente HTTP. El watcher
   `agentes/vigilancia_jurisprudencial.py` arma las fichas con la búsqueda y no evade el
-  desafío; el scraper con navegador lo pasa en el segundo intento (el primero se clasifica
-  hoy como `LAYOUT_CHANGED`, ver `docs/VIGILANCIA_LEGAL.md` §11).
+  desafío; el scraper con navegador espera a que el propio sitio lo resuelva (a lo sumo una
+  recarga, plazo de 20 s) y, si no se resuelve, lo clasifica como `ACCESS_CHALLENGE`, que agrega
+  a `NO_VERIFICABLE` — antes lo confundía con un cambio de layout (ver
+  `docs/VIGILANCIA_LEGAL.md` §11).
 - Al buscar: marca "Todas las semanas", usa comillas para frase exacta, ordena por registro
   descendente (lo más reciente primero).
 - El sitio usa JS intensivo — espera 2-3s tras cada navegación/clic antes de leer/capturar.

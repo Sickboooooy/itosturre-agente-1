@@ -419,8 +419,10 @@ Cubren:
   nuevas y, si responde el anti-bots, no se insiste en esa corrida (un solo intento) y la
   nota queda en el informe y en el estado (`detalle`). **No se evade el control.** Sin texto
   completo, la síntesis se basa en el rubro y lo dice. El scraper con navegador del repo
-  (`services/itosturre-scraper`, `vvca_audit.ts`) sí lee el detalle: el primer intento cae en
-  el desafío (hoy lo clasifica como `LAYOUT_CHANGED`) y el segundo pasa.
+  (`services/itosturre-scraper`, `vvca_audit.ts`) sí lee el detalle: espera a que el propio
+  sitio resuelva el desafío en el navegador (a lo sumo una recarga) y lee la tesis en el primer
+  intento; si el desafío no se resuelve, lo clasifica como `ACCESS_CHALLENGE` (`NO_VERIFICABLE`),
+  no como cambio de layout.
 - **Búsqueda completa.** Antes se pedían los 10 primeros resultados por relevancia de todas
   las épocas, así que una tesis de la semana fuera de esos 10 no se veía. Ahora se recorren
   todas las páginas (100 por página, tope de 5); si se alcanza el tope, el tema se declara
