@@ -224,6 +224,32 @@ class TestG3Normas(unittest.TestCase):
                 hallazgos, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[alerta], ok=2))
                 self.assertIn(esperado, codigos(hallazgos))
 
+    def test_ley_ambigua_por_redaccion_no_es_hueco_de_corpus(self):
+        """Una cita que el extractor liga a dos leyes se arregla reescribiéndola; una ley fuera
+        del corpus sí es la Regla 7. Las dos alertas empiezan igual ("LEY NO IDENTIFICADA")."""
+        ambiguas = (
+            "🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: 'artículos 128' (artículo 128) — vínculos en "
+            "conflicto: a la izquierda 'ordenamiento fuera del catálogo: 'norma general'' y a la derecha "
+            "'ley ficticia'.",
+            "🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: 'artículos 19' (artículo 19) — el contexto previo "
+            "es ambiguo: la oración anterior nombra varios ordenamientos.",
+        )
+        for alerta in ambiguas:
+            with self.subTest(alerta=alerta[:60]):
+                h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[alerta], ok=2))
+                self.assertEqual(codigos(h), ["LEY_AMBIGUA"])
+                self.assertNotIn("Regla 7", h[0].mensaje)
+        sin_ley = ("🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: 'artículo 123' (artículo 123) — el texto no liga el "
+                   "artículo a un ordenamiento (ni a su derecha ni a su izquierda) ni lo nombra en las oraciones previas.")
+        h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[sin_ley], ok=2))
+        self.assertEqual(codigos(h), ["CITA_SIN_LEY"])
+        self.assertNotIn("Regla 7", h[0].mensaje)
+        fuera = ("🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: 'artículo 19' (artículo 19) — ordenamiento "
+                 "fuera del catálogo: 'Ley Ficticia de Prueba' (no es una ley del corpus).")
+        h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[fuera], ok=2))
+        self.assertEqual(codigos(h), ["NO_VERIFICABLE"])
+        self.assertIn("Regla 7", h[0].mensaje)
+
     def test_regla_7_y_8_indican_el_camino(self):
         h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=["🟡 ley no indexada"], ok=2))
         self.assertTrue(any("Regla 7" in x.mensaje for x in h))

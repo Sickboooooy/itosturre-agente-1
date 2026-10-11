@@ -4,8 +4,9 @@ G3 (normas): cada referencia a un artículo pasa por el auditor VVCA del corpus 
 (`OpenNotebook.py audit`, 100 % local). El gate exige que TODAS salgan verificadas: un 🔴
 reprueba; un 🟡 también, pero con el camino correcto según su causa — ley no indexada
 (Regla 7: decide el abogado: completar el corpus o marcar [VERIFICAR EN DOF]), versión
-indexada no vigente (Regla 8: cotejo con `scripts/cotejo_manual.py articulo`) o cobertura
-incompleta (reescribir la cita en la convención auditable). Antes del auditor se revisa
+indexada no vigente (Regla 8: cotejo con `scripts/cotejo_manual.py articulo`), cobertura
+incompleta o cita ligada a más de una ley (en ambos casos, reescribir la cita en la
+convención auditable). Antes del auditor se revisa
 la convención de citación: "artículo 31, fracción IV", no "31-IV".
 
 G4 (jurisprudencia): toda tesis citada lleva su registro digital, y ese registro debe
@@ -89,6 +90,16 @@ def _causa(alerta: str) -> tuple[str, str]:
             "desde su captura del SJF, o quitarla o marcarla [VERIFICAR EN SJF]")
     if "cobertura incompleta" in t:
         return "COBERTURA_INCOMPLETA", "reescribir la cita en la convención auditable"
+    # "LEY NO IDENTIFICADA" tiene varias causas. Solo un ordenamiento fuera del corpus es la
+    # Regla 7 (más abajo); una cita ligada a más de una ley o a ninguna es de redacción.
+    if "ley no identificada" in t and ("vinculos en conflicto" in t or "ambiguo" in t):
+        return "LEY_AMBIGUA", (
+            "la cita queda ligada a más de una ley: escribir la ley junto al artículo, quitar de "
+            "su izquierda las palabras que el auditor lee como ordenamiento ('norma' en singular, "
+            "'ley' o 'código' sueltos, 'tratados') y unir las series con 'y'")
+    if "ley no identificada" in t and ("no liga" in t or "no tiene un antecedente" in t or "sin denominacion" in t):
+        return "CITA_SIN_LEY", (
+            "la cita no nombra la ley: escribirla junto al artículo (p. ej. «artículo 123 de la CPEUM»)")
     if "no vigente" in t or "vigencia" in t:
         return "VIGENCIA", "Regla 8: cotejar con scripts/cotejo_manual.py articulo antes de citar"
     if "no indexad" in t or "no verificable" in t or "corpus" in t:
