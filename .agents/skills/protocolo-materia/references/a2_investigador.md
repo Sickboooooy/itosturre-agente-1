@@ -17,6 +17,7 @@ Jurisprudencia (no tesis aisladas, salvo que la reportes aparte como tal) de la 
 {{temas_a2}}
 
 {{advertencias_a2}}
+Enfoque nacional: el protocolo vale para todo el país. Si una tesis interpreta el código de una entidad, repórtala solo si su criterio no depende del texto de ese código, y di qué código interpreta. Si depende, descártala con el motivo «interpreta un código local».
 Prefiere la jurisprudencia de alcance general (SCJN). La de Plenos Regionales obliga solo en su región y suele resolver supuestos específicos: repórtala, pero dilo en "tema". Elige bien los términos (pueden combinar conceptos). De los resultados, selecciona los candidatos más pertinentes y verifícalos con vvca_audit.ts.
 
 ## Salida (obligatoria)

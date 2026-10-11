@@ -35,6 +35,24 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
   «constitucional» cubre en la práctica el amparo, no las controversias ni las acciones de
   inconstitucionalidad.
 
+## Enfoque nacional (G2 R5 y G3 LEY_LOCAL)
+
+El protocolo vale para todo el país; hacer uno por entidad no es viable. Por eso:
+
+- El ancla es lo que rige en toda la República: la CPEUM y los tratados, los códigos nacionales
+  (CNPCF, CNPP), las leyes generales (LGDNNA, LGV…), las federales en lo federal y la
+  jurisprudencia de la SCJN y de los Plenos Regionales.
+- Lo sustantivo local se remite, sin citar artículos de ningún estado: «el código civil de la
+  entidad del asunto [VERIFICAR EN: periódico oficial de la entidad]». Las fuentes de IV también
+  son genéricas: «el periódico oficial de la entidad», «el boletín judicial del tribunal
+  local».
+- El Código Civil Federal y el Código Penal Federal rigen solo en lo federal. Si se usan como
+  referencia para orientar el análisis, el protocolo lo dice expresamente: «en lo federal» o
+  «como referencia; confirma la regla en el código de la entidad».
+- G2 reprueba nombrar una entidad (`R5_ENTIDAD_FEDERATIVA`), también en `palabras`. G3
+  reprueba citar un artículo de una ley local (`LEY_LOCAL`). «México», solo, es el país y no
+  cuenta.
+
 ## Lo que la plantilla prohíbe (G2)
 
 - Nada de rol («Eres…», «actúa como…»), formato de salida ni campos del simulador, ni la regla
@@ -56,7 +74,7 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
   sigla antes de usarla, «Ley del ISSSTE (LISSSTE)». Esto último solo funciona con el auditor
   de `fix/auditor-sigla-desconocida`; sin él, la sigla puede heredar la ley de la oración
   anterior y salir en falso 🟢.
-- De una ley en 🟡 (por ejemplo, el CPCJ), G3 coteja cada artículo citado contra el PDF oficial (Regla 8).
+- De una ley en 🟡 (por ejemplo, el CFPC, abrogado con vigencia transitoria), G3 coteja cada artículo citado contra el PDF oficial (Regla 8).
   Cita solo los que salgan 🟢 COINCIDE. Si uno no se localiza (`COTEJO_PENDIENTE`), enuncia la regla sin
   el número y márcala [VERIFICAR EN: fuente oficial].
 - Todo artículo lleva su ley al lado, aunque se sobreentienda. Si escribes «del artículo 123»

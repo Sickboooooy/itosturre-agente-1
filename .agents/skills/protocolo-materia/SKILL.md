@@ -26,6 +26,11 @@ orquestador con `references/a3_redaccion.md`.
   `~/itosturre-data/protocolos-justia/`). Son entregables del sistema de destino. La ficha procesal
   (`fichas_simulador.json`) y la descripción del destino (`destino.json`) también son datos de
   fuera: nunca se copian al repo, ni tampoco su código.
+- **Enfoque nacional** (criterio del operador, 11-oct-2026). Los protocolos valen para todo el país
+  y no distinguen por el código de una entidad: eso exigiría uno por cada entidad. Lo local se
+  remite a la ley de la entidad del asunto con [VERIFICAR EN: …]. `preparar` bloquea las leyes
+  locales (`LEY_LOCAL`). G2 reprueba nombrar una entidad (`R5_ENTIDAD_FEDERATIVA`) y G3, citar un
+  artículo de una ley local (`LEY_LOCAL`). Ver `references/a3_redaccion.md`.
 - **Capa 2**, es decir pertinencia, completitud doctrinal y estrategia, va a una lista para el
   abogado. A5 aconseja; no aprueba hechos ni criterio.
 
@@ -99,8 +104,8 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 | `PARO ESTANCADO` | 4 | El mismo conjunto de fallos dos vueltas seguidas: el diagnóstico está mal. Escala al abogado; no lo saltes |
 | `PARO TOPE` | 4 | 8 iteraciones sin llegar a verde |
 
-`LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA` y `COBERTURA_INCOMPLETA` **no** son hueco de
-corpus: son redacción de la cita.
+`LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA`, `COBERTURA_INCOMPLETA`, `LEY_LOCAL` y
+`R5_ENTIDAD_FEDERATIVA` **no** son hueco de corpus: son redacción de la cita.
 
 `COTEJO_PENDIENTE` y `COTEJO_DIFIERE` (Regla 8) tampoco son hueco de corpus. G3 coteja contra el PDF
 oficial cada artículo de una ley en 🟡 del reporte de vigencia (`cotejo_manual.py`). Si difiere, se cita

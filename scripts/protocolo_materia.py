@@ -51,7 +51,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from itosturre.protocolos.contrato import (  # noqa: E402
-    ERROR, MATERIAS, SECCIONES, canonizar, clave_esperada, norm, validar_esquema,
+    ERROR, MATERIAS, SECCIONES, canonizar, clave_esperada, es_fuente_local, norm, validar_esquema,
 )
 from itosturre.protocolos.gates import GATES, correr_gates, huella  # noqa: E402
 
@@ -201,8 +201,12 @@ def estado_de_leyes(reporte: Optional[dict], leyes: list[str]) -> list[dict]:
         for fila in halladas:
             semaforo = fila.get("semaforo") or "?"
             condicion = "OK" if semaforo in ("🟢", "⚪") else "COTEJO" if semaforo == "🟡" else "BLOQUEA"
+            estado = fila.get("estado")
+            if es_fuente_local(str(fila.get("fuente") or "")):
+                # Enfoque nacional (11-oct-2026): una ley local no entra en un protocolo de materia.
+                condicion, estado = "BLOQUEA", "LEY_LOCAL (enfoque nacional)"
             resultado.append({"ley": ley, "fuente": fila.get("fuente"), "semaforo": semaforo,
-                              "estado": fila.get("estado"), "version_indexada": fila.get("version_indexada"),
+                              "estado": estado, "version_indexada": fila.get("version_indexada"),
                               "condicion": condicion})
     return resultado
 
@@ -244,6 +248,7 @@ def fixtures(materia: str, clave: str, config: dict) -> dict[str, tuple[dict, li
     return {
         "rojo_rol": (con(0, "Eres el juez que resuelve el asunto."), ["R1_ROL"], False),
         "rojo_formato": (con(3, "Devuelve faseActual con la etapa del juicio."), ["R2_FORMATO_SALIDA"], False),
+        "rojo_entidad": (con(1, "En Jalisco rige otro plazo."), ["R5_ENTIDAD_FEDERATIVA"], False),
         "rojo_inexistente": (con(0, f"También rige el artículo 9999 {principal}."), ["REFUTADA"], True),
         "rojo_no_indexada": (con(0, f"También rige el artículo 19 {ajena}."), ["NO_VERIFICABLE"], True),
         "verde_control": (_minimo(materia, clave), [], True),

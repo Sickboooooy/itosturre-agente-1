@@ -195,6 +195,57 @@ class TestG2Lint(unittest.TestCase):
 # ── G3: normas contra el corpus ────────────────────────────────────────────────
 
 
+class TestEnfoqueNacional(unittest.TestCase):
+    """Criterio del operador (11-oct-2026): los protocolos son NACIONALES. No distinguen por el
+    código de una entidad (habría que hacer uno por cada entidad): lo local se remite a «la
+    entidad del asunto» con [VERIFICAR EN]."""
+
+    def test_r5_nombrar_una_entidad_reprueba(self):
+        for texto in ("Rige el Código Civil del Estado de Jalisco.",
+                      "En el Estado de México el plazo es otro.",
+                      "Si el asunto es de Nuevo León, revisa su código.",
+                      "Consulta el Periódico Oficial «El Estado de Jalisco»."):
+            with self.subTest(texto=texto):
+                self.assertIn("R5_ENTIDAD_FEDERATIVA", codigos(l.lint(con_instruccion(1, texto), FICHA)))
+
+    def test_r5_la_remision_generica_y_el_pais_no_reprueban(self):
+        for texto in ("Aplica el código civil de la entidad del asunto [VERIFICAR EN: periódico oficial de la entidad].",
+                      "Rige en todo México.", "La Constitución Política de los Estados Unidos Mexicanos."):
+            with self.subTest(texto=texto):
+                self.assertNotIn("R5_ENTIDAD_FEDERATIVA", codigos(l.lint(con_instruccion(1, texto), FICHA)))
+
+    def test_r5_tambien_en_palabras_y_objeciones(self):
+        p = protocolo(palabras=["codigo civil de jalisco", "otra palabra"])
+        self.assertIn("R5_ENTIDAD_FEDERATIVA", codigos(l.lint(p, FICHA)))
+
+    def test_fuentes_locales(self):
+        locales = ("Codigo-Civil-del-Estado-de-Jalisco_3.pdf", "CodigoProcedimientosCivilesEstadoJalisco.pdf",
+                   "LeydeJusticiaAdministrativadelEstadodeJalisco 2026.pdf",
+                   "Código Penal para el Estado Libre y Soberano de Jalisco.pdf",
+                   "RegMovilidadTransporteSeguridadVialGuadalajara 2026.pdf",
+                   "CODIGO CIVIL PARA EL DISTRITO FEDERAL.pdf")
+        nacionales = ("CODIGO CIVIL FEDERAL 2026.pdf", "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM.pdf",
+                      "Código Nacional de Procedimientos Civiles y Familiares 2026.pdf", "LEY DEL SEGURO SOCIAL.pdf",
+                      "Convención sobre los Derechos del Niño.pdf")
+        for fuente in locales:
+            with self.subTest(fuente=fuente):
+                self.assertTrue(c.es_fuente_local(fuente))
+        for fuente in nacionales:
+            with self.subTest(fuente=fuente):
+                self.assertFalse(c.es_fuente_local(fuente))
+
+    def test_g3_cita_de_una_ley_local_reprueba(self):
+        a = AuditorFalso()
+        a.informe["retrieved_sources"] = [
+            {"ref_type": "normativa", "source_file": "Codigo-Civil-del-Estado-de-Jalisco_3.pdf", "article": "1266"},
+            {"ref_type": "normativa", "source_file": "CODIGO CIVIL FEDERAL 2026.pdf", "article": "1796"},
+        ]
+        h, _ = citas.auditar_normas(protocolo(), a, no_verdes={})
+        self.assertEqual(codigos(h), ["LEY_LOCAL"])
+        self.assertIn("1266", h[0].mensaje)
+        self.assertIn("entidad del asunto", h[0].mensaje)
+
+
 class TestG3Normas(unittest.TestCase):
     def test_todo_verificado_pasa_y_el_auditor_recibe_todos_los_textos(self):
         auditor = AuditorFalso()

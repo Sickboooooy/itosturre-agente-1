@@ -8,15 +8,19 @@ La preparación de abajo es la del 10-oct-2026. **No la des por buena: `preparar
 contra el último reporte de vigencia.** 🟡 exige cotejo antes de citar (Regla 8). 🔴, o una ley que
 no aparece en el índice, detiene el bucle hasta que decida el abogado (Reglas 7 y 8).
 
-| Materia | Leyes en el RAG (vigencia) | Huecos posibles | ¿Lista? |
+**Enfoque nacional (11-oct-2026):** la tabla lista solo normas que rigen en todo el país. Las leyes de
+Jalisco que hay en el corpus no entran en los protocolos. Lo local se remite a la ley de la entidad
+del asunto (ver `a3_redaccion.md`).
+
+| Materia | Normas nacionales en el RAG (vigencia) | Lo que depende de cada entidad o falta | Estado (11-oct-2026) |
 |---|---|---|---|
-| penal | CPEUM, CPF, CNPP, Código Penal de Jalisco, LFDO, LNEP, Ley Nacional de Extinción de Dominio, LGV | — | Hecha (v1, F1) |
-| constitucional | CPEUM, Ley de Amparo, LOPJF, Constitución de Jalisco; CADH ⚪ y PIDCP ⚪ | Ley reglamentaria del artículo 105 (no indexada) | Hecha (v1, F3) |
-| laboral | LFT, LFTSE | Ley orgánica del Centro Federal de Conciliación | Sí |
-| administrativo | LFPA, LFPCA, LOTFJA, LPA de Jalisco, Ley de Justicia Administrativa de Jalisco | Ley General de Responsabilidades Administrativas | Sí |
-| seguridad_social | LSS, Ley del ISSSTE, Ley del INFONAVIT | — | Sí |
-| familiar | CNPCF, CCF, Código Civil de Jalisco, LGDNNA; Convención sobre los Derechos del Niño ⚪ | — | Sí |
-| civil | CCF, Código Civil de Jalisco, CNPCF, Ley del Notariado de Jalisco; CFPC 🟡, CPC de Jalisco 🟡, Registro Civil de Jalisco 🟡 | Cotejo de las tres en 🟡 | Sí, con cotejo |
+| penal | CPEUM, CNPP, CPF (en lo federal), LFDO, LNEP, Ley Nacional de Extinción de Dominio, LGV; CADH ⚪ y PIDCP ⚪ | Delitos del fuero común: código penal de la entidad | v1 en EXITO, pero cita el Código Penal de Jalisco: hay que corregirla |
+| constitucional | CPEUM, Ley de Amparo, LOPJF; CADH ⚪ y PIDCP ⚪ | Ley reglamentaria del artículo 105 (no indexada) | v1 en EXITO, ya nacional |
+| laboral | LFT, LFTSE, CPEUM | Ley orgánica del Centro Federal de Conciliación (no indexada) | v1 en EXITO, ya nacional |
+| administrativo | LFPA, LFPCA, LOTFJA, CPEUM | Procedimiento y justicia administrativa locales; Ley General de Responsabilidades Administrativas (no indexada) | v1 en EXITO, pero tiene una rama de Jalisco: hay que corregirla |
+| seguridad_social | LSS, Ley del ISSSTE, Ley del INFONAVIT, LFT | Ley de los Sistemas de Ahorro para el Retiro (no indexada) | v1 en EXITO, ya nacional |
+| familiar | CNPCF, LGDNNA, CPEUM, CCF (en lo federal o como referencia); Convención sobre los Derechos del Niño ⚪ | Derecho familiar sustantivo: código civil o familiar de la entidad | v1 en EXITO, pero lo sustantivo sale del Código Civil de Jalisco: hay que corregirla |
+| civil | CNPCF, CCF (en lo federal o como referencia), CPEUM; CFPC 🟡 (abrogado, con vigencia transitoria) | Derecho civil sustantivo: código civil de la entidad | v1 de Jalisco; se rehace como v2 nacional |
 | consumidor | Reglamento de la LFPC; **LFPC 🔴** (la versión indexada no está vigente) | Re-indexar la LFPC vigente | **No** |
 | mercantil | — | **Código de Comercio, LGSM y LGTOC no están indexados** | **No** |
 
@@ -26,13 +30,14 @@ no aparece en el índice, detiene el bucle hasta que decida el abogado (Reglas 7
 
 `preparar` crea `config.json` con los campos vacíos. Antes de `prompts`, el orquestador los llena:
 
-- `leyes`: nombres o etiquetas de las leyes tal como aparecen en el reporte de vigencia (`fuente`,
+- `leyes`: solo normas nacionales (`preparar` bloquea las locales). Van con sus nombres o etiquetas tal como aparecen en el reporte de vigencia (`fuente`,
   `etiqueta` o `nombre_oficial`). Ejemplos: «LEY DE AMPARO», «CPEUM», «Ley Federal del Trabajo».
 - `ley_principal`: la frase de cita de la ley principal, tal como iría tras el número de artículo.
   Por ejemplo, «de la Ley Federal del Trabajo» o «del Código Civil Federal». Con ella se arma el
   fixture del artículo inexistente.
 - `ley_no_indexada` (opcional): la frase de cita de una ley que la materia necesita y no está en el
   corpus. Sin ella, el fixture usa una ley ficticia.
+  Elige una ley nacional o federal, nunca una local: el enfoque es nacional.
 - `alcance` (opcional): una frase si la materia es más estrecha que su nombre.
 - `temas_a1`: qué debe mapear A1 en las secciones I, II, III y V. La IV casi no necesita el RAG.
 - `temas_a2`: los temas de jurisprudencia. `advertencias_a2`: trampas de época o de ley abrogada.

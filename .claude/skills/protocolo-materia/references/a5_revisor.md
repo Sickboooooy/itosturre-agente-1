@@ -15,7 +15,8 @@ Contexto útil (no lo verifiques, úsalo para juzgar el diseño):
 3. Huecos evidentes de la materia que un especialista esperaría en las cinco secciones, dentro del espíritu de bloque corto (no propongas convertirlo en tratado). Marca las propuestas de contenido como "propuesta para el abogado (Capa 2)": no afirmes datos jurídicos como hechos; si sugieres añadir una norma, di que tendría que verificarse en el corpus.
 4. Claridad para un modelo: instrucciones ambiguas, demasiado largas o que no dicen qué hacer; paráfrasis que pierdan una condición o un límite importante respecto del extracto.
 5. `datosIndispensables` que no sean realmente preguntas de especialista (o que pidan calificaciones jurídicas en vez de hechos), y `objecionesTipicas` que no sean puntos de falla reales; `palabras` demasiado genéricas o que choquen con otras materias.
-6. Riesgos de que el texto empuje al modelo a afirmar como dato duro algo que debería marcarse [VERIFICAR EN: …], o a completar de memoria una lista que el protocolo no enumera.
+6. Enfoque nacional: cualquier distinción por entidad federativa, cita de un código o una ley local, o regla sustantiva local presentada como general. Lo local debe remitirse a la ley de la entidad del asunto con [VERIFICAR EN: …].
+7. Riesgos de que el texto empuje al modelo a afirmar como dato duro algo que debería marcarse [VERIFICAR EN: …], o a completar de memoria una lista que el protocolo no enumera.
 
 ## Salida
 Escribe `{{carpeta}}/a5_revision.json` con:
