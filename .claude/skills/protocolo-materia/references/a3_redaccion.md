@@ -59,6 +59,10 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
   oración. «Normas generales», en plural, no estorba, y tampoco «disposiciones legales». Por
   ejemplo, «en su lugar rige la ley (artículo 123 de la CPEUM)» falla. Si el gate da
   `LEY_AMBIGUA`, ese es el problema.
+- Tampoco funciona el nombre de **otra** ley, aunque esté completo, justo antes de una cita entre
+  paréntesis. «… que enumera la LOTFJA (artículo 2 de la LFPCA)» falla. Lo que debe ir junto a la
+  cita es la misma ley: «… resoluciones definitivas, LFPCA (artículo 2 de la LFPCA; artículo 3 de
+  la LOTFJA)». Dentro del paréntesis, separa con «;» las citas de leyes distintas.
 - Unidades que el auditor no ubica con certeza, porque el artículo es largo o el índice lo partió:
   cítalas por el artículo, sin la unidad, y anota la unidad exacta en `notas_de_cita` de la
   evidencia. Casos vistos:
@@ -72,6 +76,9 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
 ## Jurisprudencia (G4 y Regla 3)
 
 - Formato: «P./J. 20/2014 (10a.), registro digital 2006224». Sin registro, G4 reprueba.
+- Si A2 no trae jurisprudencia de alcance general pertinente, no cites ninguna. La cadena de I ya
+  ordena la jurisprudencia sin nombrarla, y las verificadas quedan como candidatas. Así el
+  protocolo puede llegar a `EXITO` sin hueco de corpus (administrativo, 11-oct-2026).
 - Cita solo las verificadas por A2 y, de preferencia, las de alcance general de la SCJN. Las de
   Plenos Regionales obligan solo en su región y suelen resolver supuestos específicos: van a
   `tesis_candidatas_capa2`, salvo que el abogado decida otra cosa.

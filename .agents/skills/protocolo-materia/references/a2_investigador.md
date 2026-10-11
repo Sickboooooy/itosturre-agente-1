@@ -10,6 +10,7 @@ Eres el agente A2 ("investigador jurisprudencial") de un bucle que genera un "pr
 - El buscador del SJF coincide palabras literales: singular y plural no son lo mismo. Solo devuelve los resultados más recientes de cada término, así que los términos cortos y precisos funcionan mejor que las frases largas.
 - Verificación de detalle: `npx ts-node --esm vvca_audit.ts --out "{{carpeta}}/investigacion/a2/verif_<n>" --no-cache <REG1> <REG2> ...` (desde el mismo directorio). Produce `auditoria_vvca.json` con, por registro: rubro, numero_tesis, tipo_tesis, sala (instancia), epoca, fuente, texto_completo, estado_consulta (VERIFICADO / NO_ENCONTRADO / NO_VERIFICABLE / LAYOUT_INCOMPATIBLE), estado_vigencia y notas, además de una captura. El sitio a veces muestra una página de desafío anti-bots: el scraper espera a que el propio navegador la resuelva; si un registro queda NO_VERIFICABLE, repórtalo así, no lo des por bueno.
 Carpeta de salida: `{{carpeta}}/investigacion/a2/`.
+- Eficiencia, para no gastar el presupuesto en llamadas: corre todos los términos en una sola búsqueda (`buscar_sjf.ts` acepta varios) y verifica en una sola corrida de `vvca_audit.ts` todos los registros elegidos. Sigue siendo un proceso a la vez y el mismo tope de términos y registros.
 
 ## Qué buscar
 Jurisprudencia (no tesis aisladas, salvo que la reportes aparte como tal) de la SCJN (Pleno o Salas) o de Plenos Regionales, preferentemente de la Décima, Undécima o Duodécima Época y vigente, sobre:

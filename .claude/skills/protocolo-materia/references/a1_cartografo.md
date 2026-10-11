@@ -9,7 +9,7 @@ Comando (una consulta por llamada; el índice es de solo lectura):
 ```
 cd "{{repo}}" && HF_HUB_OFFLINE=1 CHROMA_PATH="{{chroma}}" "{{python}}" OpenNotebook.py query "<consulta>" --n 5
 ```
-Si falla por HF_HUB_OFFLINE, repite sin esa variable. Revisa primero `OpenNotebook.py query --help` para ver opciones (por ejemplo, si permite filtrar por ley). Cada consulta tarda unos segundos (carga el modelo de embeddings). Presupuesto: máximo ~{{consultas_a1}} consultas; una por concepto; no repitas consultas. Guarda la salida cruda de cada consulta en `{{carpeta}}/investigacion/a1_raw/`.
+Si falla por HF_HUB_OFFLINE, repite sin esa variable. Revisa primero `OpenNotebook.py query --help` para ver opciones (por ejemplo, si permite filtrar por ley). Cada consulta tarda unos segundos (carga el modelo de embeddings). Presupuesto: máximo ~{{consultas_a1}} consultas; una por concepto; no repitas consultas. Guarda la salida cruda de cada consulta en `{{carpeta}}/investigacion/a1_raw/`. Para no gastar llamadas, puedes correr varias consultas desde un script, siempre que cada una guarde su salida cruda en su propio archivo y no pases del tope de consultas.
 
 Leyes del corpus relevantes (nombres de archivo): {{leyes}}.{{no_indexada}}
 

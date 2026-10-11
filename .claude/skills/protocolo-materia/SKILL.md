@@ -126,6 +126,23 @@ La calidad comprobable se mantuvo y los gates pararon en el mismo punto. Los tok
 entre 17 % y 29 %: el ahorro depende de que el precio por token de Sonnet sea menor. Mide siempre
 con `revisar` y `medir` antes de cambiar el modelo de un agente.
 
+**Administrativo (11-oct-2026, Sonnet en A1 y A2):**
+
+| Agente | Tokens | Minutos | Llamadas | Calidad según `revisar` |
+|---|---|---|---|---|
+| A1 | ~142 mil | 7 | 17 | 79 de 79 extractos literales, con 43 consultas (8 más que el tope) |
+| A2 | ~87 mil | 2.5 | 8 | 0 diferencias en 30 datos |
+| A5 (modelo principal) | ~191 mil | 10 | — | — |
+
+En total fueron unos 421 mil tokens en 26 minutos, menos de la mitad que en laboral. La diferencia
+no fue el modelo sino el número de llamadas: A2 corrió todos los términos en una búsqueda y todos
+los registros en una verificación, y A1 agrupó sus consultas en un script. Las plantillas ya lo
+piden. Ojo: A1 se pasó del tope de consultas; `revisar` lo reporta.
+
+**Seguridad social (11-oct-2026, Sonnet en A1 y A2):** A1 ~115 mil tokens en 17 llamadas, A2 ~82 mil en 7 llamadas, A5 ~193 mil
+(modelo principal). En total fueron ~391 mil tokens y 24 minutos, con 0 diferencias y extractos 100 % literales según
+`revisar`. Con las plantillas agrupadas, el costo de una materia quedó en ~400 mil tokens.
+
 ## Archivos de la carpeta de una materia
 
 ```
