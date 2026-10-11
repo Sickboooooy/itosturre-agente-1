@@ -99,7 +99,13 @@ _ORDINAL = (
     r"|decimo|undecimo|duodecimo|vigesimo|trigesimo|cuadragesimo|quincuagesimo"
     r"|sexagesimo|septuagesimo|octogesimo|nonagesimo|centesimo)"
 )
-_LATINES = r"(?:Bis|BIS|Ter|TER|Quater|QUATER|Quintus|QUINTUS|Quinquies|QUINQUIES|Sexies|SEXIES|Septies|SEPTIES|Octies|OCTIES|Nonies|NONIES|Decies|DECIES)"
+# En mayúscula inicial, en mayúsculas o en minúsculas ("Artículo 29 bis.-" del CPC de Jalisco,
+# 11-oct-2026); el "Artículo" con mayúscula inicial y el terminador siguen siendo obligatorios.
+_LATINES = "(?:" + "|".join(
+    f"{s}|{s.upper()}|{s.lower()}"
+    for s in ("Bis", "Ter", "Quater", "Quintus", "Quinquies", "Sexies", "Septies", "Octies",
+              "Nonies", "Decies")
+) + ")"
 # Encabezado de artículo sobre el texto sin acentos. "Artículo" con mayúscula inicial
 # (una remisión partida en la línea, "artículo 167. …", no cuenta) y un terminador
 # (". ", ".-", "-", ":") tras el identificador: "Artículo 73 de la Constitución" no es
@@ -114,6 +120,14 @@ _ENCABEZADO_RE = re.compile(
     r"\s*(?:\.\s*-|\.|-|:)(?=\s|$)"
 )
 _PREFIJO_ARTICULO = re.compile(r"^\s*(?:art[ií]culo|art\.)\s+", re.IGNORECASE)
+# Línea que deja abierta la oración (11-oct-2026): si la anterior termina en "," o en una palabra
+# que pide continuación ("…la parte final del" / "Artículo 1595."), la línea es una remisión
+# partida, no un encabezado. Misma lista que ``itosturre.audit.evidence._ABRE_ORACION``.
+_ABRE_ORACION = re.compile(
+    r"(?:,|(?<![^\W_])(?:de|del|al|a|el|la|los|las|lo|y|e|o|u|en|por|para|con|sin|que|segun"
+    r"|conforme|sobre|entre|hasta|desde|como))[ \t]*$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -539,6 +553,20 @@ def encabezado_articulo(linea: str) -> str | None:
     return original[coincidencia.start("id") : coincidencia.end("id")].strip()
 
 
+def deja_abierta_la_oracion(linea: str) -> bool:
+    """``True`` si la línea termina en "," o en una palabra que pide continuación ("del", "y"…):
+    un "Artículo N." en la línea siguiente es una remisión partida, no un encabezado."""
+    return bool(_ABRE_ORACION.search(sin_acentos(linea or "").rstrip()))
+
+
+def encabezado_en_contexto(linea: str, anterior: str = "") -> str | None:
+    """``encabezado_articulo`` que además descarta la remisión partida: ``None`` si la línea
+    ``anterior`` (con contenido) deja abierta la oración."""
+    if anterior and deja_abierta_la_oracion(anterior):
+        return None
+    return encabezado_articulo(linea)
+
+
 def es_frontera_transitorios(linea: str) -> bool:
     """``True`` si la línea es el título "TRANSITORIOS" / "ARTÍCULOS TRANSITORIOS" (con o sin ":")."""
     return bool(_FRONTERA_RE.match(normalizar_para_cotejo(linea).rstrip(":. ")))
@@ -630,11 +658,13 @@ def ubicar_articulo(documento: DocumentoLeyesBiblio, articulo: str) -> Ubicacion
     coincidencias: list[CoincidenciaArticulo] = []
     cercanas: list[CoincidenciaArticulo] = []
     frontera: tuple[int, int] | None = None
+    anterior = ""
     for pagina, indice, linea in documento.lineas():
+        previa, anterior = anterior, (linea if linea.strip() else anterior)
         if frontera is None and es_frontera_transitorios(linea):
             frontera = (pagina, indice)
             continue
-        identificador = encabezado_articulo(linea)
+        identificador = encabezado_en_contexto(linea, previa)
         if identificador is None:
             continue
         if frontera is not None:

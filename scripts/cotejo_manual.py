@@ -197,14 +197,18 @@ def bloque_articulo(paginas: List[str], art: str, ruido: set) -> Tuple[List[str]
             return [], f"sin encabezado exacto; variantes cercanas: {variantes}"
         return [], "sin encabezado exacto"
     lineas: List[str] = []
+    anterior = ""
     for pagina, indice, linea in documento.lineas():
+        previa, anterior = anterior, (linea if linea.strip() else anterior)
         if not lineas:
             if (pagina, indice) == (unica.pagina, unica.indice):
                 lineas.append(linea.strip())
             continue
         if not linea.strip() or es_ruido(linea, ruido):
             continue
-        if lb.encabezado_articulo(linea) or lb.es_frontera_transitorios(linea) or DIVISION.match(linea):
+        # Una remisión partida ("…la parte final del" / "Artículo 1595.") no corta el artículo.
+        if (lb.encabezado_en_contexto(linea, previa) or lb.es_frontera_transitorios(linea)
+                or DIVISION.match(linea)):
             break
         lineas.append(linea.strip())
     return lineas, ""
