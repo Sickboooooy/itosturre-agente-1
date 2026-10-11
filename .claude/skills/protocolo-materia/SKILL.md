@@ -102,6 +102,10 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 `LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA` y `COBERTURA_INCOMPLETA` **no** son hueco de
 corpus: son redacción de la cita.
 
+`COTEJO_PENDIENTE` y `COTEJO_DIFIERE` (Regla 8) tampoco son hueco de corpus. G3 coteja contra el PDF
+oficial cada artículo de una ley en 🟡 del reporte de vigencia (`cotejo_manual.py`). Si difiere, se cita
+el texto oficial; si no se localiza, se quita el número y se marca [VERIFICAR EN].
+
 Cuando el abogado promueve las tesis citadas al corpus local (`scripts/promover_tesis.py`), G3 las halla
 y deja el aviso `TESIS_SIN_RUBRO_TRANSCRITO`: el protocolo las cita por clave y registro, sin rubro, y
 el aviso no reprueba. Lo que ata la cita a la tesis es G4: la clave escrita junto al registro debe ser
