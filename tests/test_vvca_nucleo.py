@@ -2546,15 +2546,15 @@ class VinculoSintacticoTests(AuditoriaBase):
     def test_p3_ordenamiento_concreto_fuera_del_catalogo_bloquea_la_inferencia(self) -> None:
         self.coleccion.agregar("Artículo 5.- Texto sintético.", {"source": LAMP, "article": "5"})
         for texto in (
-            "La Ley de Amparo rige.\n\nEl Código de Comercio, en su artículo 5, dispone.",
-            "La Ley de Amparo rige.\n\nEl artículo 5 del Código de Comercio dispone.",
+            "La Ley de Amparo rige.\n\nEl Código de Justicia Militar, en su artículo 5, dispone.",
+            "La Ley de Amparo rige.\n\nEl artículo 5 del Código de Justicia Militar dispone.",
         ):
             with self.subTest(texto=texto):
                 (ref,) = ON.extract_references(texto)
                 self.assertEqual((ref["article"], ref["source_file"], ref["law_method"]),
                                  ("5", None, None))
                 self.assertTrue(ref["law_unidentified_reason"].startswith(
-                    "ordenamiento fuera del catálogo: 'Código de Comercio'"))
+                    "ordenamiento fuera del catálogo: 'Código de Justicia Militar'"))
                 resultado = self.auditar(texto)
                 self.assertEqual([e[1:] for e in self.estados(resultado)],
                                  [("not_verifiable", "resolucion_ley")])
@@ -2606,6 +2606,26 @@ class VinculoSintacticoTests(AuditoriaBase):
                     "al servicio del estado" not in clave:
                 with self.subTest(clave=clave):
                     self.assertIn("jalisco", clave)
+
+    def test_leyes_mercantiles_tienen_fuente_propia(self) -> None:
+        # Corpus mercantil (orden del responsable, 11-oct-2026): Código de Comercio, LGSM y LGTOC,
+        # por su nombre (con o sin acentos) y por su sigla.
+        ccom = "CODIGO DE COMERCIO 2026.pdf"
+        lgsm = "LEY GENERAL DE SOCIEDADES MERCANTILES 2026.pdf"
+        lgtoc = "LEY GENERAL DE TITULOS Y OPERACIONES DE CREDITO 2026.pdf"
+        for texto, fuente in (
+            ("El artículo 75 del Código de Comercio dispone.", ccom),
+            ("El artículo 75 del Codigo de Comercio dispone.", ccom),
+            ("El artículo 1391 del CCom dispone.", ccom),
+            ("El artículo 10 de la Ley General de Sociedades Mercantiles dispone.", lgsm),
+            ("El artículo 10 de la LGSM dispone.", lgsm),
+            ("El artículo 170 de la Ley General de Títulos y Operaciones de Crédito dispone.", lgtoc),
+            ("El artículo 170 de la Ley General de Titulos y Operaciones de Credito dispone.", lgtoc),
+            ("El artículo 170 de la LGTOC dispone.", lgtoc),
+        ):
+            with self.subTest(texto=texto):
+                (ref,) = ON.extract_references(texto)
+                self.assertEqual(ref["source_file"], fuente)
 
     def test_ley_abrogada_no_se_resuelve_con_su_sucesora(self) -> None:
         # Movilidad (orden del responsable, 10-oct-2026): la ley nueva tiene fuente propia y la

@@ -169,6 +169,14 @@ class ClasificacionTests(unittest.TestCase):
         self.assertEqual(fila["estado"], "DESACTUALIZADA")
         self.assertEqual(fila["rezago_dias"], 42)
 
+    def test_cantidades_actualizadas_por_acuerdo_es_la_misma_regla(self) -> None:
+        # Redacción de otros PDF de LeyesBiblio (Código de Comercio, LGSM).
+        sello = "Última Reforma DOF 01-01-1801\nCantidades actualizadas por Acuerdo DOF 15-03-1801"
+        fecha, texto, _, _ = vc.version_indexada(info(chunk0_federal(sello=sello)), "federal")
+        self.assertEqual(fecha, dt.date(1801, 3, 15))
+        self.assertIn("Acuerdo DOF 15-03-1801", texto)
+        self.assertEqual(self.clasificar(datos=info(chunk0_federal(sello=sello)))["estado"], "VIGENTE")
+
     def test_acuerdo_de_montos_viejo_no_cambia_la_version(self) -> None:
         sello = "Última Reforma DOF 15-03-1801\n" + self.MONTOS.format("01-01-1801")
         fecha, texto, _, _ = vc.version_indexada(info(chunk0_federal(sello=sello)), "federal")

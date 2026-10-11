@@ -105,9 +105,11 @@ SELLO_FED = re.compile(
 )
 # Acuerdo anual que actualiza montos o cantidades sin reformar el texto (p. ej. el de la LFPC).
 # LeyesBiblio lo lista como la última modificación, y el PDF que lo incorpora lo anota bajo el
-# sello de la última reforma: "Actualización de montos de operaciones y multas por Acuerdo DOF …".
+# sello de la última reforma: "Actualización de montos de operaciones y multas por Acuerdo DOF …"
+# (LFPC) o "Cantidades actualizadas por Acuerdo DOF …" (Código de Comercio, LGSM).
 ACUERDO_MONTOS_FED = re.compile(
-    r"Actualizaci[oó]n\s+de\s+(?:montos|cantidades)\b.{0,120}?\bpor\s+Acuerdo\s+DOF\s+"
+    r"(?:Actualizaci[oó]n\s+de\s+(?:montos|cantidades)\b.{0,120}?\bpor"
+    r"|(?:Cantidades|Montos)\s+actualizad[oa]s\s+por)\s+Acuerdo\s+DOF\s+"
     r"(?P<d>\d{1,2})-(?P<m>\d{1,2})-(?P<y>\d{4})",
     re.IGNORECASE | re.DOTALL,
 )
