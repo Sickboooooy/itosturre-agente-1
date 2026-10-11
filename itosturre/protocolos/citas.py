@@ -39,6 +39,9 @@ Auditor = Callable[[str], dict]
 _NOTACION_RE = re.compile(r"\b(\d{1,4})-([IVXL]{2,})\b")
 
 _REGISTRO_RE = re.compile(r"\b(?:registro(?:\s+digital)?|ius)\s*(?:n[uú]m\.?|no\.?)?\s*:?\s*(\d{6,7})\b", re.I)
+# Alertas del auditor que no reprueban G3 (11-oct-2026): la tesis del corpus local citada por
+# clave y registro, sin rubro transcrito, como pide la plantilla del protocolo.
+AVISOS_G3 = frozenset({"TESIS_SIN_RUBRO_TRANSCRITO"})
 _CLAVE_TESIS_RE = re.compile(
     r"\b(?:\d{1,2}a|P|PR\.[A-Z.]+|[IVX]+\.\d+o\.[A-Z.]*)\s*\./?\s*J\.\s*\d+/\d{4}", re.I)
 
@@ -84,6 +87,10 @@ def _causa(alerta: str) -> tuple[str, str]:
     refutada = ("REFUTADA", "la cita es falsa: quitarla o corregirla con la fuente")
     if alerta.lstrip().startswith("🔴"):  # el semáforo del auditor manda sobre el texto
         return refutada
+    if "sin rubro invocado" in t:
+        return "TESIS_SIN_RUBRO_TRANSCRITO", (
+            "la tesis está en el corpus local y se cita por clave y registro, sin rubro: G4 coteja la "
+            "clave contra la captura del SJF; que el criterio respalde lo afirmado lo revisan A3 y A5")
     if "registro digital" in t and "corpus de jurisprudencia" in t:
         return "TESIS_FUERA_DEL_CORPUS", (
             "Reglas 3 y 7: decide el abogado — promoverla al corpus local con scripts/promover_tesis.py "
@@ -128,7 +135,8 @@ def auditar_normas(protocolo: dict, auditor: Optional[Auditor] = None) -> tuple[
             "Regla 7 — decide el abogado: completar el corpus o continuar con la advertencia visible"))
     for alerta in list(informe.get("alerts") or []) + list(informe.get("avisos") or []):
         codigo, camino = _causa(str(alerta))
-        hallazgos.append(_h("G3", ERROR, codigo, f"{str(alerta)[:300]} → {camino}"))
+        severidad = AVISO if codigo in AVISOS_G3 else ERROR
+        hallazgos.append(_h("G3", severidad, codigo, f"{str(alerta)[:300]} → {camino}"))
 
     total = int(resumen.get("articulos_total") or 0)
     ok = int(resumen.get("articulos_ok") or 0)
@@ -157,6 +165,22 @@ def tesis_citadas(protocolo: dict) -> tuple[set[str], list[tuple[str, str]]]:
     return registros, claves
 
 
+def _clave_normal(clave: str) -> str:
+    return re.sub(r"\s+", "", clave).lower()
+
+
+def _claves_por_registro(protocolo: dict) -> dict[str, set[str]]:
+    """Clave de tesis citada justo antes de cada registro ("1a./J. 49/2025 (11a.), registro
+    digital 2030412"): con ella G4 ata la cita a la captura del SJF."""
+    pares: dict[str, set[str]] = {}
+    for _, texto in textos(protocolo):
+        for m in _REGISTRO_RE.finditer(texto):
+            previas = list(_CLAVE_TESIS_RE.finditer(texto, max(0, m.start() - 60), m.start()))
+            if previas:
+                pares.setdefault(m.group(1), set()).add(previas[-1].group(0))
+    return pares
+
+
 def verificar_jurisprudencia(protocolo: dict, evidencia: Optional[dict]) -> list[Hallazgo]:
     """Hallazgos de G4. Si el protocolo no cita tesis concretas, no hay nada que verificar."""
     registros, claves = tesis_citadas(protocolo)
@@ -172,6 +196,7 @@ def verificar_jurisprudencia(protocolo: dict, evidencia: Optional[dict]) -> list
         for t in ((evidencia or {}).get("tesis") or [])
         if isinstance(t, dict)
     }
+    pares = _claves_por_registro(protocolo)
     for registro in sorted(registros):
         tesis = verificadas.get(registro)
         if tesis is None:
@@ -186,6 +211,13 @@ def verificar_jurisprudencia(protocolo: dict, evidencia: Optional[dict]) -> list
                 f"registro {registro}: estado_consulta {tesis.get('estado_consulta')!r}"))
         if not (tesis.get("rubro") or "").strip():
             hallazgos.append(_h("G4", ERROR, "TESIS_SIN_RUBRO", f"registro {registro}: la evidencia no trae rubro"))
+        captura = _clave_normal(str(tesis.get("numero_tesis") or ""))
+        for clave in sorted(pares.get(registro, ())):
+            if captura and not captura.startswith(_clave_normal(clave)):
+                hallazgos.append(_h(
+                    "G4", ERROR, "TESIS_CLAVE_DISCREPANTE",
+                    f"registro {registro}: se cita como '{clave}', pero la captura del SJF dice "
+                    f"'{tesis.get('numero_tesis')}'"))
         vigencia = norm(str(tesis.get("estado_vigencia") or ""))
         if vigencia and vigencia not in ("vigente",):
             hallazgos.append(_h(

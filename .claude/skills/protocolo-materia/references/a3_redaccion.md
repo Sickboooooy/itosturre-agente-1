@@ -79,7 +79,9 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
 
 ## Jurisprudencia (G4 y Regla 3)
 
-- Formato: «P./J. 20/2014 (10a.), registro digital 2006224». Sin registro, G4 reprueba.
+- Formato: «P./J. 20/2014 (10a.), registro digital 2006224», con la clave justo antes del registro.
+  Sin registro, G4 reprueba; y si la clave no es la de la captura del SJF, también
+  (`TESIS_CLAVE_DISCREPANTE`). No hace falta transcribir el rubro: promovida la tesis, G3 solo avisa.
 - Si A2 no trae jurisprudencia de alcance general pertinente, no cites ninguna. La cadena de I ya
   ordena la jurisprudencia sin nombrarla, y las verificadas quedan como candidatas. Así el
   protocolo puede llegar a `EXITO` sin hueco de corpus (administrativo, 11-oct-2026).

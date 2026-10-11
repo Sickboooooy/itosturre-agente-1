@@ -100,7 +100,12 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 | `PARO TOPE` | 4 | 8 iteraciones sin llegar a verde |
 
 `LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA` y `COBERTURA_INCOMPLETA` **no** son hueco de
-corpus: son redacción de la cita. Solo un `NO_VERIFICABLE` por «ordenamiento fuera del catálogo» es la Regla 7.
+corpus: son redacción de la cita.
+
+Cuando el abogado promueve las tesis citadas al corpus local (`scripts/promover_tesis.py`), G3 las halla
+y deja el aviso `TESIS_SIN_RUBRO_TRANSCRITO`: el protocolo las cita por clave y registro, sin rubro, y
+el aviso no reprueba. Lo que ata la cita a la tesis es G4: la clave escrita junto al registro debe ser
+la de la captura del SJF (`TESIS_CLAVE_DISCREPANTE` si no). Con eso el protocolo puede llegar a `EXITO`. Solo un `NO_VERIFICABLE` por «ordenamiento fuera del catálogo» es la Regla 7.
 
 ## Costo medido (constitucional, 10-oct-2026)
 

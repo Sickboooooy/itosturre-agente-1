@@ -264,6 +264,26 @@ class TestG3Normas(unittest.TestCase):
         self.assertIn("denominación", h[0].mensaje)
         self.assertNotIn("Regla 7", h[0].mensaje)
 
+    def test_tesis_del_corpus_sin_rubro_transcrito_es_aviso(self):
+        """Promovida la tesis, el auditor la halla en el corpus local pero no coteja el rubro: el
+        protocolo la cita por clave y registro, como pide la plantilla. Es aviso, no error, porque
+        G4 coteja la clave contra la captura del SJF y la fidelidad la revisan A3 y A5. Los demás
+        problemas de rubro siguen siendo error."""
+        sin_rubro = ("🟡 SIN RUBRO INVOCADO: Registro digital 2099001 — El escrito no transcribe un rubro "
+                     "identificable para esta tesis: no hubo cotejo del rubro; la tesis solo acredita la "
+                     "existencia del registro. Rubro real: «RUBRO FICTICIO.». Cotejar que el criterio "
+                     "respalde lo afirmado antes de citar.")
+        h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[sin_rubro]))
+        self.assertEqual(codigos(h), [])
+        self.assertEqual(codigos(h, c.AVISO), ["TESIS_SIN_RUBRO_TRANSCRITO"])
+        for alerta in ("🟡 RUBRO PARCIAL: Registro digital 2099001 — truncado. Rubro invocado: «RUBRO». "
+                       "Rubro real: «RUBRO FICTICIO.».",
+                       "🔴 RUBRO DISCREPANTE: Registro digital 2099001 existe en el corpus local, pero su "
+                       "rubro no coincide."):
+            with self.subTest(alerta=alerta[:30]):
+                h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[alerta]))
+                self.assertTrue(codigos(h))
+
     def test_regla_7_y_8_indican_el_camino(self):
         h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=["🟡 ley no indexada"], ok=2))
         self.assertTrue(any("Regla 7" in x.mensaje for x in h))
@@ -331,6 +351,15 @@ class TestG4Jurisprudencia(unittest.TestCase):
             with self.subTest(esperado=esperado):
                 tesis = {**TESIS_OK, **cambio}
                 self.assertIn(esperado, codigos(citas.verificar_jurisprudencia(p, {"tesis": [tesis]})))
+
+    def test_clave_citada_debe_coincidir_con_la_captura(self):
+        """Sin cotejo de rubro, lo que ata la cita a la tesis es la pareja clave–registro: la clave
+        citada junto al registro debe ser la que trae la captura del SJF para ese registro."""
+        tesis = {**TESIS_OK, "numero_tesis": "1a./J. 12/2099 (11a.)"}
+        ok = con_instruccion(0, "Conforme a la 1a./J. 12/2099 (11a.), registro digital 2099001.")
+        self.assertEqual(codigos(citas.verificar_jurisprudencia(ok, {"tesis": [tesis]})), [])
+        mal = con_instruccion(0, "Conforme a la 1a./J. 13/2099 (11a.), registro digital 2099001.")
+        self.assertIn("TESIS_CLAVE_DISCREPANTE", codigos(citas.verificar_jurisprudencia(mal, {"tesis": [tesis]})))
 
     def test_clave_de_tesis_sin_registro_reprueba(self):
         p = con_instruccion(0, "Conforme a la tesis 1a./J. 12/2099 (ficticia).")
