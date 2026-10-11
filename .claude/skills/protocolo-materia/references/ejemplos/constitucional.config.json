@@ -1,0 +1,40 @@
+{
+  "materia": "constitucional",
+  "clave": "constitucional_materia",
+  "leyes": [
+    "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM",
+    "LEY DE AMPARO",
+    "Ley Orgánica del Poder Judicial Federal 2026",
+    "Constitución Politica del Estado de Jalisco 2026",
+    "Convencion Americana sobre Derechos Humanos",
+    "Pacto Internacional de Derechos Civiles y Políticos"
+  ],
+  "ley_principal": "de la Ley de Amparo",
+  "ley_no_indexada": "de la Ley Reglamentaria de las Fracciones I y II del Artículo 105 de la Constitución Política de los Estados Unidos Mexicanos",
+  "alcance": "en el sistema de destino esta materia es, en la práctica, el juicio de amparo",
+  "temas_a1": {
+    "I": "artículo 1o de la CPEUM (derechos humanos de la Constitución y de los tratados, interpretación conforme, pro persona, obligaciones de las autoridades); artículo 133 (supremacía); artículos 103 y 107 (bases del amparo); artículo 94 y lo que diga sobre la obligatoriedad de la jurisprudencia y los precedentes; el artículo de la LOPJF sobre cómo funciona hoy la SCJN y el que fije la competencia de los Plenos Regionales; artículos de la Ley de Amparo sobre su objeto (1), su supletoriedad (2) y la obligatoriedad de la jurisprudencia y los precedentes (reiteración, precedentes, contradicción, a quién obliga); artículo 25 de la Convención Americana y artículo 2 del PIDCP",
+    "II": "interés jurídico e interés legítimo (artículo 5, fracción I, de la Ley de Amparo y artículo 107, fracción I, de la CPEUM); definitividad y sus excepciones; relatividad de las sentencias y declaratoria general de inconstitucionalidad; estricto derecho y suplencia de la deficiencia de la queja (a quién beneficia); análisis de oficio de la improcedencia",
+    "III": "interpretación conforme y principio pro persona; ponderación de la apariencia del buen derecho y del interés social en la suspensión; orden de estudio de los conceptos de violación (mayor beneficio); análisis de la improcedencia antes del fondo",
+    "V": "plazos para presentar la demanda (regla general y excepciones) y su cómputo; causales de improcedencia que más tumban demandas; sobreseimiento; requisitos y límites de la suspensión, garantía y contragarantía; plazos de los recursos de revisión, queja y reclamación; amparo adhesivo; cumplimiento de las sentencias; multas por promociones improcedentes o de mala fe"
+  },
+  "temas_a2": [
+    "interés legítimo e interés jurídico para la procedencia del amparo",
+    "parámetro de control de regularidad constitucional (derechos humanos de fuente constitucional y de tratados) y obligatoriedad de la jurisprudencia de la Corte Interamericana",
+    "control de convencionalidad ex officio / interpretación conforme / principio pro persona",
+    "suspensión del acto reclamado: apariencia del buen derecho y peligro en la demora",
+    "principio de definitividad y sus excepciones",
+    "suplencia de la queja / causa de pedir en los conceptos de violación"
+  ],
+  "advertencias_a2": [
+    "La Ley de Amparo vigente es de 2013, con reformas posteriores. Si una tesis interpreta artículos de la ley abrogada de 1936 (cita numerales de esa ley o es de la Novena Época o anterior), descártala o repórtala aparte con esa nota."
+  ],
+  "contexto_a5": [
+    "La Ley de Amparo indexada trae las reformas publicadas en el DOF el 13-03-2025 y el 16-10-2025.",
+    "El artículo 94 de la CPEUM permite que la SCJN funcione en dos secciones con aprobación del Pleno; el artículo 2 de la LOPJF indexada solo prevé el Pleno.",
+    "Las tesis citadas están capturadas del SJF pero no en el corpus local de jurisprudencia: eso lo decide el abogado, no lo señales como problema de diseño.",
+    "Las jurisprudencias de Plenos Regionales se dejaron fuera a propósito por ser regionales y de supuestos específicos."
+  ],
+  "presupuesto": {"consultas_a1": 35, "terminos_a2": 6, "registros_a2": 12, "hallazgos_a5": 12},
+  "modelos": {"a1": "heredar", "a2": "heredar", "a5": "heredar"}
+}

@@ -1,0 +1,34 @@
+{
+  "materia": "penal",
+  "clave": "penal_materia",
+  "leyes": [
+    "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM",
+    "CODIGO PENAL FEDERAL",
+    "Código Penal para el Estado Libre y Soberano de Jalisco",
+    "CodigoNacionalProcedPenales",
+    "LEY FEDERAL DE DELINCUENCIA ORGANIZADA",
+    "LEY NACIONAL EJECUCION PENAL",
+    "LEY GENERAL DE VICTIMAS",
+    "LEY NACIONAL EXTINCION DE DOMINIO",
+    "Convencion Americana sobre Derechos Humanos",
+    "Pacto Internacional de Derechos Civiles y Políticos"
+  ],
+  "ley_principal": "del Código Penal Federal",
+  "alcance": "",
+  "temas_a1": {
+    "I": "artículos de la CPEUM propios de la materia penal (legalidad y exacta aplicación, irretroactividad, prohibición de penas, derechos de la persona imputada y de la víctima, prisión preventiva, reinserción social); artículos de la CADH y del PIDCP sobre garantías penales; el papel de la ley sustantiva federal (CPF) y local (Código Penal de Jalisco) y el de las leyes especiales (LFDO, LNEP, LGV, extinción de dominio), con un artículo ancla para cada una",
+    "II": "legalidad y exacta aplicación (prohibición de analogía y mayoría de razón), irretroactividad salvo beneficio, presunción de inocencia, culpabilidad (dolo y culpa), proporcionalidad de las penas, reinserción social y derechos de la víctima",
+    "V": "prescripción de la acción penal y de las sanciones (cómputo, interrupción, suspensión), delitos perseguibles por querella y efectos del perdón, aplicación de la ley más favorable; federal y Jalisco cuando difieran"
+  },
+  "temas_a2": [
+    "presunción de inocencia (como regla de trato, regla probatoria y estándar de prueba)",
+    "in dubio pro reo",
+    "exacta aplicación de la ley penal / taxatividad / prohibición de analogía y mayoría de razón",
+    "aplicación retroactiva de la ley penal más favorable",
+    "prescripción de la acción penal"
+  ],
+  "advertencias_a2": [],
+  "contexto_a5": [],
+  "presupuesto": {"consultas_a1": 35, "terminos_a2": 6, "registros_a2": 12, "hallazgos_a5": 12},
+  "modelos": {"a1": "heredar", "a2": "heredar", "a5": "heredar"}
+}
