@@ -12,16 +12,16 @@ no aparece en el índice, detiene el bucle hasta que decida el abogado (Reglas 7
 Jalisco que hay en el corpus no entran en los protocolos. Lo local se remite a la ley de la entidad
 del asunto (ver `a3_redaccion.md`).
 
-| Materia | Normas nacionales en el RAG (vigencia) | Lo que depende de cada entidad o falta | Estado (11-oct-2026) |
+| Materia | Normas nacionales en el RAG (vigencia) | Lo que depende de cada entidad o falta | Estado (11-oct-2026, tarde) |
 |---|---|---|---|
-| penal | CPEUM, CNPP, CPF (en lo federal), LFDO, LNEP, Ley Nacional de Extinción de Dominio, LGV; CADH ⚪ y PIDCP ⚪ | Delitos del fuero común: código penal de la entidad | v1 en EXITO, pero cita el Código Penal de Jalisco: hay que corregirla |
+| penal | CPEUM, CNPP, CPF (en lo federal), LFDO, LNEP, Ley Nacional de Extinción de Dominio, LGV; CADH ⚪ y PIDCP ⚪ | Delitos del fuero común: código penal de la entidad | v2 nacional en EXITO |
 | constitucional | CPEUM, Ley de Amparo, LOPJF; CADH ⚪ y PIDCP ⚪ | Ley reglamentaria del artículo 105 (no indexada) | v1 en EXITO, ya nacional |
 | laboral | LFT, LFTSE, CPEUM | Ley orgánica del Centro Federal de Conciliación (no indexada) | v1 en EXITO, ya nacional |
-| administrativo | LFPA, LFPCA, LOTFJA, CPEUM | Procedimiento y justicia administrativa locales; Ley General de Responsabilidades Administrativas (no indexada) | v1 en EXITO, pero tiene una rama de Jalisco: hay que corregirla |
+| administrativo | LFPA, LFPCA, LOTFJA, CPEUM | Procedimiento y justicia administrativa locales; Ley General de Responsabilidades Administrativas (no indexada) | v2 nacional en EXITO |
 | seguridad_social | LSS, Ley del ISSSTE, Ley del INFONAVIT, LFT | Ley de los Sistemas de Ahorro para el Retiro (no indexada) | v1 en EXITO, ya nacional |
-| familiar | CNPCF, LGDNNA, CPEUM, CCF (en lo federal o como referencia); Convención sobre los Derechos del Niño ⚪ | Derecho familiar sustantivo: código civil o familiar de la entidad | v1 en EXITO, pero lo sustantivo sale del Código Civil de Jalisco: hay que corregirla |
-| civil | CNPCF, CCF (en lo federal o como referencia), CPEUM; CFPC 🟡 (abrogado, con vigencia transitoria) | Derecho civil sustantivo: código civil de la entidad | v1 de Jalisco; se rehace como v2 nacional |
-| consumidor | Reglamento de la LFPC; **LFPC 🔴** (la versión indexada no está vigente) | Re-indexar la LFPC vigente | **No** |
+| familiar | CNPCF, LGDNNA, CPEUM, CCF (en lo federal o como referencia); Convención sobre los Derechos del Niño ⚪ | Derecho familiar sustantivo: código civil o familiar de la entidad | v2 nacional en EXITO |
+| civil | CNPCF, CCF (en lo federal o como referencia), CPEUM; CFPC 🟡 (abrogado, con vigencia transitoria) | Derecho civil sustantivo: código civil de la entidad | v2 nacional en EXITO (la v1 de Jalisco quedó archivada) |
+| consumidor | LFPC, Reglamento de la LFPC, CPEUM, CNPCF, LFPA, LFPCA | Ordenamiento procesal civil local, supletorio del arbitraje de estricto derecho; Código de Comercio (no indexado) | v1 nacional en EXITO (el 🔴 de la LFPC era el acuerdo anual de montos, no una reforma) |
 | mercantil | — | **Código de Comercio, LGSM y LGTOC no están indexados** | **No** |
 
 ⚪ = el reporte de vigencia no tiene una fuente oficial con qué compararlo (tratados).

@@ -41,8 +41,9 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 `<carpeta>` es `$PROTOCOLOS_DIR/<materia>_materia`.
 
 1. **Elegir la materia.** `references/materias.md` tiene el catálogo y la preparación del corpus.
-   Mercantil y consumidor no están listas: completar su corpus es ingesta, y la ingesta solo se
-   hace por orden expresa.
+   Mercantil no está lista: completar su corpus es ingesta, y la ingesta solo se hace por orden
+   expresa. Ante un 🔴 federal con rezago corto, revisa el historial oficial de la ley antes de
+   pedir una re-ingesta: el de la LFPC era el acuerdo anual de montos, no una reforma.
 2. **Precondición.**
 
    ```
@@ -156,6 +157,10 @@ piden. Ojo: A1 se pasó del tope de consultas; `revisar` lo reporta.
 **Seguridad social (11-oct-2026, Sonnet en A1 y A2):** A1 ~115 mil tokens en 17 llamadas, A2 ~82 mil en 7 llamadas, A5 ~193 mil
 (modelo principal). En total fueron ~391 mil tokens y 24 minutos, con 0 diferencias y extractos 100 % literales según
 `revisar`. Con las plantillas agrupadas, el costo de una materia quedó en ~400 mil tokens.
+
+**Consumidor (11-oct-2026, Sonnet en A1 y A2):** A1 ~147 mil tokens en 25 llamadas (38 consultas, tres más que el tope),
+A2 ~92 mil en 7 llamadas, A5 ~196 mil (modelo principal). En total fueron ~435 mil tokens y 18 minutos, con 0 diferencias
+y extractos 100 % literales según `revisar`; EXITO en la iteración 2, y en la 3 tras A5.
 
 ## Archivos de la carpeta de una materia
 
