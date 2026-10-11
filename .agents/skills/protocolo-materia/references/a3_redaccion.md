@@ -56,6 +56,9 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
   sigla antes de usarla, «Ley del ISSSTE (LISSSTE)». Esto último solo funciona con el auditor
   de `fix/auditor-sigla-desconocida`; sin él, la sigla puede heredar la ley de la oración
   anterior y salir en falso 🟢.
+- De una ley en 🟡 (por ejemplo, el CPCJ), G3 coteja cada artículo citado contra el PDF oficial (Regla 8).
+  Cita solo los que salgan 🟢 COINCIDE. Si uno no se localiza (`COTEJO_PENDIENTE`), enuncia la regla sin
+  el número y márcala [VERIFICAR EN: fuente oficial].
 - Todo artículo lleva su ley al lado, aunque se sobreentienda. Si escribes «del artículo 123»
   suelto, el gate da `CITA_SIN_LEY`.
 - Nada a la **izquierda** de una cita que el auditor lea como otro ordenamiento: «norma» en

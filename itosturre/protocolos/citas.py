@@ -122,8 +122,102 @@ def _causa(alerta: str) -> tuple[str, str]:
     return "ALERTA", "revisar la cita contra la fuente oficial"
 
 
-def auditar_normas(protocolo: dict, auditor: Optional[Auditor] = None) -> tuple[list[Hallazgo], dict]:
-    """Hallazgos de G3 y el JSON del auditor (para la evidencia)."""
+# ── Regla 8: ley en 🟡 → cotejo de cada artículo contra el PDF oficial (11-oct-2026) ─────────
+# El auditor da 🟢 a un artículo que existe en la versión indexada aunque el reporte de vigencia
+# tenga la ley en 🟡; CLAUDE.md (Regla 8) exige entonces cotejarlo con la fuente oficial antes de
+# citar su texto. G3 lo pide aquí: cada artículo de una ley en 🟡 pasa por `cotejo_manual.py`.
+Cotejador = Callable[[str, list[str]], dict[str, str]]
+_COTEJO_TITULO_RE = re.compile(r"^## Cotejo · .*? · artículo (?P<articulo>.+?)\s*$")
+_COTEJO_RESULTADO_RE = re.compile(r"^- \*\*Resultado \(Capa 1\):\*\*\s*(?P<resultado>.+?)\s*$")
+
+
+def leyes_no_verdes(directorio: Optional[Path] = None) -> dict[str, str]:
+    """Fuente indexada → etiqueta de las leyes en 🟡 del último reporte de vigencia."""
+    directorio = directorio or REPO_ROOT / "reportes" / "vigencia_corpus"
+    reportes = sorted(directorio.glob("vigencia_*.json"))
+    if not reportes:
+        return {}
+    try:
+        filas = json.loads(reportes[-1].read_text(encoding="utf-8")).get("filas") or []
+    except (OSError, ValueError):
+        return {}
+    return {
+        f["fuente"]: f.get("etiqueta") or f["fuente"]
+        for f in filas
+        if isinstance(f, dict) and f.get("semaforo") == "🟡" and f.get("fuente")
+    }
+
+
+def resultados_cotejo(salida: str) -> dict[str, str]:
+    """Artículo → línea de resultado de las fichas que imprime `cotejo_manual.py articulo`."""
+    resultados: dict[str, str] = {}
+    articulo: Optional[str] = None
+    for linea in salida.splitlines():
+        titulo = _COTEJO_TITULO_RE.match(linea)
+        if titulo:
+            articulo = titulo.group("articulo")
+            continue
+        resultado = _COTEJO_RESULTADO_RE.match(linea)
+        if resultado and articulo is not None:
+            resultados[articulo] = resultado.group("resultado")
+            articulo = None
+    return resultados
+
+
+def cotejador_local(ley: str, articulos: list[str]) -> dict[str, str]:
+    """Corre `scripts/cotejo_manual.py articulo` (lectura del PDF oficial ya preparado)."""
+    resultado = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "cotejo_manual.py"), "articulo", ley, *articulos],
+        cwd=REPO_ROOT, capture_output=True, text=True, env=os.environ.copy(), check=False,
+    )
+    return resultados_cotejo(resultado.stdout)
+
+
+def _regla_8(informe: dict, no_verdes: Optional[dict[str, str]],
+             cotejador: Optional[Cotejador]) -> list[Hallazgo]:
+    por_ley: dict[str, list[str]] = {}
+    for fuente in informe.get("retrieved_sources") or []:
+        if not isinstance(fuente, dict) or fuente.get("ref_type") != "normativa":
+            continue
+        archivo, articulo = fuente.get("source_file"), str(fuente.get("article") or "").strip()
+        if archivo and articulo and articulo not in por_ley.setdefault(archivo, []):
+            por_ley[archivo].append(articulo)
+    if not por_ley:
+        return []
+    if no_verdes is None:
+        no_verdes = leyes_no_verdes()
+    hallazgos: list[Hallazgo] = []
+    for archivo, articulos in por_ley.items():
+        if archivo not in no_verdes:
+            continue
+        etiqueta = no_verdes[archivo]
+        resultados = (cotejador or cotejador_local)(etiqueta, articulos)
+        for articulo in articulos:
+            resultado = resultados.get(articulo, "")
+            if resultado.startswith("🟢"):
+                continue
+            if resultado.startswith("🔴"):
+                hallazgos.append(_h(
+                    "G3", ERROR, "COTEJO_DIFIERE",
+                    f"Regla 8: artículo {articulo} de {etiqueta} (ley en 🟡): {resultado[:160]} → citar "
+                    "el texto oficial de la ficha de cotejo, nunca el del RAG"))
+            else:
+                hallazgos.append(_h(
+                    "G3", ERROR, "COTEJO_PENDIENTE",
+                    f"Regla 8: artículo {articulo} de {etiqueta} (ley en 🟡): "
+                    f"{resultado[:160] or 'sin resultado del cotejo'} → cotejarlo con "
+                    "`scripts/cotejo_manual.py articulo` (`preparar` si falta el PDF oficial), o quitar "
+                    "el número y marcar [VERIFICAR EN: fuente oficial]"))
+    return hallazgos
+
+
+def auditar_normas(
+    protocolo: dict, auditor: Optional[Auditor] = None, *,
+    no_verdes: Optional[dict[str, str]] = None, cotejador: Optional[Cotejador] = None,
+) -> tuple[list[Hallazgo], dict]:
+    """Hallazgos de G3 y el JSON del auditor (para la evidencia). ``no_verdes`` (fuente →
+    etiqueta de las leyes en 🟡; por omisión, el último reporte de vigencia) y ``cotejador``
+    (por omisión, `cotejo_manual.py`) aplican la Regla 8."""
     hallazgos = revisar_notacion(protocolo)
     informe = (auditor or auditor_local)(texto_auditable(protocolo))
     resumen = informe.get("vvca_summary") or {}
@@ -137,6 +231,7 @@ def auditar_normas(protocolo: dict, auditor: Optional[Auditor] = None) -> tuple[
         codigo, camino = _causa(str(alerta))
         severidad = AVISO if codigo in AVISOS_G3 else ERROR
         hallazgos.append(_h("G3", severidad, codigo, f"{str(alerta)[:300]} → {camino}"))
+    hallazgos += _regla_8(informe, no_verdes, cotejador)
 
     total = int(resumen.get("articulos_total") or 0)
     ok = int(resumen.get("articulos_ok") or 0)

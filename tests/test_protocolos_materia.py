@@ -327,6 +327,64 @@ class TestG3Normas(unittest.TestCase):
 
 # ── G4: jurisprudencia con evidencia ───────────────────────────────────────────
 
+class TestG3Regla8(unittest.TestCase):
+    """Regla 8: el auditor da 🟢 a un artículo que existe en la versión indexada aunque la ley esté
+    en 🟡 en el reporte de vigencia. G3 exige entonces el cotejo de cada artículo contra el PDF
+    oficial (civil, 11-oct-2026: el CPCJ se cotejó a mano porque el gate no lo pedía)."""
+
+    FUENTES = [
+        {"ref_type": "normativa", "source_file": "LEY AMARILLA.pdf", "article": "4"},
+        {"ref_type": "normativa", "source_file": "LEY AMARILLA.pdf", "article": "9"},
+        {"ref_type": "normativa", "source_file": "LEY VERDE.pdf", "article": "1"},
+    ]
+    NO_VERDES = {"LEY AMARILLA.pdf": "Ley Amarilla"}
+
+    def auditor(self):
+        a = AuditorFalso()
+        a.informe["retrieved_sources"] = self.FUENTES
+        return a
+
+    def test_ley_en_amarillo_exige_cotejo_de_cada_articulo(self):
+        pedidos = []
+
+        def cotejador(ley, articulos):
+            pedidos.append((ley, sorted(articulos)))
+            return {"4": "🟢 COINCIDE: el texto del RAG es igual al oficial vigente",
+                    "9": "🔴 DIFIERE: el texto del RAG no es el oficial vigente"}
+
+        h, _ = citas.auditar_normas(protocolo(), self.auditor(), no_verdes=self.NO_VERDES,
+                                    cotejador=cotejador)
+        self.assertEqual(pedidos, [("Ley Amarilla", ["4", "9"])])
+        self.assertEqual(codigos(h), ["COTEJO_DIFIERE"])
+
+    def test_cotejo_sin_resultado_verde_queda_pendiente(self):
+        def cotejador(ley, articulos):
+            return {"4": "🟡 NO LOCALIZADO en ninguno de los dos textos"}
+
+        h, _ = citas.auditar_normas(protocolo(), self.auditor(), no_verdes=self.NO_VERDES,
+                                    cotejador=cotejador)
+        self.assertEqual(codigos(h), ["COTEJO_PENDIENTE", "COTEJO_PENDIENTE"])
+        self.assertIn("Regla 8", h[0].mensaje)
+
+    def test_sin_leyes_en_amarillo_no_se_coteja(self):
+        def cotejador(ley, articulos):
+            raise AssertionError("no debía cotejar")
+
+        h, _ = citas.auditar_normas(protocolo(), self.auditor(), no_verdes={}, cotejador=cotejador)
+        self.assertEqual(codigos(h), [])
+
+    def test_lee_la_salida_de_cotejo_manual(self):
+        salida = ("## Cotejo · Ley Amarilla · artículo 4\n\n"
+                  "- **Resultado (Capa 1):** 🟢 COINCIDE: el texto del RAG es igual al oficial vigente\n"
+                  "- RAG: `LEY AMARILLA.pdf`\n\n"
+                  "## Cotejo · Ley Amarilla · artículo 29 bis\n\n"
+                  "- **Resultado (Capa 1):** 🟡 NO LOCALIZADO en ninguno de los dos textos\n")
+        self.assertEqual(citas.resultados_cotejo(salida), {
+            "4": "🟢 COINCIDE: el texto del RAG es igual al oficial vigente",
+            "29 bis": "🟡 NO LOCALIZADO en ninguno de los dos textos",
+        })
+
+
 TESIS_OK = {"registro": "2099001", "rubro": "RUBRO FICTICIO.", "tipo": "Jurisprudencia",
             "estado_consulta": "VERIFICADO", "estado_vigencia": "vigente"}
 
