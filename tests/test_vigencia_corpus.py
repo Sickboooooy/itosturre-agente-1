@@ -146,6 +146,34 @@ class ClasificacionTests(unittest.TestCase):
         self.assertEqual(fila["rezago_dias"], 73)
         self.assertIn("transitorios", fila["detalle"])
 
+    # LeyesBiblio cuenta como última modificación el acuerdo anual que actualiza montos y multas
+    # (p. ej. el de la LFPC), y el PDF que lo incorpora lo anota bajo el sello de la última reforma.
+    MONTOS = "Actualización de montos de operaciones y multas por Acuerdo DOF {}"
+
+    def test_acuerdo_de_montos_del_encabezado_es_la_version_indexada(self) -> None:
+        sello = "Última Reforma DOF 01-01-1801\n" + self.MONTOS.format("15-03-1801")
+        fecha, texto, clase, _ = vc.version_indexada(info(chunk0_federal(sello=sello)), "federal")
+        self.assertEqual(fecha, dt.date(1801, 3, 15))
+        self.assertEqual(clase, "reforma")
+        self.assertIn("Última Reforma DOF 01-01-1801", texto)
+        self.assertIn("Acuerdo DOF 15-03-1801", texto)
+
+    def test_acuerdo_de_montos_al_dia_es_vigente(self) -> None:
+        sello = "Última Reforma DOF 01-01-1801\n" + self.MONTOS.format("15-03-1801")
+        fila = self.clasificar(datos=info(chunk0_federal(sello=sello)))
+        self.assertEqual(fila["estado"], "VIGENTE")
+
+    def test_acuerdo_de_montos_anterior_a_la_ultima_oficial_sigue_desactualizada(self) -> None:
+        sello = "Última Reforma DOF 01-01-1801\n" + self.MONTOS.format("01-02-1801")
+        fila = self.clasificar(datos=info(chunk0_federal(sello=sello)))
+        self.assertEqual(fila["estado"], "DESACTUALIZADA")
+        self.assertEqual(fila["rezago_dias"], 42)
+
+    def test_acuerdo_de_montos_viejo_no_cambia_la_version(self) -> None:
+        sello = "Última Reforma DOF 15-03-1801\n" + self.MONTOS.format("01-01-1801")
+        fecha, texto, _, _ = vc.version_indexada(info(chunk0_federal(sello=sello)), "federal")
+        self.assertEqual((fecha, texto), (dt.date(1801, 3, 15), "Última Reforma DOF 15-03-1801"))
+
     def test_otro_ordenamiento_no_se_compara_por_fecha(self) -> None:
         fila = self.clasificar(datos=info(chunk0_federal(titulo="LEY DISTINTA DE PRUEBA",
                                                          sello="Última Reforma DOF 01-01-1800")))

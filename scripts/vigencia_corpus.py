@@ -103,6 +103,14 @@ SELLO_FED = re.compile(
     r"(?P<d>\d{1,2})-(?P<m>\d{1,2})-(?P<y>\d{4})",
     re.IGNORECASE,
 )
+# Acuerdo anual que actualiza montos o cantidades sin reformar el texto (p. ej. el de la LFPC).
+# LeyesBiblio lo lista como la última modificación, y el PDF que lo incorpora lo anota bajo el
+# sello de la última reforma: "Actualización de montos de operaciones y multas por Acuerdo DOF …".
+ACUERDO_MONTOS_FED = re.compile(
+    r"Actualizaci[oó]n\s+de\s+(?:montos|cantidades)\b.{0,120}?\bpor\s+Acuerdo\s+DOF\s+"
+    r"(?P<d>\d{1,2})-(?P<m>\d{1,2})-(?P<y>\d{4})",
+    re.IGNORECASE | re.DOTALL,
+)
 # Encabezado de algunos PDFs del Congreso de Jalisco.
 SELLO_JAL = re.compile(
     r"[UÚ]LTIMA\s+REFORMA\s+PUBLICADA\s+EN\s+EL\s+PERI[OÓ]DICO\s+OFICIAL\s*:?\s*"
@@ -305,8 +313,14 @@ def version_indexada(info: dict, tipo: str) -> Tuple[Optional[dt.date], str, str
             return None, "", "", ""
         t = m.group("tipo").lower()
         clase = "abrogado" if "abrogad" in t else ("reforma" if "reforma" in t else "original")
-        return (fecha(m.group("y"), m.group("m"), m.group("d")),
-                re.sub(r"\s+", " ", m.group(0)), clase, "alta")
+        fe, texto = fecha(m.group("y"), m.group("m"), m.group("d")), re.sub(r"\s+", " ", m.group(0))
+        acuerdo = ACUERDO_MONTOS_FED.search(cabecera)
+        fe_acuerdo = fecha(acuerdo.group("y"), acuerdo.group("m"), acuerdo.group("d")) if acuerdo else None
+        if clase != "abrogado" and fe and fe_acuerdo and fe_acuerdo > fe:
+            # El texto es el de la última reforma con los montos del acuerdo posterior: esa es
+            # la versión que el listado oficial fecha.
+            fe, texto = fe_acuerdo, f"{texto} · montos por Acuerdo DOF {dmy(fe_acuerdo, '-')}"
+        return fe, texto, clase, "alta"
     # Jalisco: sello explícito del encabezado (alta) o tabla de reformas (media, inferida).
     candidatos = []
     m = SELLO_JAL.search(cabecera)

@@ -153,8 +153,9 @@ el mismo `chroma_db`.
 ### Vigencia del corpus (desde el 9-oct-2026)
 
 Estar indexada no es estar vigente. `scripts/vigencia_corpus.py` coteja la versión de cada
-fuente del índice (sello "Última Reforma DOF" de LeyesBiblio; en Jalisco, la tabla de reformas
-y el decreto citado) contra el listado oficial de hoy y da un semáforo por fuente, sin
+fuente del índice (sello "Última Reforma DOF" de LeyesBiblio, o el "Acuerdo DOF" posterior de
+actualización de montos que el PDF anota bajo ese sello, como en la LFPC; en Jalisco, la tabla
+de reformas y el decreto citado) contra el listado oficial de hoy y da un semáforo por fuente, sin
 promediar. Es solo lectura: no descarga leyes ni re-indexa, y solo consulta URL https de hosts
 oficiales. La fuente oficial de cada PDF vive en `scripts/fuentes_oficiales.json`.
 
