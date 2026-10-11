@@ -100,6 +100,11 @@ def _causa(alerta: str) -> tuple[str, str]:
     if "ley no identificada" in t and ("no liga" in t or "no tiene un antecedente" in t or "sin denominacion" in t):
         return "CITA_SIN_LEY", (
             "la cita no nombra la ley: escribirla junto al artículo (p. ej. «artículo 123 de la CPEUM»)")
+    # Antes que la Regla 7: el motivo de la sigla menciona "ley no indexada" y "corpus".
+    if "ley no identificada" in t and "sigla fuera del catalogo" in t:
+        return "SIGLA_DESCONOCIDA", (
+            "el auditor no reconoce la sigla: escribir la denominación de la ley (p. ej. «Ley del "
+            "ISSSTE»), una sigla reconocida, o definirla antes de usarla («Ley del ISSSTE (LISSSTE)»)")
     if "no vigente" in t or "vigencia" in t:
         return "VIGENCIA", "Regla 8: cotejar con scripts/cotejo_manual.py articulo antes de citar"
     if "no indexad" in t or "no verificable" in t or "corpus" in t:

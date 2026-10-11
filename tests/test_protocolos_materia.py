@@ -250,6 +250,20 @@ class TestG3Normas(unittest.TestCase):
         self.assertEqual(codigos(h), ["NO_VERIFICABLE"])
         self.assertIn("Regla 7", h[0].mensaje)
 
+    def test_sigla_fuera_del_catalogo_es_redaccion_no_hueco_de_corpus(self):
+        """Texto literal del auditor (fix/auditor-sigla-desconocida, 5e5fe41). Menciona «ley no
+        indexada» y «corpus», pero se arregla escribiendo la denominación de la ley: si fuera
+        NO_VERIFICABLE, el bucle pararía en un falso hueco de corpus."""
+        sigla = ("🟡 NO VERIFICABLE — LEY NO IDENTIFICADA: 'artículo 248' (artículo 248) — sigla fuera del "
+                 "catálogo: 'LISSSTE' (no es una abreviatura reconocida ni se define en el texto: puede ser "
+                 "una ley no indexada o la sigla de una ley del corpus; escriba su denominación). NO es "
+                 "alucinación: sin el ordenamiento no se puede cotejar el precepto. Precisar la ley junto al "
+                 "artículo o verificar en fuente oficial antes de citar.")
+        h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[sigla], ok=2))
+        self.assertEqual(codigos(h), ["SIGLA_DESCONOCIDA"])
+        self.assertIn("denominación", h[0].mensaje)
+        self.assertNotIn("Regla 7", h[0].mensaje)
+
     def test_regla_7_y_8_indican_el_camino(self):
         h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=["🟡 ley no indexada"], ok=2))
         self.assertTrue(any("Regla 7" in x.mensaje for x in h))

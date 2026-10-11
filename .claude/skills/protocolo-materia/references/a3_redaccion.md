@@ -51,7 +51,11 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
 - Las siglas que el auditor reconoce ahorran palabras: CPEUM, LFT, LFTSE, CNPP, PIDCP. Pruébalas con
   `OpenNotebook.py audit --text` antes de usar una nueva. Nombra la ley completa una vez, por
   ejemplo «la Ley Federal del Trabajo, LFT (artículo 1 de la LFT)», y luego usa la sigla. Así se
-  mantiene el tope de 260 palabras sin quitar condiciones.
+  mantiene el tope de 260 palabras sin quitar condiciones. Una sigla que el auditor no reconoce
+  («LISSSTE») da `SIGLA_DESCONOCIDA`: escribe la denominación («Ley del ISSSTE») o define la
+  sigla antes de usarla, «Ley del ISSSTE (LISSSTE)». Esto último solo funciona con el auditor
+  de `fix/auditor-sigla-desconocida`; sin él, la sigla puede heredar la ley de la oración
+  anterior y salir en falso 🟢.
 - Todo artículo lleva su ley al lado, aunque se sobreentienda. Si escribes «del artículo 123»
   suelto, el gate da `CITA_SIN_LEY`.
 - Nada a la **izquierda** de una cita que el auditor lea como otro ordenamiento: «norma» en

@@ -99,8 +99,8 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 | `PARO ESTANCADO` | 4 | El mismo conjunto de fallos dos vueltas seguidas: el diagnóstico está mal. Escala al abogado; no lo saltes |
 | `PARO TOPE` | 4 | 8 iteraciones sin llegar a verde |
 
-`LEY_AMBIGUA`, `CITA_SIN_LEY` y `COBERTURA_INCOMPLETA` **no** son hueco de corpus: son redacción
-de la cita. Solo un `NO_VERIFICABLE` por «ordenamiento fuera del catálogo» es la Regla 7.
+`LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA` y `COBERTURA_INCOMPLETA` **no** son hueco de
+corpus: son redacción de la cita. Solo un `NO_VERIFICABLE` por «ordenamiento fuera del catálogo» es la Regla 7.
 
 ## Costo medido (constitucional, 10-oct-2026)
 
