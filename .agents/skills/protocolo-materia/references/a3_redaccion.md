@@ -17,6 +17,11 @@ se marca `[VERIFICAR EN: fuente]` o va a la lista Capa 2 de la evidencia.
 - Cinco secciones con su rótulo exacto, en orden. Usa las frases de la plantilla:
   - **I.** «Cuando el asunto sea …, tu análisis respeta esta cadena: … → … Nunca inviertas este
     orden.» Si hay un parámetro sin jerarquía, como el de derechos humanos, dilo en el cierre.
+    La cadena sigue la jerarquía normativa de CLAUDE.md (decisión del operador, 11-oct-2026):
+    CPEUM y tratados → jurisprudencia de la SCJN y de los Plenos Regionales → leyes federales y
+    nacionales → jurisprudencia de los Tribunales Colegiados de Circuito, en su circuito → leyes
+    locales → reglamentos. Si el fondo depende del fuero, la ley federal va antes de la
+    jurisprudencia de los TCC y la de la entidad, después.
   - **II.** «… rigen de forma especialmente estricta: … Señala cuando un argumento del usuario o de
     la contraparte los pase por alto.»
   - **III.** «De los métodos generales que ya conoces, … los que con más frecuencia deciden un caso

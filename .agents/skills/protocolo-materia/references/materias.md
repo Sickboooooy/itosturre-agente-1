@@ -22,7 +22,7 @@ del asunto (ver `a3_redaccion.md`).
 | familiar | CNPCF, LGDNNA, CPEUM, CCF (en lo federal o como referencia); Convención sobre los Derechos del Niño ⚪ | Derecho familiar sustantivo: código civil o familiar de la entidad | v2 nacional en EXITO |
 | civil | CNPCF, CCF (en lo federal o como referencia), CPEUM; CFPC 🟡 (abrogado, con vigencia transitoria) | Derecho civil sustantivo: código civil de la entidad | v2 nacional en EXITO (la v1 de Jalisco quedó archivada) |
 | consumidor | LFPC, Reglamento de la LFPC, CPEUM, CNPCF, LFPA, LFPCA | Ordenamiento procesal civil local, supletorio del arbitraje de estricto derecho; Código de Comercio (no indexado) | v1 nacional en EXITO (el 🔴 de la LFPC era el acuerdo anual de montos, no una reforma) |
-| mercantil | — | **Código de Comercio, LGSM y LGTOC no están indexados** | **No** |
+| mercantil | Código de Comercio, LGSM y LGTOC (indexados el 11-oct-2026), CPEUM, CNPCF (supletorio procesal), CCF (derecho común supletorio) | — (jurisdicción concurrente, mismas leyes federales) | v1 nacional en EXITO (1a./J. 2/2023 promovida) |
 
 ⚪ = el reporte de vigencia no tiene una fuente oficial con qué compararlo (tratados).
 
