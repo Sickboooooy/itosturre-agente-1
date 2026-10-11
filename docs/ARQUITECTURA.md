@@ -689,6 +689,15 @@ variantes con sufijo, la prueba de inexistencia y la ingesta:
   partidas) son exactamente las que la auditoría acepta como encabezado auténtico de alguna
   lectura de su designación. Fuera de esta gramática quedan `itosturre/plan/` (sus propias
   listas de sufijos latinos) y el pop-up de `capturar_rag.py`.
+- **Remisión partida (11-oct-2026):** «Artículo N.» con cierre al inicio de una línea NO es
+  encabezado auténtico si la línea anterior con contenido deja abierta la oración (termina en «,»
+  o en «de», «del», «al», «y», «en», «conforme»…). Caso del Código Civil de Jalisco: la fracción II
+  del artículo 1412 termina en «…la parte final del» y sigue «Artículo 1595.»; la ingesta cortaba
+  ahí y la auditoría veía dos encabezados del 1595. Rige en `evidence._es_autentico` (auditoría e
+  ingesta) y en `leyesbiblio.encabezado_en_contexto` (cotejo y planes). En el índice actual no
+  cambia ningún encabezado (29 575 fragmentos comparados: el falso encabezado quedó al inicio de
+  su fragmento); el arreglo surte efecto al re-ingerir la ley. `leyesbiblio` acepta además los
+  sufijos latinos en minúsculas («Artículo 29 bis.-» del CPC de Jalisco).
 - **Pruebas:** `tests/test_vvca_designaciones.py` (gramática, encabezado partido,
   TRANSITORIOS, D10 y casos del coordinador de punta a punta) y las de seguridad en
   `tests/test_ingesta_fragmentacion.py`.

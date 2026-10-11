@@ -47,9 +47,27 @@ _SUFIJO_EN_LINEA_SIGUIENTE = (
 _SIGUE_REMISION = re.compile(r"[ \t]*[,;]")
 
 
+# Línea anterior que deja abierta la oración (11-oct-2026, Código Civil de Jalisco): "…la parte
+# final del" / "Artículo 1595." es una remisión partida, no un encabezado. Misma lista que
+# ``itosturre.evidencia.leyesbiblio._ABRE_ORACION`` (D2: ``audit`` no importa esa capa).
+_ABRE_ORACION = re.compile(
+    r"(?:,|(?<![^\W_])(?:de|del|al|a|el|la|los|las|lo|y|e|o|u|en|por|para|con|sin|que|segun"
+    r"|conforme|sobre|entre|hasta|desde|como))[ \t]*$",
+    re.IGNORECASE,
+)
+
+
+def _remision_partida(normalizado: str, inicio: int) -> bool:
+    """¿La línea con contenido anterior a ``inicio`` deja abierta la oración? Sin línea anterior
+    (inicio del texto o del fragmento) no hay remisión que descartar."""
+    previo = normalizado[:inicio].rstrip()
+    return bool(previo) and bool(_ABRE_ORACION.search(previo.rsplit("\n", 1)[-1]))
+
+
 def _es_autentico(normalizado: str, inicio: int, fin: int) -> bool:
     """¿El encabezado ``normalizado[inicio:fin]`` (texto sin acentos, terminado en su cierre)
-    es AUTÉNTICO? "A" mayúscula en el prefijo y cierre no seguido de "," ni ";".
+    es AUTÉNTICO? "A" mayúscula en el prefijo, cierre no seguido de "," ni ";", y la línea
+    anterior no deja abierta la oración (remisión partida, 11-oct-2026).
 
     Definición ÚNICA (re-ingesta por fuente, 4-oct-2026): la usan ``ocurrencias_encabezado``
     (el encabezado exacto que acredita un precepto) y ``encabezados_autenticos`` (con el que la
@@ -58,6 +76,7 @@ def _es_autentico(normalizado: str, inicio: int, fin: int) -> bool:
     return (
         normalizado[inicio:fin].lstrip()[:1] == "A"
         and not _SIGUE_REMISION.match(normalizado, fin)
+        and not _remision_partida(normalizado, inicio)
     )
 
 

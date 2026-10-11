@@ -269,6 +269,19 @@ class FragmentarTests(unittest.TestCase):
         return fragmentar(_paginas(*textos), max_caracteres=max_caracteres, subdividir=subdividir,
                           fin_de_linea=fin_de_linea)
 
+    def test_remision_partida_al_inicio_de_linea_no_es_encabezado(self) -> None:
+        # Código Civil de Jalisco (11-oct-2026): la remisión "…la parte final del / Artículo 1595."
+        # quedó al inicio de una línea con "A" mayúscula y cierre: la ingesta cortó ahí y la
+        # auditoría vio dos encabezados del 1595 (ubicación ambigua).
+        texto = ("Artículo 9998.- Si la obligación sintética no tuviere plazo, se estará a la parte final del\n"
+                 "Artículo 9999.\n\nEl que contraviene una obligación sintética pagará daños.\n"
+                 "Artículo 9999.- Texto sintético del artículo verdadero.\n")
+        self.assertEqual([h["designacion"] for h in encabezados_autenticos(texto)], ["9998", "9999"])
+        self.assertEqual([o["autentico"] for o in ocurrencias_encabezado(texto, "9999")], [False, True])
+        # Al inicio del texto (sin línea anterior) y tras una oración cerrada sigue siendo encabezado.
+        self.assertTrue(encabezado_autentico("Artículo 9999.- Texto sintético.", "9999"))
+        self.assertTrue(encabezado_autentico("Texto sintético cerrado.\nArtículo 9999.- Texto.", "9999"))
+
     def test_mayusculas_cortan_y_la_remision_no(self) -> None:
         resultado = self._fragmentos(
             "LEY SINTÉTICA\nTexto sintético del encabezado.\n"

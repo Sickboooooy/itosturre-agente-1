@@ -436,6 +436,33 @@ class UbicacionArticulosTests(unittest.TestCase):
             with self.subTest(linea=linea):
                 self.assertEqual(encabezado_articulo(linea), esperado)
 
+    def test_sufijo_latino_en_minuscula(self) -> None:
+        # CPC de Jalisco (11-oct-2026): "Artículo 29 bis.-" no se reconocía como encabezado y el
+        # cotejo del artículo daba NO LOCALIZADO aunque estaba en ambos textos.
+        self.assertEqual(encabezado_articulo("Artículo 9999 bis.- Encabezado sintético"), "9999 bis")
+        self.assertEqual(encabezado_articulo("Artículo 9999 ter. Encabezado sintético"), "9999 ter")
+        self.assertIsNone(encabezado_articulo("Artículo 9999 bis de la Ley Sintética"))
+        doc = limpiar_documento(
+            ["Artículo 9999.- Texto sintético.\nArtículo 9999 bis.- Texto sintético.\nTRANSITORIOS\n"]
+        )
+        self.assertEqual(ubicar_articulo(doc, "9999 Bis").unica.indice, 1)
+
+    def test_remision_partida_al_inicio_de_linea_no_es_encabezado(self) -> None:
+        # Código Civil de Jalisco (11-oct-2026): "…se observará lo dispuesto en la parte final del /
+        # Artículo 1595." duplicaba el encabezado del 1595 y su ubicación quedaba ambigua.
+        doc = limpiar_documento(
+            [
+                "Artículo 9998.- Si la obligación sintética no tuviere plazo, se estará a la parte final del\n"
+                "Artículo 9999.\n"
+                "El que contraviene una obligación sintética pagará daños.\n"
+                "Artículo 9999.- Texto sintético del artículo verdadero.\n"
+                "TRANSITORIOS\n"
+            ]
+        )
+        ubicacion = ubicar_articulo(doc, "9999")
+        self.assertIsNotNone(ubicacion.unica)
+        self.assertEqual(ubicacion.unica.indice, 3)
+
     def test_encabezados_con_subnumero(self) -> None:
         # Subnúmero pegado con guion, como "ARTÍCULO 58-1.-" de la LFPCA: misma regla que
         # ``itosturre.audit.referencias`` (designación si M < N; con M ≥ N es un rango).
