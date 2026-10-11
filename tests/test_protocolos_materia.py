@@ -230,6 +230,18 @@ class TestG3Normas(unittest.TestCase):
         h, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=["🟡 versión no vigente"], ok=2))
         self.assertTrue(any("cotejo_manual" in x.mensaje for x in h))
 
+    def test_tesis_fuera_del_corpus_local_indica_promoverla_no_el_dof(self):
+        """Regla 3: la cita de una tesis se verifica contra el corpus local; la captura del SJF
+        solo es el insumo para promoverla (scripts/promover_tesis.py), y eso lo decide el abogado."""
+        alerta = ("🟡 NO VERIFICABLE: Registro digital 2099001 no encontrado en el corpus de jurisprudencia "
+                  "local (no confirmado como falso). Verificar en sjf2.scjn.gob.mx antes de citar.")
+        hallazgos, _ = citas.auditar_normas(protocolo(), AuditorFalso(alerts=[alerta]))
+        self.assertIn("TESIS_FUERA_DEL_CORPUS", codigos(hallazgos))
+        mensaje = next(h.mensaje for h in hallazgos if h.codigo == "TESIS_FUERA_DEL_CORPUS")
+        self.assertIn("promover_tesis.py", mensaje)
+        self.assertIn("[VERIFICAR EN SJF]", mensaje)
+        self.assertNotIn("DOF", mensaje)
+
     def test_aviso_de_corpus_parcial_tambien_reprueba(self):
         auditor = AuditorFalso(avisos=["auditoría ejecutada con corpus parcial: falta una ley"])
         hallazgos, _ = citas.auditar_normas(protocolo(), auditor)

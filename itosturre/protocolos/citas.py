@@ -9,9 +9,12 @@ incompleta (reescribir la cita en la convención auditable). Antes del auditor s
 la convención de citación: "artículo 31, fracción IV", no "31-IV".
 
 G4 (jurisprudencia): toda tesis citada lleva su registro digital, y ese registro debe
-estar en la evidencia con la verificación del scraper con navegador sobre la página
-pública del SJF (estado_consulta VERIFICADO). Sin evidencia no hay cita: se quita o se
-marca [VERIFICAR EN SJF]. El SJF en vivo propone; la evidencia capturada es la que acredita.
+tener en la evidencia su captura de la página pública del SJF hecha con el scraper con
+navegador (estado_consulta VERIFICADO, vigente). Esa captura NO acredita la cita por sí
+sola (Regla 3: el SJF en vivo propone; las citas se verifican contra el corpus): es el
+insumo para promoverla al corpus local de jurisprudencia con `scripts/promover_tesis.py`,
+paso que decide el abogado, y es G3, contra ese corpus, quien la da por verificada. Sin
+captura no hay cita: se quita o se marca [VERIFICAR EN SJF].
 """
 from __future__ import annotations
 
@@ -80,6 +83,10 @@ def _causa(alerta: str) -> tuple[str, str]:
     refutada = ("REFUTADA", "la cita es falsa: quitarla o corregirla con la fuente")
     if alerta.lstrip().startswith("🔴"):  # el semáforo del auditor manda sobre el texto
         return refutada
+    if "registro digital" in t and "corpus de jurisprudencia" in t:
+        return "TESIS_FUERA_DEL_CORPUS", (
+            "Reglas 3 y 7: decide el abogado — promoverla al corpus local con scripts/promover_tesis.py "
+            "desde su captura del SJF, o quitarla o marcarla [VERIFICAR EN SJF]")
     if "cobertura incompleta" in t:
         return "COBERTURA_INCOMPLETA", "reescribir la cita en la convención auditable"
     if "no vigente" in t or "vigencia" in t:
