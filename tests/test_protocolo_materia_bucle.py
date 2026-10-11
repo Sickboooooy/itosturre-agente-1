@@ -32,6 +32,9 @@ VIGENCIA = {"filas": [
      "semaforo": "🟢", "estado": "VIGENTE", "version_indexada": "Última Reforma DOF 01-01-2026"},
     {"fuente": "CODIGO FICTICIO.pdf", "etiqueta": "CF", "nombre_oficial": "Código Ficticio",
      "semaforo": "🔴", "estado": "NO_VIGENTE", "version_indexada": "Última Reforma DOF 01-01-2020"},
+    {"fuente": "Codigo Ficticio del Estado de Jalisco.pdf", "etiqueta": "Código Ficticio de Jalisco",
+     "nombre_oficial": "Código Ficticio de Jalisco", "semaforo": "🟢", "estado": "VIGENTE",
+     "version_indexada": "Tabla de reformas: 01-01-2026"},
 ]}
 
 
@@ -108,6 +111,15 @@ class TestPreparar(Base):
         problemas = " ".join(estado["precondicion"]["problemas"])
         self.assertIn("Código Ficticio", problemas)
         self.assertIn("NO_INDEXADA", problemas)
+
+    def test_una_ley_local_bloquea_por_el_enfoque_nacional(self):
+        codigo, estado = self.preparar(leyes=("Ley Ficticia de Prueba", "Código Ficticio de Jalisco"))
+        self.assertEqual(codigo, 1)
+        self.assertIn("LEY_LOCAL", " ".join(estado["precondicion"]["problemas"]))
+
+    def test_el_gate_de_enfoque_nacional_reprueba_su_fixture(self):
+        _, estado = self.preparar()
+        self.assertTrue(estado["precondicion"]["fixtures"]["rojo_entidad"]["ok"])
 
     def test_un_gate_que_no_reprueba_detiene_la_precondicion(self):
         codigo, estado = self.preparar(auditor=AuditorFalso(reprueba=False))

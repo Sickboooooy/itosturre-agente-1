@@ -9,6 +9,8 @@ el agente de destino ya trae y le dan instrucciones dobles o contradictorias:
       fuentes DONDE verificar, propias de la materia;
   R4  repetir la ficha procesal de la materia (código aplicable, etapas, estándar
       probatorio), que ya existe como pieza aparte.
+  R5  nombrar una entidad federativa (enfoque nacional, 11-oct-2026): el protocolo vale para
+      todo el país; lo local se remite a «la entidad del asunto» con [VERIFICAR EN: …].
 
 R1–R3 son reglas de texto. R4 compara cada oración del protocolo con la ficha de la
 materia (que se recibe como dato, no vive en este repositorio) por solapamiento de
@@ -19,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from itosturre.protocolos.contrato import AVISO, ERROR, Hallazgo, norm, textos
+from itosturre.protocolos.contrato import AVISO, ERROR, Hallazgo, entidades_mencionadas, norm, textos
 
 # R1 — rol del agente. Se busca al inicio de una oración (tras normalizar).
 _ROL = re.compile(
@@ -86,6 +88,12 @@ def lint(protocolo: dict, ficha: Optional[dict] = None) -> list[Hallazgo]:
             hallazgos.append(_h(ERROR, "R3_ANTIALUCINACION_GENERICA",
                                 "repite la regla genérica de no inventar: ya existe en los agentes; aquí solo "
                                 "van las fuentes DONDE verificar, propias de la materia", ruta))
+        entidades = entidades_mencionadas(texto)
+        if entidades:
+            hallazgos.append(_h(ERROR, "R5_ENTIDAD_FEDERATIVA",
+                                f"nombra {', '.join(entidades)}: el protocolo es nacional y no distingue por el "
+                                "código de una entidad; remite a «la entidad del asunto» con [VERIFICAR EN: …]",
+                                ruta))
 
     if ficha is None:
         hallazgos.append(_h(AVISO, "R4_SIN_FICHA",

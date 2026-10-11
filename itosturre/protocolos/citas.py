@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 from typing import Callable, Optional
 
-from itosturre.protocolos.contrato import AVISO, ERROR, Hallazgo, norm, textos
+from itosturre.protocolos.contrato import AVISO, ERROR, Hallazgo, es_fuente_local, norm, textos
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -211,6 +211,25 @@ def _regla_8(informe: dict, no_verdes: Optional[dict[str, str]],
     return hallazgos
 
 
+def _leyes_locales(informe: dict) -> list[Hallazgo]:
+    """Enfoque nacional (11-oct-2026): un artículo que resuelve a una ley estatal o municipal no
+    se cita; lo local se remite a la ley de la entidad del asunto."""
+    hallazgos: list[Hallazgo] = []
+    vistos: set[tuple[str, str]] = set()
+    for fuente in informe.get("retrieved_sources") or []:
+        if not isinstance(fuente, dict) or fuente.get("ref_type") != "normativa":
+            continue
+        archivo, articulo = fuente.get("source_file") or "", str(fuente.get("article") or "").strip()
+        if archivo and es_fuente_local(archivo) and (archivo, articulo) not in vistos:
+            vistos.add((archivo, articulo))
+            hallazgos.append(_h(
+                "G3", ERROR, "LEY_LOCAL",
+                f"artículo {articulo} de «{archivo}»: es una ley local y el protocolo es nacional → "
+                "remitir a la ley de la entidad del asunto [VERIFICAR EN: …], sin citar artículos de "
+                "un código estatal"))
+    return hallazgos
+
+
 def auditar_normas(
     protocolo: dict, auditor: Optional[Auditor] = None, *,
     no_verdes: Optional[dict[str, str]] = None, cotejador: Optional[Cotejador] = None,
@@ -232,6 +251,7 @@ def auditar_normas(
         severidad = AVISO if codigo in AVISOS_G3 else ERROR
         hallazgos.append(_h("G3", severidad, codigo, f"{str(alerta)[:300]} → {camino}"))
     hallazgos += _regla_8(informe, no_verdes, cotejador)
+    hallazgos += _leyes_locales(informe)
 
     total = int(resumen.get("articulos_total") or 0)
     ok = int(resumen.get("articulos_ok") or 0)

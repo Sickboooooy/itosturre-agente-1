@@ -5,7 +5,6 @@
     "CONSTITUCION POLITICA DE LOS ESTADOS UNIDOS MEXICANOS CPEUM",
     "LEY DE AMPARO",
     "Ley Orgánica del Poder Judicial Federal 2026",
-    "Constitución Politica del Estado de Jalisco 2026",
     "Convencion Americana sobre Derechos Humanos",
     "Pacto Internacional de Derechos Civiles y Políticos"
   ],
@@ -35,6 +34,15 @@
     "Las tesis citadas están capturadas del SJF pero no en el corpus local de jurisprudencia: eso lo decide el abogado, no lo señales como problema de diseño.",
     "Las jurisprudencias de Plenos Regionales se dejaron fuera a propósito por ser regionales y de supuestos específicos."
   ],
-  "presupuesto": {"consultas_a1": 35, "terminos_a2": 6, "registros_a2": 12, "hallazgos_a5": 12},
-  "modelos": {"a1": "heredar", "a2": "heredar", "a5": "heredar"}
+  "presupuesto": {
+    "consultas_a1": 35,
+    "terminos_a2": 6,
+    "registros_a2": 12,
+    "hallazgos_a5": 12
+  },
+  "modelos": {
+    "a1": "heredar",
+    "a2": "heredar",
+    "a5": "heredar"
+  }
 }

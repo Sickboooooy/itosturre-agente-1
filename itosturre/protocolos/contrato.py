@@ -71,6 +71,36 @@ def norm(texto: str) -> str:
     return unicodedata.normalize("NFC", "".join(c for c in base if unicodedata.category(c) != "Mn"))
 
 
+# ── Enfoque nacional (criterio del operador, 11-oct-2026) ────────────────────────────────────
+# Los protocolos de materia son NACIONALES: no distinguen por el código de una entidad (habría
+# que hacer uno por cada entidad del país). Lo local se remite a «la entidad del asunto» con
+# [VERIFICAR EN: …]. «México» solo es el país y no cuenta; «Estado de México» sí.
+ENTIDADES = (
+    "aguascalientes", "baja california sur", "baja california", "campeche", "chiapas", "chihuahua",
+    "ciudad de mexico", "coahuila", "colima", "durango", "estado de mexico", "guanajuato",
+    "guerrero", "hidalgo", "jalisco", "michoacan", "morelos", "nayarit", "nuevo leon", "oaxaca",
+    "puebla", "queretaro", "quintana roo", "san luis potosi", "sinaloa", "sonora", "tabasco",
+    "tamaulipas", "tlaxcala", "veracruz", "yucatan", "zacatecas", "distrito federal",
+)
+_ENTIDAD_RE = re.compile(r"(?<![a-z])(" + "|".join(re.escape(e) for e in ENTIDADES) + r")(?![a-z])")
+# Normas municipales del corpus (reglamentos de un ayuntamiento): también son locales.
+_MARCAS_MUNICIPALES = ("municipio", "municipal", "ayuntamiento", "guadalajara")
+
+
+def entidades_mencionadas(texto: str) -> list[str]:
+    """Entidades federativas nombradas en el texto (normalizado), sin repetir."""
+    return sorted({m.group(1) for m in _ENTIDAD_RE.finditer(norm(texto))})
+
+
+def es_fuente_local(fuente: str) -> bool:
+    """¿El archivo indexado es una ley o un reglamento de una entidad o de un municipio? Mira
+    el nombre sin espacios ni signos, porque varios PDF lo traen pegado
+    ("…EstadodeJalisco", "RegMovilidad…Guadalajara")."""
+    plano = re.sub(r"[^a-z]", "", norm(fuente))
+    return (any(e.replace(" ", "") in plano for e in ENTIDADES)
+            or any(m in plano for m in _MARCAS_MUNICIPALES))
+
+
 def clave_esperada(materia: str) -> str:
     return f"{materia}_materia"
 

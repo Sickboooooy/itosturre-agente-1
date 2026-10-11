@@ -26,6 +26,11 @@ orquestador con `references/a3_redaccion.md`.
   `~/itosturre-data/protocolos-justia/`). Son entregables del sistema de destino. La ficha procesal
   (`fichas_simulador.json`) y la descripción del destino (`destino.json`) también son datos de
   fuera: nunca se copian al repo, ni tampoco su código.
+- **Enfoque nacional** (criterio del operador, 11-oct-2026). Los protocolos valen para todo el país
+  y no distinguen por el código de una entidad: eso exigiría uno por cada entidad. Lo local se
+  remite a la ley de la entidad del asunto con [VERIFICAR EN: …]. `preparar` bloquea las leyes
+  locales (`LEY_LOCAL`). G2 reprueba nombrar una entidad (`R5_ENTIDAD_FEDERATIVA`) y G3, citar un
+  artículo de una ley local (`LEY_LOCAL`). Ver `references/a3_redaccion.md`.
 - **Capa 2**, es decir pertinencia, completitud doctrinal y estrategia, va a una lista para el
   abogado. A5 aconseja; no aprueba hechos ni criterio.
 
@@ -36,8 +41,10 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 `<carpeta>` es `$PROTOCOLOS_DIR/<materia>_materia`.
 
 1. **Elegir la materia.** `references/materias.md` tiene el catálogo y la preparación del corpus.
-   Mercantil y consumidor no están listas: completar su corpus es ingesta, y la ingesta solo se
-   hace por orden expresa.
+   Completar el corpus de una materia es ingesta, y la ingesta solo se hace por orden expresa.
+   Ante un 🔴 federal con rezago corto, revisa el historial oficial de la ley antes de pedir una
+   re-ingesta: el de la LFPC era el acuerdo anual de montos, no una reforma (igual el Código de
+   Comercio y la LGSM: «Cantidades actualizadas por Acuerdo»).
 2. **Precondición.**
 
    ```
@@ -99,8 +106,8 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 | `PARO ESTANCADO` | 4 | El mismo conjunto de fallos dos vueltas seguidas: el diagnóstico está mal. Escala al abogado; no lo saltes |
 | `PARO TOPE` | 4 | 8 iteraciones sin llegar a verde |
 
-`LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA` y `COBERTURA_INCOMPLETA` **no** son hueco de
-corpus: son redacción de la cita.
+`LEY_AMBIGUA`, `CITA_SIN_LEY`, `SIGLA_DESCONOCIDA`, `COBERTURA_INCOMPLETA`, `LEY_LOCAL` y
+`R5_ENTIDAD_FEDERATIVA` **no** son hueco de corpus: son redacción de la cita.
 
 `COTEJO_PENDIENTE` y `COTEJO_DIFIERE` (Regla 8) tampoco son hueco de corpus. G3 coteja contra el PDF
 oficial cada artículo de una ley en 🟡 del reporte de vigencia (`cotejo_manual.py`). Si difiere, se cita
@@ -151,6 +158,13 @@ piden. Ojo: A1 se pasó del tope de consultas; `revisar` lo reporta.
 **Seguridad social (11-oct-2026, Sonnet en A1 y A2):** A1 ~115 mil tokens en 17 llamadas, A2 ~82 mil en 7 llamadas, A5 ~193 mil
 (modelo principal). En total fueron ~391 mil tokens y 24 minutos, con 0 diferencias y extractos 100 % literales según
 `revisar`. Con las plantillas agrupadas, el costo de una materia quedó en ~400 mil tokens.
+
+**Consumidor (11-oct-2026, Sonnet en A1 y A2):** A1 ~147 mil tokens en 25 llamadas (38 consultas, tres más que el tope),
+A2 ~92 mil en 7 llamadas, A5 ~196 mil (modelo principal). En total fueron ~435 mil tokens y 18 minutos, con 0 diferencias
+y extractos 100 % literales según `revisar`; EXITO en la iteración 2, y en la 3 tras A5.
+
+**Mercantil (11-oct-2026, con el corpus indexado ese día):** A1 ~112 mil tokens en 13 llamadas (35 consultas), A2 ~85 mil en
+6 llamadas, A5 ~192 mil. En total ~388 mil tokens y 17 minutos; hueco de corpus en la iteración 3 (solo la tesis citada).
 
 ## Archivos de la carpeta de una materia
 
