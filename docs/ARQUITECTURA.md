@@ -381,7 +381,12 @@ estándar; `tests/test_vvca_referencias.py` prueba sus unidades). Corrige R4-D01
   `law_inferred=True`); desde otro párrafo y sin encabezado inequívoco,
   `law_requires_confirmation=True`. Un ordenamiento concreto fuera del catálogo (ligado o el
   más cercano antes) deja la ley no identificada, y cuenta como candidato del genérico ("de
-  la ley"): con más de un candidato, ambiguo. "Carta Magna" es un genérico de tipo
+  la ley"): con más de un candidato, ambiguo. Una sigla en mayúsculas que el catálogo no
+  reconoce, pegada al artículo ("de la LISSSTE", "La LISSSTE, en su artículo"), también deja
+  la ley no identificada y nunca hereda el contexto previo; si el texto la define antes
+  ("Ley del ISSSTE (LISSSTE)", "(en adelante, LAMP)"), toma la ley de su definición. No son
+  sigla los numerales romanos, las palabras de la cita ("PÁRRAFO TERCERO") ni el texto todo
+  en mayúsculas (11-oct-2026). "Carta Magna" es un genérico de tipo
   constitución (criterio del responsable, 1-oct-2026: sin denominación ni antecedente
   inequívoco, 🟡; nunca CPEUM automática). Las oraciones se cortan en párrafo,
   elemento de lista o fila de tabla Markdown, `;`, `?`, `!`, `|` y punto final que no cierra

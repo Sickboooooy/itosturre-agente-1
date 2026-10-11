@@ -739,6 +739,18 @@ _CONECTORES_NOMBRE = frozenset({
 _REMISIONES = ("la materia", "referencia", "cita")
 _ENTIDADES = frozenset({"estado", "ciudad", "municipio", "entidad"})
 _TOKEN_RE = re.compile(r"\s+([^\W\d_]+)")
+# Sigla en mayúsculas que el catálogo no reconoce ("de la LISSSTE"), y su definición en el
+# propio texto ("Ley del ISSSTE (LISSSTE)", "Ley de Amparo (en adelante, LAMP)").
+_SIGLA_RE = re.compile(r"(?<![^\W_])[A-ZÁÉÍÓÚÑ]{3,}(?![^\W_])")
+_ROMANO_ESTRICTO_RE = re.compile(r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
+_DEFINICION_SIGLA_RE = re.compile(
+    r"[ \t]*\(\s*(?:(?:en\s+adelante|en\s+lo\s+sucesivo|o\s+bien|o)\s*,?\s*)?[«\"“'‘]?"
+    r"(?P<sigla>(?-i:[A-ZÁÉÍÓÚÑ]{3,}))[»\"”'’]?\s*\)",
+    re.IGNORECASE,
+)
+# Palabras de la propia cita que, en mayúsculas, tampoco son sigla ("PÁRRAFO TERCERO").
+_NO_SIGLAS = (_CALIFICADORES | _DETERMINANTES | _DISTRIBUTIVOS | _CONECTORES_NOMBRE
+              | _MODIFICADORES | {"articulo", "articulos", "precepto", "preceptos", "numeral"})
 _RESPECTIVAMENTE_RE = re.compile(r"\s*,?\s*respectivamente(?![^\W_])", re.IGNORECASE)
 _POSESIVO_RE = re.compile(r"(?<![^\W_])sus?\s*$", re.IGNORECASE)
 
@@ -906,6 +918,7 @@ class _Elemento:
     tipo: str
     mencion: Optional[Mencion] = None
     nombre: str = ""
+    sigla: bool = False
 
 
 _PRIORIDAD = {"explicita": 0, "concreta": 1, "constitucional": 2, "generica": 3}
@@ -924,14 +937,16 @@ class _Menciones:
             fin = _entidad_ajena(texto, m.fin)
             if fin:
                 self.ajenas[(m.inicio, m.fin)] = fin
+        self._definiciones: Optional[dict[str, list[tuple[int, _Elemento]]]] = None
 
     def cubre(self, posicion: int) -> bool:
         """¿La posición cae dentro de una mención explícita? ("Ley" de "Ley de Amparo")."""
         k = bisect.bisect_right(self.inicios, posicion)
         return any(m.inicio <= posicion < m.fin for m in self.todas[max(0, k - 3):k])
 
-    def elementos(self, desde: int, hasta: int) -> list[_Elemento]:
-        """Leyes candidatas que empiezan en ``[desde, hasta)``, en orden."""
+    def elementos(self, desde: int, hasta: int, *, siglas: bool = False) -> list[_Elemento]:
+        """Leyes candidatas que empiezan en ``[desde, hasta)``, en orden. ``siglas``: también
+        las siglas que el catálogo no reconoce (solo para el vínculo pegado al artículo)."""
         texto = self.texto
         elementos: list[_Elemento] = []
         k = bisect.bisect_left(self.inicios, desde)
@@ -953,8 +968,58 @@ class _Menciones:
                                            nombre=f"{g.group(0)} {tramo[0]}"))
             else:
                 elementos.append(_Elemento(g.start(), g.end(), "generica", nombre=g.group(0)))
+        if siglas:
+            elementos += self._siglas(desde, hasta, elementos)
         elementos.sort(key=lambda e: (e.inicio, _PRIORIDAD[e.tipo]))
         return elementos
+
+    def _siglas(self, desde: int, hasta: int, ocupados: list[_Elemento]) -> list[_Elemento]:
+        """Siglas fuera del catálogo (11-oct-2026: "el artículo 248 de la LISSSTE" tomaba, por
+        contexto previo, la ley nombrada antes). La que el texto define antes de usarla toma
+        la ley de su definición; las demás son ordenamientos fuera del catálogo. No son sigla
+        un numeral romano ni una palabra de un texto todo en mayúsculas (un rubro)."""
+        texto = self.texto
+        resultado: list[_Elemento] = []
+        for s in _SIGLA_RE.finditer(texto, desde, hasta):
+            sigla = s.group(0)
+            if any(e.inicio <= s.start() < e.fin for e in ocupados):
+                continue
+            if _ROMANO_ESTRICTO_RE.fullmatch(sigla) or sin_acentos(sigla).lower() in _NO_SIGLAS:
+                continue
+            # Junto a otra palabra en mayúsculas es texto en mayúsculas, no una sigla.
+            antes = [p for p in re.findall(r"[^\W\d_]+", texto[max(0, s.start() - 60):s.start()])
+                     if len(p) > 1]
+            despues = [p for p in re.findall(r"[^\W\d_]+", texto[s.end():s.end() + 60])
+                       if len(p) > 1]
+            if any(p.isupper() for p in antes[-1:] + despues[:1]):
+                continue
+            definidas = [e for fin, e in self.definiciones().get(sigla, ()) if fin <= s.start()]
+            if definidas and definidas[-1].tipo == "explicita":
+                m = definidas[-1].mencion
+                resultado.append(_Elemento(
+                    s.start(), s.end(), "explicita", sigla=True,
+                    mencion=Mencion(s.start(), s.end(), m.clave, m.fuente, m.alias),
+                ))
+            else:
+                nombre = definidas[-1].nombre if definidas else sigla
+                resultado.append(_Elemento(s.start(), s.end(), "concreta", nombre=nombre,
+                                           sigla=True))
+        return resultado
+
+    def definiciones(self) -> dict[str, list[tuple[int, _Elemento]]]:
+        """Sigla → [(fin de la definición, ordenamiento que define)], en orden."""
+        if self._definiciones is None:
+            por_fin = {
+                e.fin: e for e in self.elementos(0, len(self.texto))
+                if e.tipo in ("explicita", "concreta")
+            }
+            self._definiciones = {}
+            for d in _DEFINICION_SIGLA_RE.finditer(self.texto):
+                elemento = por_fin.get(d.start())
+                if elemento:
+                    self._definiciones.setdefault(d.group("sigla"), []).append(
+                        (d.end(), elemento))
+        return self._definiciones
 
     def mapa_entre(self, desde: int, hasta: int) -> list[Mencion]:
         """Menciones del mapa (no alias, no de otra entidad) completas en ``[desde, hasta)``."""
@@ -974,11 +1039,13 @@ class _Enlace:
     respectivamente: bool
 
 
-def _enlace_derecho(texto: str, desde: int, tope: int, menciones: _Menciones) -> Optional[_Enlace]:
+def _enlace_derecho(
+    texto: str, desde: int, tope: int, menciones: _Menciones, *, siglas: bool = False
+) -> Optional[_Enlace]:
     """La ley pegada al precepto a su derecha (y las que la siguen unidas por "y de/del"),
     o None si la primera ley de la oración no está ligada al artículo."""
     alcance = min(tope, desde + VENTANA_DERECHA)
-    candidatos = menciones.elementos(desde, alcance)
+    candidatos = menciones.elementos(desde, alcance, siglas=siglas)
     if not candidatos:
         return None
     primero = candidatos[0]
@@ -991,7 +1058,7 @@ def _enlace_derecho(texto: str, desde: int, tope: int, menciones: _Menciones) ->
         cadena, posicion = [primero], primero.fin
         if primero.tipo == "constitucional":
             return cadena, posicion
-        for siguiente in menciones.elementos(posicion, tope):
+        for siguiente in menciones.elementos(posicion, tope, siglas=siglas):
             if siguiente.inicio < posicion:
                 continue
             if siguiente.tipo == "constitucional" or not _union_de_leyes(
@@ -1112,6 +1179,12 @@ def _resolver_generico(
 
 
 def _motivo_concreto(nombre: str) -> str:
+    if _SIGLA_RE.fullmatch(nombre):
+        return (
+            f"sigla fuera del catálogo: '{nombre}' (no es una abreviatura reconocida ni se define "
+            "en el texto: puede ser una ley no indexada o la sigla de una ley del corpus; "
+            "escriba su denominación)"
+        )
     return (
         f"ordenamiento fuera del catálogo: '{nombre}' (no es una ley del corpus, es de otra "
         "entidad o su denominación está incompleta)"
@@ -1374,7 +1447,7 @@ def _unidades(texto: str, cortes: _Cortes, menciones: _Menciones) -> list[_Unida
         unidad = _Unidad(grupo, True, cabeza.start(), cabeza.start(), cabeza.end(), fin, items,
                          excedidos, oracion)
         while True:
-            unidad.enlace = _enlace_derecho(texto, unidad.fin, tope, menciones)
+            unidad.enlace = _enlace_derecho(texto, unidad.fin, tope, menciones, siglas=True)
             unidades.append(unidad)
             posicion = unidad.enlace.fin if unidad.enlace else unidad.fin
             fin_anterior = posicion
@@ -1461,6 +1534,28 @@ def _resolver_izquierda(
     poseedor = max(poseedores, key=lambda e: e.fin)
     return _resolver_elemento(texto, poseedor, METODO_POSESIVO, catalogo, menciones,
                               poseedor.inicio, cortes)
+
+
+def _resolver_sigla_izquierda(
+    texto: str, unidad: _Unidad, catalogo: CatalogoLeyes, menciones: _Menciones,
+    cortes: _Cortes,
+) -> Optional[Resolucion]:
+    """Sigla pegada a la cabeza por la izquierda ("La LISSSTE, en su artículo 248"). Solo
+    cubre lo que nada más resolvió: así el contexto previo no le atribuye la ley nombrada
+    antes, y la sigla nunca compite con un vínculo a la derecha."""
+    s_ini, cabeza = unidad.oracion[0], unidad.cabeza
+    candidatos = [
+        e for e in menciones.elementos(max(s_ini, cabeza - VENTANA_IZQUIERDA), cabeza,
+                                       siglas=True)
+        if e.fin <= cabeza and e.tipo != "constitucional"
+    ]
+    if not candidatos:
+        return None
+    cercano = max(candidatos, key=lambda e: (e.fin, -_PRIORIDAD[e.tipo]))
+    if not cercano.sigla or not _es_brecha(texto[cercano.fin:cabeza], _ENLACE_IZQUIERDO):
+        return None
+    return _resolver_elemento(texto, cercano, METODO_IZQUIERDA, catalogo, menciones,
+                              cercano.inicio, cortes)
 
 
 def _resolver_previo(
@@ -1596,6 +1691,16 @@ def _resolver_unidades(
                     + ", ".join(f"'{d.clave if d.fuente else d.motivo}'" for d in derechas)
                 )
                 u.resolucion, u.por_item = _no_identificada(motivo), None
+
+    # 3b. Sigla pegada por la izquierda, solo para lo que sigue sin ley (antes del contexto
+    #     previo, que le atribuiría la ley nombrada antes).
+    for u in unidades:
+        if u.primera and u.resolucion is None and u.por_item is None:
+            sigla = _resolver_sigla_izquierda(texto, u, catalogo, menciones, cortes)
+            if sigla is not None:
+                for v in unidades:
+                    if v.grupo == u.grupo and v.resolucion is None and v.por_item is None:
+                        v.resolucion = sigla
 
     # 4. Coordinación con un grupo anterior ligado por la izquierda ("CFF Art. 42 y Art. 43").
     for k in range(1, n):

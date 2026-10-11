@@ -407,6 +407,11 @@ Reglas de identificación:
   identificada con el motivo "ordenamiento fuera del catálogo" y bloquea cualquier inferencia.
   Las claves estatales del catálogo exigen la entidad completa ("Código Penal para el Estado
   Libre y Soberano de Jalisco").
+- Una sigla que el catálogo no reconoce, pegada al artículo ("el artículo 248 de la
+  LISSSTE"), deja la ley no identificada con el motivo "sigla fuera del catálogo" (🟡): puede
+  ser una ley no indexada o una abreviatura distinta de una ley del corpus. Antes heredaba por
+  contexto previo la ley nombrada antes y daba un falso 🟢 (11-oct-2026). Si el texto define
+  la sigla antes de usarla ("Ley del ISSSTE (LISSSTE)"), la cita toma esa ley.
 
 **Criterio del responsable (1-oct-2026).** El responsable jurídico confirmó el criterio B:
 "de la Constitución" (y "Carta Magna", "Ley Fundamental", "Norma Suprema") sin la
@@ -721,6 +726,7 @@ Comportamiento al auditar (`audit()`):
 | "art. 911 Bis CPCJ" (911 y 912 en el mismo fragmento): 🟡 NO VERIFICABLE | 🔴 ARTÍCULO INEXISTENTE ACREDITADO ("el art. 911 pasa al art. 912 sin el 911 Bis") |
 | "art. 19 Ter CPEUM", "art. 70 Ter CFF": 🟡 NO VERIFICABLE | Igual (vecinos en fragmentos distintos, o sufijos de letra y latinos) |
 | "La Ley de Amparo … y la CPEUM …. El artículo 217 …": se cotejaba contra la CPEUM | 🟡 LEY NO IDENTIFICADA (contexto previo ambiguo) |
+| "… de la LSS. El artículo 248 de la LISSSTE": 🟢 contra la Ley del Seguro Social | 🟡 LEY NO IDENTIFICADA (sigla fuera del catálogo) |
 
 ### Qué cambia para el abogado (verde determinista y ordinales, 3-oct-2026)
 

@@ -320,6 +320,63 @@ class ResolucionTests(unittest.TestCase):
             [("5", "desconocido", None, None, False)],
         )
 
+    def test_sigla_fuera_del_catalogo_no_toma_la_ley_anterior(self) -> None:
+        # Falso verde (11-oct-2026, protocolo de seguridad social): "de la LISSSTE" no es una
+        # sigla del catálogo y el artículo tomaba, por contexto previo, la ley nombrada antes.
+        for texto, articulos in (
+            ("Rige el artículo 5 del CFF. El artículo 248 de la LISSSTE dispone.", ["248"]),
+            ("Rige el artículo 5 del CFF. El artículo 248, fracción II, de la LISSSTE dispone.",
+             ["248"]),
+            ("Rige el artículo 5 del CFF. El artículo 248 LISSSTE dispone.", ["248"]),
+            ("Rige el artículo 5 del CFF. Los artículos 248 y 249 de la LISSSTE disponen.",
+             ["248", "249"]),
+            ("Rige el artículo 5 del CFF. La LISSSTE, en su artículo 248, dispone.", ["248"]),
+        ):
+            with self.subTest(texto=texto):
+                refs = R.extraer_articulos(texto, CATALOGO)[1:]
+                self.assertEqual([r["article"] for r in refs], articulos)
+                for ref in refs:
+                    self.assertIsNone(ref["source_file"])
+                    self.assertIn("'LISSSTE'", ref["law_unidentified_reason"])
+                    self.assertIn("fuera del catálogo", ref["law_unidentified_reason"])
+
+    def test_sigla_definida_en_el_texto_identifica_su_ley(self) -> None:
+        for texto in (
+            "La Ley de Amparo (LAMP) rige. El artículo 5 de la LAMP dispone.",
+            "La Ley de Amparo (en adelante, LAMP) rige. El artículo 5 de la LAMP dispone.",
+            "La Ley de Amparo (en lo sucesivo «LAMP») rige.\n\nEl artículo 5 de la LAMP dispone.",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(
+                    _leyes(texto),
+                    [("5", "ley de amparo", "LEY DE AMPARO.pdf", "adyacente_derecha", False)],
+                )
+        # Definida después de la cita no cuenta: la sigla todavía no tiene significado.
+        (ref,) = R.extraer_articulos(
+            "Rige el CFF. El artículo 5 de la LAMP dispone. La Ley de Amparo (LAMP) rige.",
+            CATALOGO)
+        self.assertIsNone(ref["source_file"])
+
+    def test_mayusculas_que_no_son_sigla_de_ley(self) -> None:
+        # Sin vínculo con el artículo, una sigla (de una autoridad, por ejemplo) no estorba.
+        self.assertEqual(
+            _leyes("El CFF rige al SAT. Su artículo 42 dispone."),
+            [("42", "cff", "CODIGO FISCAL.pdf", "contexto_previo", True)],
+        )
+        self.assertEqual(
+            _leyes("El IMSS, en el artículo 42 del CFF, dispone."),
+            [("42", "cff", "CODIGO FISCAL.pdf", "adyacente_derecha", False)],
+        )
+        # Numerales romanos, y un texto todo en mayúsculas (como un rubro), quedan como antes.
+        self.assertEqual(
+            _leyes("Rige el artículo 5 del CFF. El artículo 107, fracción XXIX, dispone.")[1],
+            ("107", "cff", "CODIGO FISCAL.pdf", "contexto_previo", True),
+        )
+        self.assertEqual(
+            _leyes("EL CFF RIGE. EL ARTÍCULO 42 DISPONE."),
+            [("42", "cff", "CODIGO FISCAL.pdf", "contexto_previo", True)],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
