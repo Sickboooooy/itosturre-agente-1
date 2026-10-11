@@ -34,7 +34,7 @@ Resolución del ordenamiento: solo por VÍNCULO SINTÁCTICO acreditable
   - Coordinación pura ("el artículo 14 y el artículo 16 de la CPEUM") comparte el vínculo;
     "ambos"/"todos" lo comparten también tras "así como" o "en relación con".
   - Si hay vínculos en conflicto (izquierda y derecha distintas) o un ordenamiento concreto
-    fuera del catálogo ("Código de Comercio", "Código Penal para el Estado de México"), la
+    fuera del catálogo ("Código de Justicia Militar", "Código Penal para el Estado de México"), la
     ley queda NO IDENTIFICADA, con su motivo.
   - Sin vínculo: contexto previo (oraciones anteriores, ≤ ``VENTANA_PREVIA`` caracteres hacia
     atrás; ``law_inferred=True``). Si la mención está en otro párrafo y no es un encabezado
@@ -1469,7 +1469,7 @@ def _resolver_previo(
     """Contexto previo: oraciones anteriores (nunca la misma oración ni hacia adelante)."""
     s_ini = unidad.oracion[0]
     previas = menciones.elementos(max(0, unidad.cabeza - VENTANA_PREVIA), s_ini)
-    # Explícitas del mapa y nombres propios fuera del catálogo ("el Código de Comercio"): un
+    # Explícitas del mapa y nombres propios fuera del catálogo ("el Código de Justicia Militar"): un
     # genérico en prosa con modificador ("la ley fiscal") no bloquea la inferencia.
     previas = [
         e for e in previas if e.fin <= s_ini and (

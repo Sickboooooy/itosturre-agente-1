@@ -74,8 +74,9 @@ indexado en `chroma_db/` tras el bootstrap.
 ./venv/Scripts/python.exe scripts/check_corpus.py --json   # para el pipeline
 ```
 
-**Estado a 10-sep-2026: 48 de 48 ordenamientos presentes.** (`CLAUDE.md` decía 47;
-la cifra se movió con la indexación fiscal de julio y el texto no se actualizó.)
+**Estado a 11-oct-2026: 51 de 51 fuentes del catálogo presentes.** Ese día se indexaron como
+fuentes nuevas el Código de Comercio, la LGSM y la LGTOC (PDF oficiales de LeyesBiblio; 2 801
+fragmentos). Antes eran 48 (10-sep-2026).
 
 Un hueco de corpus **no invalida el argumento que cita la ley ausente** — es una
 limitación del índice. Ver Regla 7 del protocolo anti-alucinación en `CLAUDE.md`.
