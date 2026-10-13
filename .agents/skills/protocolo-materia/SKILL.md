@@ -95,6 +95,17 @@ apuntando al índice (`docs/ENTORNO.md`). Los comandos son `"$PY" scripts/protoc
 8. **Cerrar.** Corre `cerrar <carpeta>`. Escribe `LEEME.md` con la decisión pendiente y la lista
    Capa 2 (copia la estructura del de constitucional). Entrega al usuario el resultado con opciones
    numeradas: promover tesis, revisar Capa 2, firmar o la siguiente materia.
+9. **Firma (la hace el abogado, no el agente).** El abogado corre `firmar <carpeta>` en su propia
+   terminal. El comando hace lo siguiente:
+   - se niega sin terminal interactiva, así que el agente no puede ejecutarlo;
+   - solo firma la versión con G1–G4 en verde;
+   - pide nombre completo y cédula profesional, y que se reescriban los primeros 12 caracteres de
+     la huella;
+   - registra `aprobacion` con la huella sha256 completa.
+
+   Si el protocolo cambia después (`escribir`, o una edición que detecten `gates` o `cerrar`), la
+   firma vuelve a PENDIENTE y la anterior pasa a `historial_firmas`. El agente solo da al abogado
+   el comando y la huella de cada versión.
 
 ## Cuándo para el bucle (`gates`)
 

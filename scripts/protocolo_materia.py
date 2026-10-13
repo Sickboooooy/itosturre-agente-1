@@ -14,10 +14,13 @@ Este script hace lo que no necesita un modelo:
              la captura del SJF) y mide los topes del presupuesto
   medir      anota tokens y minutos de un agente en estado.json
   cerrar     vuelca el último reporte a la evidencia y cierra estado.json
+  firmar     registra el APROBADO del abogado (nombre, cédula profesional, huella completa); solo
+             desde una terminal interactiva, y solo sobre la versión que pasó G1–G4
 
 Las salidas viven fuera del repositorio (por omisión ~/itosturre-data/protocolos-justia/,
 o PROTOCOLOS_DIR): son entregables del sistema de destino, no de Itosturre. El script
-nunca firma: APROBADO es de una persona identificada y se liga al sha256 del protocolo.
+nunca firma por sí mismo: APROBADO es de una persona identificada, se liga al sha256 del
+protocolo y se invalida (pasa a historial_firmas) en cuanto el protocolo cambia.
 
 Uso:
   python scripts/protocolo_materia.py preparar <materia> --leyes "LEY DE AMPARO" "CPEUM" ...
@@ -29,6 +32,7 @@ Uso:
   python scripts/protocolo_materia.py revisar  <carpeta>
   python scripts/protocolo_materia.py medir    <carpeta> --agente A1 --tokens N --minutos M
   python scripts/protocolo_materia.py cerrar   <carpeta>
+  python scripts/protocolo_materia.py firmar   <carpeta>        (la corre el abogado en su terminal)
 
 G3 usa el índice de CHROMA_PATH y el intérprete actual (el del venv con el corpus).
 Salida: 0 éxito · 1 seguir (o precondición no cumplida) · 2 uso o archivo inválido ·
@@ -453,7 +457,10 @@ def escribir(carpeta: Carpeta, borrador: dict) -> tuple[int, list[str]]:
         if not respaldo.exists():
             shutil.copy2(carpeta.protocolo, respaldo)
     escribir_json(carpeta.protocolo, borrador)
-    return 0, [f"palabras por sección: {palabras_por_seccion(borrador)} · sha256 {huella(borrador)[:12]}"]
+    sha = huella(borrador)
+    mensajes = [f"palabras por sección: {palabras_por_seccion(borrador)} · sha256 {sha[:12]}"]
+    aviso = _invalidar_firma(carpeta, sha, f"se escribió la versión {canonizar(borrador).get('version')}")
+    return 0, mensajes + ([aviso] if aviso else [])
 
 
 def _firmas(errores: list[dict]) -> list[list[str]]:
@@ -498,6 +505,9 @@ def iteracion(carpeta: Carpeta, *, con_rag: bool = True, auditor: Optional[Audit
     anteriores = [e for e in carpeta.historial() if "errores" in e]
     previas = anteriores[-1]["errores"] if anteriores else None
     veredicto = decidir(datos, n, previas)
+    aviso = _invalidar_firma(carpeta, datos["sha256"], "el protocolo cambió fuera de `escribir`")
+    if aviso:
+        veredicto["aviso_firma"] = aviso
     errores = [h for h in datos["hallazgos"] if h["severidad"] == ERROR]
     entrada = {"iteracion": n, "fecha": ahora(), "gates": datos["gates"], "sha256": datos["sha256"],
                "errores": _firmas(errores), "veredicto": veredicto["estado"], "motivo": veredicto["motivo"]}
@@ -662,6 +672,7 @@ def cerrar(carpeta: Carpeta) -> tuple[int, list[str]]:
         return 1, ["el último reporte no corresponde al protocolo actual: corre `gates` antes de cerrar"]
     estado = carpeta.estado()
     veredicto = estado.get("ultimo_veredicto") or {}
+    _invalidar_firma(carpeta, reporte["sha256"], "se cerró otra versión")
     actual = leer_json(carpeta.evidencia, {})
     actual["version"] = canonizar(protocolo).get("version")   # la evidencia describe la versión que se cierra
     actual["gates"] = {"reporte": "gates.json", "estado": reporte["gates"], "sha256_protocolo": reporte["sha256"],
@@ -673,10 +684,90 @@ def cerrar(carpeta: Carpeta) -> tuple[int, list[str]]:
     if estado.get("inicio"):
         inicio = dt.datetime.fromisoformat(estado["inicio"])
         estado["minutos_totales"] = round((fin - inicio).total_seconds() / 60, 1)
-    estado["etapa"] = (f"cerrado ({veredicto.get('paro') or veredicto.get('estado') or 'sin veredicto'}): "
-                       "pendiente la revisión y la firma del abogado")
+    aprobacion = actual["aprobacion"]
+    pendiente = (f"firmado por {aprobacion['abogado']}: pendiente la integración"
+                 if aprobacion.get("estado") == "APROBADO" else "pendiente la revisión y la firma del abogado")
+    estado["etapa"] = f"cerrado ({veredicto.get('paro') or veredicto.get('estado') or 'sin veredicto'}): {pendiente}"
     carpeta.guardar_estado(estado)
     return 0, [estado["etapa"], f"sha256 {reporte['sha256'][:12]} · gates {reporte['gates']}"]
+
+
+# ── firma del abogado ─────────────────────────────────────────────────────────
+
+CEDULA = re.compile(r"\d{5,10}")
+SIN_FIRMA = {"estado": "PENDIENTE", "abogado": None, "fecha": None, "contenido_sha256": None}
+
+
+def _invalidar_firma(carpeta: Carpeta, sha_actual: str, motivo: str) -> Optional[str]:
+    """Una firma vale solo para el contenido exacto que se revisó: si la evidencia está firmada sobre otra
+    huella, la firma vuelve a PENDIENTE y la anterior pasa a historial_firmas."""
+    actual = leer_json(carpeta.evidencia, None)
+    aprobacion = (actual or {}).get("aprobacion") or {}
+    if aprobacion.get("estado") != "APROBADO" or aprobacion.get("contenido_sha256") == sha_actual:
+        return None
+    actual.setdefault("historial_firmas", []).append({**aprobacion, "invalidada": ahora(), "motivo": motivo})
+    actual["aprobacion"] = dict(SIN_FIRMA)
+    escribir_json(carpeta.evidencia, actual)
+    return (f"firma invalidada: {aprobacion.get('abogado')} firmó la huella "
+            f"{str(aprobacion.get('contenido_sha256'))[:12]} y el protocolo ya no es ese ({motivo})")
+
+
+def firmar(carpeta: Carpeta, *, abogado: str, cedula: str, confirmacion: str) -> tuple[int, list[str]]:
+    """Registra el APROBADO de una persona identificada, ligado a la huella completa del protocolo.
+
+    No aprueba nada por sí mismo: comprueba que lo que se firma es exactamente lo que pasó G1–G4 y que
+    quien firma reescribió la huella. La CLI solo lo llama desde una terminal interactiva."""
+    if not carpeta.protocolo.exists():
+        return 1, ["no hay protocolo escrito que firmar"]
+    protocolo = leer_json(carpeta.protocolo)
+    sha = huella(protocolo)
+    reporte = leer_json(carpeta.ruta / "gates.json", None)
+    if not reporte or reporte.get("sha256") != sha:
+        return 1, ["el último reporte de gates no es del protocolo actual: corre `gates` antes de firmar"]
+    veredicto = (carpeta.estado().get("ultimo_veredicto") or {}).get("estado")
+    if veredicto != EXITO or any(v != "OK" for v in (reporte.get("gates") or {}).values()):
+        return 1, [f"solo se firma un protocolo con G1–G4 en verde (último veredicto: {veredicto or 'ninguno'})"]
+    nombre = " ".join(str(abogado or "").split())
+    if len(nombre.split()) < 2:
+        return 1, ["falta el nombre completo de quien firma"]
+    cedula = str(cedula or "").strip()
+    if not CEDULA.fullmatch(cedula):
+        return 1, ["la cédula profesional lleva solo dígitos (de 5 a 10)"]
+    if str(confirmacion or "").strip().lower() != sha[:12]:
+        return 1, ["la huella escrita no coincide con la del protocolo: no se firmó"]
+    previa = (leer_json(carpeta.evidencia, {}) or {}).get("aprobacion") or {}
+    if previa.get("estado") == "APROBADO" and previa.get("contenido_sha256") == sha:
+        return 1, [f"esta versión ya está firmada por {previa.get('abogado')} ({previa.get('fecha')})"]
+    _invalidar_firma(carpeta, sha, "se firmó otra versión")
+    actual = leer_json(carpeta.evidencia, {})
+    version = canonizar(protocolo).get("version")
+    actual["aprobacion"] = {"estado": "APROBADO", "abogado": nombre, "cedula_profesional": cedula,
+                            "fecha": ahora(), "version": version, "contenido_sha256": sha,
+                            "registro": "scripts/protocolo_materia.py firmar, en una terminal interactiva"}
+    escribir_json(carpeta.evidencia, actual)
+    estado = carpeta.estado()
+    estado["etapa"] = f"firmado por {nombre} (sha256 {sha[:12]}): pendiente la integración"
+    carpeta.guardar_estado(estado)
+    return 0, [f"APROBADO por {nombre}, cédula profesional {cedula}: {carpeta.clave} {version}, sha256 {sha}"]
+
+
+def _firmar_en_terminal(carpeta: Carpeta) -> int:
+    """La firma la hace una persona: sin terminal interactiva (un agente, un script) se niega."""
+    if not sys.stdin.isatty():
+        print("❌ La firma solo se registra en una terminal interactiva: la hace una persona identificada, "
+              "nunca un agente, un modelo ni un script.", file=sys.stderr)
+        return 2
+    protocolo = leer_json(carpeta.protocolo)
+    sha = huella(protocolo)
+    print(f"Protocolo {carpeta.clave} {canonizar(protocolo).get('version')}\nHuella sha256: {sha}\n"
+          "Al firmar declaras que revisaste esta versión exacta y que la apruebas.")
+    abogado = input("Nombre completo de quien firma: ")
+    cedula = input("Cédula profesional: ")
+    confirmacion = input("Para confirmar, escribe los primeros 12 caracteres de la huella: ")
+    codigo, mensajes = firmar(carpeta, abogado=abogado, cedula=cedula, confirmacion=confirmacion)
+    for m in mensajes:
+        print(("✅ " if codigo == 0 else "❌ ") + m)
+    return codigo
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -696,6 +787,8 @@ def _resumen_gates(datos: dict, n: int, veredicto: dict) -> str:
                   f"{veredicto['motivo']}")
     if veredicto.get("fallo"):
         lineas.append(f"   → {veredicto['fallo']['mensaje'][:400]}")
+    if veredicto.get("aviso_firma"):
+        lineas.append(f"⚠️  {veredicto['aviso_firma']}")
     return "\n".join(lineas)
 
 
@@ -743,6 +836,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     p = sub.add_parser("cerrar")
     p.add_argument("carpeta", type=Path)
 
+    p = sub.add_parser("firmar")
+    p.add_argument("carpeta", type=Path)
+
     args = parser.parse_args(argv)
     try:
         if args.orden == "preparar":
@@ -763,6 +859,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                   + "".join(f"\n   · {x}" for x in pre.get("problemas") or []))
             return codigo
         carpeta = Carpeta(args.carpeta)
+        if args.orden == "firmar":
+            return _firmar_en_terminal(carpeta)
         if args.orden == "prompts":
             for ruta in prompts(carpeta, args.agentes):
                 print(f"📝 {ruta}")

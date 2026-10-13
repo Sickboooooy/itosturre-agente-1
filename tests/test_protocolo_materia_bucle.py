@@ -382,6 +382,81 @@ class TestEvidenciaYCierre(Base):
         self.assertEqual(estado["medicion"]["tokens_subagentes"], 150)
 
 
+class TestFirma(Base):
+    """APROBADO lo firma una persona identificada, ligado a la huella exacta que pasó los gates."""
+
+    ABOGADA = {"abogado": "Abogada Ficticia de Prueba", "cedula": "1234567"}
+
+    def setUp(self):
+        super().setUp()
+        self.preparar()
+        pm.escribir(self.carpeta(), borrador())
+        pm.iteracion(self.carpeta(), auditor=AuditorFalso())
+        pm.cerrar(self.carpeta())
+        self.sha = pm.huella(borrador())
+
+    def aprobacion(self) -> dict:
+        return json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))["aprobacion"]
+
+    def test_firma_registra_nombre_cedula_version_y_huella_completa(self):
+        codigo, _ = pm.firmar(self.carpeta(), confirmacion=self.sha[:12], **self.ABOGADA)
+        self.assertEqual(codigo, 0)
+        aprobacion = self.aprobacion()
+        self.assertEqual((aprobacion["estado"], aprobacion["abogado"], aprobacion["cedula_profesional"]),
+                         ("APROBADO", "Abogada Ficticia de Prueba", "1234567"))
+        self.assertEqual((aprobacion["contenido_sha256"], aprobacion["version"]), (self.sha, "v1"))
+        self.assertTrue(aprobacion["fecha"])
+
+    def test_sin_confirmar_la_huella_no_se_firma(self):
+        codigo, mensajes = pm.firmar(self.carpeta(), confirmacion="000000000000", **self.ABOGADA)
+        self.assertEqual(codigo, 1)
+        self.assertIn("huella", mensajes[0])
+        self.assertEqual(self.aprobacion()["estado"], "PENDIENTE")
+
+    def test_exige_nombre_completo_y_cedula_de_digitos(self):
+        for abogado, cedula in (("", "1234567"), ("Ficticia", "1234567"), ("Abogada Ficticia", "12-34"), ("Abogada Ficticia", "")):
+            with self.subTest(abogado=abogado, cedula=cedula):
+                codigo, _ = pm.firmar(self.carpeta(), abogado=abogado, cedula=cedula, confirmacion=self.sha[:12])
+                self.assertEqual(codigo, 1)
+        self.assertEqual(self.aprobacion()["estado"], "PENDIENTE")
+
+    def test_solo_se_firma_lo_que_paso_los_gates_en_verde(self):
+        pm.escribir(self.carpeta(), borrador(version="v1.1"))          # versión nueva sin gates
+        nueva = pm.huella(borrador(version="v1.1"))
+        self.assertEqual(pm.firmar(self.carpeta(), confirmacion=nueva[:12], **self.ABOGADA)[0], 1)
+        pm.iteracion(self.carpeta(), auditor=AuditorFalso(alertas=(AMBIGUA,)))   # gates sin éxito
+        self.assertEqual(pm.firmar(self.carpeta(), confirmacion=nueva[:12], **self.ABOGADA)[0], 1)
+        self.assertEqual(self.aprobacion()["estado"], "PENDIENTE")
+
+    def test_escribir_otra_version_invalida_la_firma_y_la_guarda_en_el_historial(self):
+        pm.firmar(self.carpeta(), confirmacion=self.sha[:12], **self.ABOGADA)
+        codigo, mensajes = pm.escribir(self.carpeta(), borrador(version="v1.1"))
+        self.assertEqual(codigo, 0)
+        self.assertTrue(any("firma invalidada" in m for m in mensajes))
+        evidencia = json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))
+        self.assertEqual(evidencia["aprobacion"]["estado"], "PENDIENTE")
+        self.assertEqual(evidencia["historial_firmas"][0]["contenido_sha256"], self.sha)
+        self.assertTrue(evidencia["historial_firmas"][0]["invalidada"])
+
+    def test_reescribir_el_mismo_contenido_conserva_la_firma(self):
+        pm.firmar(self.carpeta(), confirmacion=self.sha[:12], **self.ABOGADA)
+        pm.escribir(self.carpeta(), borrador())
+        self.assertEqual(self.aprobacion()["estado"], "APROBADO")
+
+    def test_los_gates_avisan_e_invalidan_si_el_protocolo_cambio_por_fuera(self):
+        pm.firmar(self.carpeta(), confirmacion=self.sha[:12], **self.ABOGADA)
+        pm.escribir_json(self.carpeta().protocolo, borrador(nombre="Protocolo ficticio editado a mano"))
+        _, veredicto = pm.iteracion(self.carpeta(), auditor=AuditorFalso())
+        self.assertIn("firma invalidada", veredicto.get("aviso_firma", ""))
+        self.assertEqual(self.aprobacion()["estado"], "PENDIENTE")
+
+    def test_la_misma_version_no_se_firma_dos_veces(self):
+        pm.firmar(self.carpeta(), confirmacion=self.sha[:12], **self.ABOGADA)
+        codigo, mensajes = pm.firmar(self.carpeta(), confirmacion=self.sha[:12], **self.ABOGADA)
+        self.assertEqual(codigo, 1)
+        self.assertIn("ya está firmada", mensajes[0])
+
+
 class TestCli(Base):
     def _correr(self, *args) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(REPO / "scripts" / "protocolo_materia.py"), *args],
@@ -397,6 +472,19 @@ class TestCli(Base):
         self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
         self.assertIn("SEGUIR", resultado.stdout)
         self.assertTrue((self.base / "laboral_materia" / "gates_iter1.json").exists())
+
+    def test_firmar_sin_terminal_interactiva_se_niega(self):
+        self.preparar()
+        pm.escribir(self.carpeta(), borrador())
+        pm.iteracion(self.carpeta(), auditor=AuditorFalso())
+        # stdin sin terminal: así llama un agente o un script, que nunca firman.
+        resultado = subprocess.run([sys.executable, str(REPO / "scripts" / "protocolo_materia.py"), "firmar",
+                                    str(self.base / "laboral_materia")], capture_output=True, text=True,
+                                   cwd=REPO, check=False, stdin=subprocess.DEVNULL)
+        self.assertEqual(resultado.returncode, 2, resultado.stdout + resultado.stderr)
+        self.assertIn("terminal interactiva", resultado.stderr)
+        self.assertNotIn("APROBADO", self.carpeta().evidencia.read_text(encoding="utf-8")
+                         if self.carpeta().evidencia.exists() else "")
 
 
 if __name__ == "__main__":
