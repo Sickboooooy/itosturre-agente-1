@@ -302,6 +302,40 @@ class TestEvidenciaYCierre(Base):
         self.assertEqual(evidencia["tesis_candidatas_capa2"], [])
         self.assertEqual(evidencia["tesis"][0]["tema"], "tema ficticio")
 
+    def test_rehacer_la_evidencia_no_pierde_candidatas_agregadas_a_mano(self):
+        a2 = self.base / "laboral_materia" / "investigacion" / "a2" / "a2_jurisprudencia.json"
+        a2.write_text(json.dumps({"verificadas": [{"registro": "2000001", "tema": "tema ficticio"}],
+                                  "descartadas": [{"registro": "2000002", "motivo": "aislada"}]}), encoding="utf-8")
+        pm.evidencia(self.carpeta(), ["2000001"])
+        evidencia = json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))
+        # El abogado restituye una que A2 descartó y anota otra sin captura del scraper.
+        evidencia["tesis_candidatas_capa2"] = [{"registro": "2000002"}, {"registro": "2000009", "rubro": "MANUAL."}]
+        pm.escribir_json(self.carpeta().evidencia, evidencia)
+        pm.evidencia(self.carpeta(), ["2000001"])
+        candidatas = json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))["tesis_candidatas_capa2"]
+        self.assertEqual([t["registro"] for t in candidatas], ["2000002", "2000009"])
+        self.assertEqual(candidatas[0]["rubro"], "RUBRO FICTICIO 2000002.")   # con captura: ficha rehecha
+        self.assertEqual(candidatas[1], {"registro": "2000009", "rubro": "MANUAL."})   # sin captura: intacta
+
+    def test_la_tesis_que_deja_de_citarse_vuelve_a_candidata(self):
+        a2 = self.base / "laboral_materia" / "investigacion" / "a2" / "a2_jurisprudencia.json"
+        a2.write_text(json.dumps({"verificadas": [{"registro": "2000001"}]}), encoding="utf-8")
+        pm.evidencia(self.carpeta(), ["2000001"])
+        pm.evidencia(self.carpeta(), [])
+        evidencia = json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))
+        self.assertEqual(evidencia["tesis"], [])
+        self.assertEqual([t["registro"] for t in evidencia["tesis_candidatas_capa2"]], ["2000001"])
+
+    def test_cerrar_lleva_a_la_evidencia_la_version_del_protocolo(self):
+        pm.escribir(self.carpeta(), borrador())
+        pm.iteracion(self.carpeta(), auditor=AuditorFalso())
+        pm.cerrar(self.carpeta())
+        self.assertEqual(json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))["version"], "v1")
+        pm.escribir(self.carpeta(), borrador(version="v1.1"))
+        pm.iteracion(self.carpeta(), auditor=AuditorFalso())
+        pm.cerrar(self.carpeta())
+        self.assertEqual(json.loads(self.carpeta().evidencia.read_text(encoding="utf-8"))["version"], "v1.1")
+
     def test_sin_captura_verificada_no_hay_cita(self):
         codigo, mensajes = pm.evidencia(self.carpeta(), ["2000003"])
         self.assertEqual(codigo, 1)

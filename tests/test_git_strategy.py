@@ -254,6 +254,16 @@ class GitStrategyTests(unittest.TestCase):
         self.assertTrue(mensaje.startswith("Merge feat/demo: feat: añade a"))
         self.assertIn("Co-Authored-By: Prueba", mensaje)
 
+    def test_paso3_fusiona_sin_parrafos_extra(self) -> None:
+        # Sin -m la lista de párrafos queda vacía; con `set -u`, el bash 3.2 de macOS
+        # abortaba al expandirla ("extra[@]: unbound variable").
+        self.rama_con_commit()
+        resultado = self.script("3", "--confirmar", "feat/demo")
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        self.assertEqual(self.rama(), "main")
+        self.assertEqual(len(self.git("log", "-1", "--format=%P").stdout.split()), 2)
+        self.assertEqual(self.git("log", "-1", "--format=%B").stdout.strip(), "Merge feat/demo: feat: añade a")
+
     # ── hook ─────────────────────────────────────────────────────────────────
     def test_hook_bloquea_commit_directo_en_main(self) -> None:
         hook = self.root / ".githooks" / "pre-commit"
