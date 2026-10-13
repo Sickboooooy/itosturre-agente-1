@@ -17,7 +17,7 @@ Cada intento conserva portal, URL, fecha, resultado y clase de fallo. Los estado
 |---|---|---|
 | `VERIFICADO` | El detalle fue extraído de un portal público o caché identificada | según contenido |
 | `NO_ENCONTRADO` | Ambos portales respondieron de forma concluyente que no existe | 🔴 |
-| `NO_VERIFICABLE` | Hubo bloqueo, red, timeout u otro fallo técnico | 🟡 |
+| `NO_VERIFICABLE` | Hubo bloqueo, desafío anti-bots no resuelto, red, timeout u otro fallo técnico | 🟡 |
 | `LAYOUT_INCOMPATIBLE` | El portal respondió, pero cambió la estructura esperada | 🟡 |
 
 Un fallo técnico nunca se presenta como “sin jurisprudencia”. La salida
