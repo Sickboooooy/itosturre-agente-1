@@ -194,7 +194,8 @@ paso3() {
   local titulo
   titulo=$(git log -1 --format=%s "$rama")
   git checkout "$MAIN"
-  git merge --no-ff "$rama" -m "Merge $rama: $titulo" "${extra[@]}"
+  # ${extra[@]+...}: con `set -u`, el bash 3.2 de macOS no admite expandir un arreglo vacío.
+  git merge --no-ff "$rama" -m "Merge $rama: $titulo" ${extra[@]+"${extra[@]}"}
   echo "✅ Merge a $MAIN completo. Pendiente y manual: run_regression.py (requiere corpus) y el push de $MAIN."
 }
 

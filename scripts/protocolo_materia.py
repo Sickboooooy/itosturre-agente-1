@@ -563,12 +563,21 @@ def evidencia(carpeta: Carpeta, citadas: list[str]) -> tuple[int, list[str]]:
 
     actual = leer_json(carpeta.evidencia, {})
     protocolo = leer_json(carpeta.protocolo, {})
+    candidatas = [ficha(r, False) for r, t in verificados.items()
+                  if r not in citadas and r in propuestas and t.get("estado_consulta") == "VERIFICADO"]
+    # Rehacer la evidencia no pierde lo que ya tenía: las candidatas agregadas a mano (aunque A2 las
+    # hubiera descartado) y las tesis que dejan de citarse vuelven a candidatas. Quitar una candidata
+    # es decisión del abogado y se hace a mano.
+    vistas = set(citadas) | {t["registro"] for t in candidatas}
+    for previa in (actual.get("tesis_candidatas_capa2") or []) + (actual.get("tesis") or []):
+        registro = str(previa.get("registro"))
+        if registro not in vistas:
+            vistas.add(registro)
+            candidatas.append(ficha(registro, False) if registro in verificados else previa)
     actual.update({
         "clave": carpeta.clave, "version": canonizar(protocolo).get("version") if protocolo else None,
         "tesis": [ficha(r, True) for r in citadas],
-        "tesis_candidatas_capa2": [ficha(r, False) for r, t in verificados.items()
-                                   if r not in citadas and r in propuestas
-                                   and t.get("estado_consulta") == "VERIFICADO"],
+        "tesis_candidatas_capa2": candidatas,
     })
     actual.setdefault("notas_de_cita", [])
     actual.setdefault("aprobacion", {"estado": "PENDIENTE", "abogado": None, "fecha": None, "contenido_sha256": None})
@@ -654,6 +663,7 @@ def cerrar(carpeta: Carpeta) -> tuple[int, list[str]]:
     estado = carpeta.estado()
     veredicto = estado.get("ultimo_veredicto") or {}
     actual = leer_json(carpeta.evidencia, {})
+    actual["version"] = canonizar(protocolo).get("version")   # la evidencia describe la versión que se cierra
     actual["gates"] = {"reporte": "gates.json", "estado": reporte["gates"], "sha256_protocolo": reporte["sha256"],
                        "veredicto": veredicto}
     actual.setdefault("aprobacion", {"estado": "PENDIENTE", "abogado": None, "fecha": None, "contenido_sha256": None})

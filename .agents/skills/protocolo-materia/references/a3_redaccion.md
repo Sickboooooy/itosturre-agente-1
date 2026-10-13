@@ -131,6 +131,17 @@ El protocolo vale para todo el país; hacer uno por entidad no es viable. Por es
   texto vigente», no «los nuevos supuestos».
 - La regla temporal de IV depende de la materia: en penal, la fecha de los hechos; en amparo, la
   demanda o el acto y los transitorios. Si no hay respaldo, es Capa 2.
+- Antes de usar la fecha de un decreto como corte («si el juicio es anterior al …»), lee sus
+  transitorios en el índice. La fecha de publicación casi nunca es el corte completo. Casos vistos:
+  - un decreto entra en vigor al día siguiente, pero difiere partes: los plazos máximos de la
+    reforma de la LFPCA (DOF 09-06-2026) rigen a los doscientos cuarenta días naturales;
+  - un decreto condiciona su aplicación a otra norma: el de homologación con el CNPCF
+    (DOF 14-11-2025) rige con la declaratoria del CNPCF o desde el 1o. de abril de 2027, y lo
+    que ya estaba en trámite sigue con la ley de su inicio.
+- Un mismo decreto puede reformar varias leyes (el de homologación tocó el CCom, la LFPC y la
+  LFPA, entre otras). Si corriges un corte, revisa las demás materias que citen esas leyes.
+- Si los transitorios no están en el índice, no fijes el corte: escribe
+  [VERIFICAR EN: DOF, transitorios].
 
 ## Campos de lista
 
